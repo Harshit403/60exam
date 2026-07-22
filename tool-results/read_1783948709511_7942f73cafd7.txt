@@ -1,0 +1,600 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useMemo } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Label } from '@/components/ui/label'
+     7→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     8→import { Badge } from '@/components/ui/badge'
+     9→import { Skeleton } from '@/components/ui/skeleton'
+    10→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    11→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    12→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    13→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    14→import {
+    15→  Flame, Settings, CheckCircle2, Clock, Play, Pause, RotateCcw,
+    16→  ChevronRight, Trophy, BookOpen, Target, Loader2, Lock, Crown, Sparkles, ListChecks, StickyNote,
+    17→} from 'lucide-react'
+    18→import { api } from '@/lib/api-client'
+    19→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    20→
+    21→import { DashboardData } from '../types'
+    22→import {
+    23→  MOTIVATIONAL_QUOTES, SESSION_QUOTES, MOCK_LEADERBOARD,
+    24→  formatTimer, formatMinutes, CircularProgressRing, TimerCountdownRing, Confetti, LoadingSkeleton,
+    25→} from '../utils'
+    26→
+    27→// ═══════════════════════════════════════════════════════════════════════
+    28→// PAGE 1: DASHBOARD (with timer logic)
+    29→// ═══════════════════════════════════════════════════════════════════════
+    30→
+    31→export function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+    32→  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+    33→  const [selectedChapterId, setSelectedChapterId] = useState('')
+    34→  const [timerPreset, setTimerPreset] = useState(0)
+    35→  const [customMinutes, setCustomMinutes] = useState('')
+    36→  const [timerRunning, setTimerRunning] = useState(false)
+    37→  const [timerPaused, setTimerPaused] = useState(false)
+    38→  const [timerSeconds, setTimerSeconds] = useState(0)
+    39→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+    40→  const [timerCompleted, setTimerCompleted] = useState(false)
+    41→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+    42→  const [strikeLoading, setStrikeLoading] = useState(false)
+    43→  const [strikeFlash, setStrikeFlash] = useState(false)
+    44→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+    45→  const [resetLoading, setResetLoading] = useState(false)
+    46→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+    47→  const [achievementsData, setAchievementsData] = useState<any>(null)
+    48→  const [showConfetti, setShowConfetti] = useState(false)
+    49→  const [sessionQuote, setSessionQuote] = useState('')
+    50→  const [dailyGoalMin] = useState(120)
+    51→  const [sessionNotes, setSessionNotes] = useState('')
+    52→  const [leaderboardData, setLeaderboardData] = useState<any[]>([])
+    53→  const [leaderboardLoading, setLeaderboardLoading] = useState(true)
+    54→
+    55→  const dailyQuote = useMemo(() => MOTIVATIONAL_QUOTES[new Date().getDate() % MOTIVATIONAL_QUOTES.length], [])
+    56→  const student = data?.student
+    57→  const subjects = data?.subjects || []
+    58→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+    59→  const chapters = selectedSubject?.chapters || []
+    60→
+    61→  useEffect(() => {
+    62→    const fetchLeaderboard = async () => {
+    63→      try {
+    64→        setLeaderboardLoading(true)
+    65→        const data = await api.publicLeaderboard()
+    66→        setLeaderboardData(data.leaderboard || [])
+    67→      } catch (err) { console.error('Leaderboard fetch error:', err) }
+    68→      finally { setLeaderboardLoading(false) }
+    69→    }
+    70→    fetchLeaderboard()
+    71→  }, [])
+    72→
+    73→  useEffect(() => {
+    74→    const fetchAchievements = async () => {
+    75→      try { setAchievementsData(await api.studentAchievements()) }
+    76→      catch (err) { console.error('Achievements fetch error:', err) }
+    77→    }
+    78→    fetchAchievements()
+    79→  }, [data?.student?.score])
+    80→
+    81→  // Timer logic
+    82→  useEffect(() => {
+    83→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+    84→      timerInterval.current = setInterval(() => {
+    85→        setTimerSeconds(prev => {
+    86→          if (prev <= 1) {
+    87→            setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
+    88→            if (timerInterval.current) clearInterval(timerInterval.current)
+    89→            return 0
+    90→          }
+    91→          return prev - 1
+    92→        })
+    93→      }, 1000)
+    94→    }
+    95→    return () => { if (timerInterval.current) clearInterval(timerInterval.current) }
+    96→  }, [timerRunning, timerPaused, timerSeconds])
+    97→
+    98→  const startTimer = () => {
+    99→    let minutes = timerPreset
+   100→    if (timerPreset === -1) minutes = parseInt(customMinutes) || 0
+   101→    if (minutes <= 0 || !selectedChapterId) return
+   102→    setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
+   103→    setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
+   104→    setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+   105→  }
+   106→
+   107→  const resetTimer = () => {
+   108→    setTimerRunning(false); setTimerPaused(false); setTimerSeconds(0)
+   109→    setTimerTotalSeconds(0); setTimerCompleted(false); setSessionQuote('')
+   110→    if (timerInterval.current) clearInterval(timerInterval.current)
+   111→  }
+   112→
+   113→  const handleTimerComplete = async (completed: boolean) => {
+   114→    const durationMin = Math.round(timerTotalSeconds / 60)
+   115→    try {
+   116→      await api.studentStartSession({ chapterId: selectedChapterId, durationMin, completed, notes: sessionNotes.trim() || undefined })
+   117→      if (completed) await api.studentMarkChapter(selectedChapterId, true)
+   118→    } catch (err) { console.error('Session save error:', err) }
+   119→    setSessionNotes('')
+   120→    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh()
+   121→  }
+   122→
+   123→  const handleStrike = async () => {
+   124→    setStrikeLoading(true); setStrikeAnimating(true); setStrikeFlash(true)
+   125→    try {
+   126→      await api.studentSendStrike()
+   127→      setTimeout(() => { setStrikeAnimating(false); setStrikeFlash(false) }, 800)
+   128→      onRefresh()
+   129→    } catch {
+   130→      setStrikeAnimating(false); setStrikeFlash(false)
+   131→    } finally { setStrikeLoading(false) }
+   132→  }
+   133→
+   134→  const handleResetStats = async () => {
+   135→    setResetLoading(true)
+   136→    try { await api.studentResetStats(); setResetDialogOpen(false); onRefresh() }
+   137→    catch (err) { console.error('Reset error:', err) }
+   138→    finally { setResetLoading(false) }
+   139→  }
+   140→
+   141→  if (!data || !student) return <LoadingSkeleton />
+   142→
+   143→  const canStrike = !(student as any).lastStrikeAt ||
+   144→    new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
+   145→
+   146→  const timerPresets = [
+   147→    { label: '30m', value: 30 }, { label: '45m', value: 45 },
+   148→    { label: '1h', value: 60 }, { label: '1.5h', value: 90 }, { label: '2h', value: 120 },
+   149→  ]
+   150→
+   151→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   152→  const totalAchievements = achievementsData?.totalAchievements || 12
+   153→  const dailyGoalProgress = Math.min((data.todayStudyMin / dailyGoalMin) * 100, 100)
+   154→  const dailyGoalReached = data.todayStudyMin >= dailyGoalMin
+   155→  const scoreProgress = Math.min((student.score / 1000) * 100, 100)
+   156→
+   157→  return (
+   158→    <div className="space-y-6">
+   159→      <Confetti active={showConfetti} />
+   160→      {strikeFlash && <div className="fixed inset-0 bg-orange-400/20 dark:bg-orange-500/10 strike-flash pointer-events-none z-[999]" />}
+   161→
+   162→      {/* Daily Quote - Enhanced Gradient Card */}
+   163→      <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-950 dark:from-slate-700 dark:via-slate-600 dark:to-slate-800 p-5 shadow-lg fade-in relative overflow-hidden">
+   164→        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/10 rounded-full -translate-y-1/2 translate-x-1/4 blur-2xl" />
+   165→        <div className="absolute bottom-0 left-0 w-24 h-24 bg-orange-400/10 rounded-full translate-y-1/3 -translate-x-1/4 blur-xl" />
+   166→        <div className="flex items-start gap-4 relative">
+   167→          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-md">
+   168→            <Sparkles className="w-6 h-6 text-white" />
+   169→          </div>
+   170→          <div className="min-w-0 flex-1">
+   171→            <p className="text-white text-sm font-medium italic leading-relaxed">&ldquo;{dailyQuote.text}&rdquo;</p>
+   172→            <p className="text-amber-300/80 text-xs mt-1.5 font-medium">— {dailyQuote.author}</p>
+   173→          </div>
+   174→        </div>
+   175→      </div>
+   176→
+   177→      {/* Profile Card */}
+   178→      <Card className="overflow-hidden">
+   179→        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-6 relative">
+   180→          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+   181→          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/3 rounded-full translate-y-1/3 -translate-x-1/4" />
+   182→          <div className="relative flex items-start justify-between">
+   183→            <div className="flex items-center gap-5">
+   184→              <CircularProgressRing size={80} strokeWidth={5} progress={scoreProgress} color="#f59e0b" trackColor="rgba(255,255,255,0.15)">
+   185→                <Avatar className="h-14 w-14 border-2 border-white/20">
+   186→                  <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   187→                    {student.fullName.charAt(0).toUpperCase()}
+   188→                  </AvatarFallback>
+   189→                </Avatar>
+   190→              </CircularProgressRing>
+   191→              <div>
+   192→                <div className="flex items-center gap-2">
+   193→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+   194→                  {student.verified && (
+   195→                    <TooltipProvider><Tooltip>
+   196→                      <TooltipTrigger><div className="verified-glow rounded-full p-0.5"><CheckCircle2 className="w-5 h-5 text-blue-400" /></div></TooltipTrigger>
+   197→                      <TooltipContent><p>Verified - 7 Day Streak! 🔥</p></TooltipContent>
+   198→                    </Tooltip></TooltipProvider>
+   199→                  )}
+   200→                </div>
+   201→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   202→                <div className="flex items-center gap-4 mt-2">
+   203→                  <div className="flex items-center gap-1.5">
+   204→                    <Trophy className="w-4 h-4 text-amber-400" />
+   205→                    <span className="text-white font-semibold">{student.score}</span>
+   206→                    <span className="text-slate-400 text-xs">points</span>
+   207→                  </div>
+   208→                  <div className="flex items-center gap-1.5">
+   209→                    <Flame className="w-4 h-4 text-orange-400" />
+   210→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   211→                    <span className="text-slate-400 text-xs">day streak</span>
+   212→                  </div>
+   213→                </div>
+   214→              </div>
+   215→            </div>
+   216→            <div className="flex items-center gap-2">
+   217→              <TooltipProvider><Tooltip>
+   218→                <TooltipTrigger asChild>
+   219→                  <Button size="icon" variant="ghost"
+   220→                    className={`h-11 w-11 text-orange-400 hover:text-orange-300 hover:bg-white/10 relative ${strikeAnimating ? 'fire-animate' : ''}`}
+   221→                    onClick={handleStrike} disabled={!canStrike || strikeLoading}>
+   222→                    <Flame className="w-6 h-6" />
+   223→                    {strikeAnimating && (
+   224→                      <>
+   225→                        <div className="flame-particle bg-orange-500" style={{ top: '-8px', left: '6px' }} />
+   226→                        <div className="flame-particle bg-red-500" style={{ top: '-12px', left: '14px', animationDelay: '0.1s' }} />
+   227→                        <div className="flame-particle bg-amber-500" style={{ top: '-6px', left: '22px', animationDelay: '0.2s' }} />
+   228→                        <div className="flame-particle bg-yellow-400" style={{ top: '-14px', left: '10px', animationDelay: '0.15s' }} />
+   229→                        <div className="flame-particle bg-orange-400" style={{ top: '-10px', left: '18px', animationDelay: '0.25s' }} />
+   230→                      </>
+   231→                    )}
+   232→                  </Button>
+   233→                </TooltipTrigger>
+   234→                <TooltipContent>{canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}</TooltipContent>
+   235→              </Tooltip></TooltipProvider>
+   236→
+   237→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   238→                <DialogTrigger asChild>
+   239→                  <Button size="icon" variant="ghost" className="h-11 w-11 text-slate-400 hover:text-white hover:bg-white/10">
+   240→                    <Settings className="w-5 h-5" />
+   241→                  </Button>
+   242→                </DialogTrigger>
+   243→                <DialogContent>
+   244→                  <DialogHeader>
+   245→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   246→                    <DialogDescription>This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.</DialogDescription>
+   247→                  </DialogHeader>
+   248→                  <DialogFooter>
+   249→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   250→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   251→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Reset Stats
+   252→                    </Button>
+   253→                  </DialogFooter>
+   254→                </DialogContent>
+   255→              </Dialog>
+   256→            </div>
+   257→          </div>
+   258→        </div>
+   259→      </Card>
+   260→
+   261→      {/* Quick Actions */}
+   262→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   263→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-amber-500" onClick={() => {
+   264→          for (const s of subjects) {
+   265→            if (s.chapters.length > 0) { setSelectedSubjectId(s.id); setSelectedChapterId(s.chapters[0].id); break }
+   266→          }
+   267→        }}>
+   268→          <CardContent className="pt-4 pb-4">
+   269→            <div className="flex items-center gap-3">
+   270→              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+   271→                <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+   272→              </div>
+   273→              <div className="min-w-0 flex-1">
+   274→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resume Last Chapter</p>
+   275→                <p className="text-xs text-slate-500">Continue where you left off</p>
+   276→              </div>
+   277→              <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+   278→                <ChevronRight className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+   279→              </div>
+   280→            </div>
+   281→          </CardContent>
+   282→        </Card>
+   283→
+   284→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-orange-500 relative overflow-hidden" onClick={handleStrike}>
+   285→          <CardContent className="pt-4 pb-4">
+   286→            <div className="flex items-center gap-3">
+   287→              <div className={`p-2.5 rounded-lg ${canStrike ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-slate-50 dark:bg-slate-800'}`}>
+   288→                <Flame className={`w-5 h-5 ${canStrike ? 'text-orange-600 dark:text-orange-400' : 'text-slate-400'}`} />
+   289→              </div>
+   290→              <div>
+   291→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue Streak</p>
+   292→                <p className="text-xs text-slate-500">{canStrike ? 'Send your daily strike!' : 'Already struck today ✓'}</p>
+   293→              </div>
+   294→              {canStrike && (
+   295→                <div className="ml-auto w-3 h-3 rounded-full bg-orange-500 pulse-check flex-shrink-0" />
+   296→              )}
+   297→            </div>
+   298→          </CardContent>
+   299→        </Card>
+   300→
+   301→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-emerald-500">
+   302→          <CardContent className="pt-4 pb-4">
+   303→            <div className="flex items-center gap-3">
+   304→              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+   305→                <Target className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   306→              </div>
+   307→              <div className="min-w-0 flex-1">
+   308→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">View Study Plan</p>
+   309→                <p className="text-xs text-slate-500">Check today's schedule</p>
+   310→              </div>
+   311→              <div className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+   312→                <ChevronRight className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+   313→              </div>
+   314→            </div>
+   315→          </CardContent>
+   316→        </Card>
+   317→      </div>
+   318→
+   319→      {/* Study Session + Daily Goal */}
+   320→      <div className="grid md:grid-cols-[1fr_280px] gap-6">
+   321→        <Card className="overflow-hidden">
+   322→          <CardHeader className="pb-3">
+   323→            <CardTitle className="text-lg flex items-center gap-2">
+   324→              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-800 to-slate-950 dark:from-slate-200 dark:to-slate-100 flex items-center justify-center flex-shrink-0">
+   325→                <BookOpen className="w-4 h-4 text-white dark:text-slate-900" />
+   326→              </div>
+   327→              Study Session
+   328→            </CardTitle>
+   329→            <CardDescription>Which chapter do you want to study today?</CardDescription>
+   330→          </CardHeader>
+   331→          <CardContent className="space-y-4">
+   332→            {sessionQuote && timerRunning && (
+   333→              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800 grow-in">
+   334→                <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium text-center">{sessionQuote}</p>
+   335→              </div>
+   336→            )}
+   337→
+   338→            {!timerRunning && !timerCompleted ? (
+   339→              <>
+   340→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   341→                  <div className="space-y-1.5">
+   342→                    <Label className="text-xs font-medium text-slate-500">Subject</Label>
+   343→                    <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   344→                      <SelectTrigger><SelectValue placeholder="Choose subject" /></SelectTrigger>
+   345→                      <SelectContent>{subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+   346→                    </Select>
+   347→                  </div>
+   348→                  <div className="space-y-1.5">
+   349→                    <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+   350→                    <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   351→                      <SelectTrigger><SelectValue placeholder="Choose chapter" /></SelectTrigger>
+   352→                      <SelectContent>{chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+   353→                    </Select>
+   354→                  </div>
+   355→                </div>
+   356→
+   357→                <div className="space-y-2">
+   358→                  <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+   359→                  <div className="flex flex-wrap gap-2">
+   360→                    {timerPresets.map(p => (
+   361→                      <Button key={p.value} variant={timerPreset === p.value ? 'default' : 'outline'} size="sm"
+   362→                        className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+   363→                        onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}>
+   364→                        {p.label}
+   365→                      </Button>
+   366→                    ))}
+   367→                    <div className="flex items-center gap-1.5">
+   368→                      <Input type="number" placeholder="Custom (min)" className="w-28 h-8 text-sm"
+   369→                        value={customMinutes} onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }} min={1} />
+   370→                      <span className="text-xs text-slate-400">min</span>
+   371→                    </div>
+   372→                  </div>
+   373→                </div>
+   374→
+   375→                <Button onClick={startTimer}
+   376→                  disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || (timerPreset === -1 && !customMinutes)}
+   377→                  className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200">
+   378→                  <Play className="w-4 h-4 mr-2" /> Start Session
+   379→                </Button>
+   380→              </>
+   381→            ) : timerCompleted ? (
+   382→              <div className="text-center py-6 space-y-4">
+   383→                <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center celebration-burst">
+   384→                  <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   385→                </div>
+   386→                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Session Complete! 🎉</h3>
+   387→                <p className="text-slate-500 dark:text-slate-400">Have you completed this chapter?</p>
+   388→                {/* Session Notes Input */}
+   389→                <div className="text-left space-y-1.5 max-w-md mx-auto">
+   390→                  <label className="text-xs font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+   391→                    <StickyNote className="w-3 h-3" /> Session Notes (optional)
+   392→                  </label>
+   393→                  <textarea
+   394→                    placeholder="What did you learn? Any key takeaways?"
+   395→                    value={sessionNotes}
+   396→                    onChange={(e) => setSessionNotes(e.target.value)}
+   397→                    rows={3}
+   398→                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-700 resize-none"
+   399→                  />
+   400→                </div>
+   401→                <div className="flex items-center justify-center gap-3">
+   402→                  <Button onClick={() => handleTimerComplete(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+   403→                    <CheckCircle2 className="w-4 h-4 mr-2" /> Yes, Done!
+   404→                  </Button>
+   405→                  <Button variant="outline" onClick={() => handleTimerComplete(false)}>Not Yet</Button>
+   406→                </div>
+   407→              </div>
+   408→            ) : (
+   409→              <div className="text-center py-6 space-y-4">
+   410→                <div>
+   411→                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+   412→                  <p className="font-medium text-slate-900 dark:text-slate-100">{chapters.find(c => c.id === selectedChapterId)?.name}</p>
+   413→                </div>
+   414→                <div className="relative inline-flex items-center justify-center">
+   415→                  <TimerCountdownRing size={200} strokeWidth={8} totalSeconds={timerTotalSeconds} remainingSeconds={timerSeconds} />
+   416→                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+   417→                    <span className="text-4xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">{formatTimer(timerSeconds)}</span>
+   418→                    <span className="text-xs text-slate-400 mt-1">{timerPaused ? 'PAUSED' : 'remaining'}</span>
+   419→                  </div>
+   420→                </div>
+   421→                <div className="flex items-center justify-center gap-3">
+   422→                  <Button variant="outline" size="icon" onClick={() => setTimerPaused(prev => !prev)} className="h-12 w-12 rounded-full">
+   423→                    {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+   424→                  </Button>
+   425→                  <Button variant="outline" size="icon" onClick={resetTimer} className="h-12 w-12 rounded-full">
+   426→                    <RotateCcw className="w-5 h-5" />
+   427→                  </Button>
+   428→                </div>
+   429→                <Button variant="ghost" onClick={() => { resetTimer(); setSelectedChapterId('') }} className="text-sm text-slate-500">
+   430→                  Choose Another
+   431→                </Button>
+   432→              </div>
+   433→            )}
+   434→          </CardContent>
+   435→        </Card>
+   436→
+   437→        {/* Right Column */}
+   438→        <div className="space-y-6">
+   439→          <Card>
+   440→            <CardHeader className="pb-3">
+   441→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   442→                <Target className="w-4 h-4 text-emerald-500" /> Daily Goal
+   443→              </CardTitle>
+   444→            </CardHeader>
+   445→            <CardContent className="flex flex-col items-center">
+   446→              <CircularProgressRing size={100} strokeWidth={8} progress={dailyGoalProgress}
+   447→                color={dailyGoalReached ? '#10b981' : '#f59e0b'} trackColor="rgba(100,116,139,0.2)">
+   448→                <div className="text-center">
+   449→                  <p className="text-lg font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   450→                  <p className="text-[10px] text-slate-400">of {formatMinutes(dailyGoalMin)}</p>
+   451→                </div>
+   452→              </CircularProgressRing>
+   453→              <div className="mt-3 text-center">
+   454→                {dailyGoalReached ? (
+   455→                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+   456→                    <CheckCircle2 className="w-3.5 h-3.5" /> Goal Reached!
+   457→                  </p>
+   458→                ) : (
+   459→                  <p className="text-xs text-slate-500">{formatMinutes(dailyGoalMin - data.todayStudyMin)} more to go</p>
+   460→                )}
+   461→              </div>
+   462→            </CardContent>
+   463→          </Card>
+   464→
+   465→          <Card className="overflow-hidden">
+   466→            <CardHeader className="pb-3">
+   467→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   468→                <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+   469→              </CardTitle>
+   470→            </CardHeader>
+   471→            <CardContent>
+   472→              <div className="space-y-2">
+   473→                {leaderboardLoading ? (
+   474→                  <div className="space-y-2">
+   475→                    {Array.from({length: 5}).map((_, i) => (
+   476→                      <div key={i} className="flex items-center gap-2.5 p-2">
+   477→                        <Skeleton className="w-6 h-6 rounded-full" />
+   478→                        <Skeleton className="h-3 w-20" />
+   479→                        <div className="flex-1" />
+   480→                        <Skeleton className="h-3 w-8" />
+   481→                      </div>
+   482→                    ))}
+   483→                  </div>
+   484→                ) : leaderboardData.length === 0 ? (
+   485→                  <p className="text-xs text-slate-400 text-center py-4">No data yet</p>
+   486→                ) : leaderboardData.map((entry: any) => (
+   487→                  <div key={entry.rank} className={`flex items-center gap-2.5 p-2 rounded-lg transition-colors ${
+   488→                    entry.rank <= 3 ? 'bg-slate-50 dark:bg-slate-800/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+   489→                  }`}>
+   490→                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+   491→                      entry.rank === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+   492→                      entry.rank === 2 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
+   493→                      entry.rank === 3 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+   494→                      'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-500'
+   495→                    }`}>
+   496→                      {entry.rank === 1 ? <Crown className="w-3.5 h-3.5" /> : entry.rank}
+   497→                    </div>
+   498→                    <div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">{entry.name}</p></div>
+   499→                    <div className="flex items-center gap-1.5 flex-shrink-0">
+   500→                      <Flame className="w-3 h-3 text-orange-400" /><span className="text-[10px] text-slate-500">{entry.currentStreak}</span>
+   501→                    </div>
+   502→                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">{entry.score}</span>
+   503→                  </div>
+   504→                ))}
+   505→              </div>
+   506→            </CardContent>
+   507→          </Card>
+   508→        </div>
+   509→      </div>
+   510→
+   511→      {/* Quick Stats - Enhanced */}
+   512→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   513→        {[
+   514→          { icon: BookOpen, value: data.totalSubjects, label: 'Subjects', gradient: 'from-blue-500 to-cyan-500', iconBg: 'bg-white/20' },
+   515→          { icon: ListChecks, value: data.totalChapters, label: 'Total Chapters', gradient: 'from-violet-500 to-purple-500', iconBg: 'bg-white/20' },
+   516→          { icon: CheckCircle2, value: data.completedChapters, label: 'Completed', gradient: 'from-emerald-500 to-teal-500', iconBg: 'bg-white/20' },
+   517→          { icon: Clock, value: formatMinutes(data.todayStudyMin), label: 'Today', gradient: 'from-amber-500 to-orange-500', iconBg: 'bg-white/20' },
+   518→        ].map((stat, i) => (
+   519→          <Card key={i} className="card-hover overflow-hidden relative">
+   520→            <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-[0.08] dark:opacity-[0.12]`} />
+   521→            <CardContent className="pt-4 pb-4 relative">
+   522→              <div className="flex items-center gap-3">
+   523→                <div className={`p-2.5 rounded-xl bg-gradient-to-br ${stat.gradient} shadow-sm`}>
+   524→                  <stat.icon className="w-4 h-4 text-white" />
+   525→                </div>
+   526→                <div>
+   527→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stat.value}</p>
+   528→                  <p className="text-xs text-slate-500">{stat.label}</p>
+   529→                </div>
+   530→              </div>
+   531→            </CardContent>
+   532→          </Card>
+   533→        ))}
+   534→      </div>
+   535→
+   536→      {/* Achievements - Enhanced */}
+   537→      <Card className="overflow-hidden">
+   538→        <CardHeader className="pb-3">
+   539→          <div className="flex items-center justify-between">
+   540→            <CardTitle className="text-lg flex items-center gap-2">
+   541→              <Trophy className="w-5 h-5 text-amber-500" /> Achievements
+   542→            </CardTitle>
+   543→            <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+   544→              {unlockedCount}/{totalAchievements} Unlocked
+   545→            </Badge>
+   546→          </div>
+   547→        </CardHeader>
+   548→        <CardContent>
+   549→          {/* Achievement progress bar */}
+   550→          <div className="mb-4">
+   551→            <div className="flex justify-between text-xs mb-1">
+   552→              <span className="text-slate-500 dark:text-slate-400">Progress</span>
+   553→              <span className="text-slate-600 dark:text-slate-300 font-medium">{Math.round((unlockedCount / totalAchievements) * 100)}%</span>
+   554→            </div>
+   555→            <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+   556→              <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500 relative" style={{ width: `${(unlockedCount / totalAchievements) * 100}%` }}>
+   557→                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent shimmer-bar" />
+   558→              </div>
+   559→            </div>
+   560→          </div>
+   561→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+   562→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+   563→              <TooltipProvider key={a.id}>
+   564→                <Tooltip>
+   565→                  <TooltipTrigger asChild>
+   566→                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
+   567→                      a.unlocked
+   568→                        ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+   569→                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+   570→                    }`}
+   571→                      style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
+   572→                      {a.unlocked ? (
+   573→                        <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+   574→                      ) : (
+   575→                        <div className="relative">
+   576→                          <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+   577→                          <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
+   578→                        </div>
+   579→                      )}
+   580→                      <span className={`text-[10px] font-medium text-center leading-tight ${
+   581→                        a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+   582→                      }`}>{a.name}</span>
+   583→                    </div>
+   584→                  </TooltipTrigger>
+   585→                  <TooltipContent>
+   586→                    <p className="font-semibold">{a.name}</p>
+   587→                    <p className="text-xs">{a.description}</p>
+   588→                    <p className="text-xs text-slate-400 mt-1">{a.threshold} points needed</p>
+   589→                    {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+   590→                  </TooltipContent>
+   591→                </Tooltip>
+   592→              </TooltipProvider>
+   593→            ))}
+   594→          </div>
+   595→        </CardContent>
+   596→      </Card>
+   597→    </div>
+   598→  )
+   599→}
+   600→

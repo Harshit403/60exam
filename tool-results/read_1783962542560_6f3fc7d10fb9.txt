@@ -1,0 +1,550 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback } from 'react'
+     4→     4→import { Button } from '@/components/ui/button'
+     5→     5→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     6→     6→import { Badge } from '@/components/ui/badge'
+     7→     7→import { Input } from '@/components/ui/input'
+     8→     8→import { Skeleton } from '@/components/ui/skeleton'
+     9→     9→import { Separator } from '@/components/ui/separator'
+    10→    10→import { ThemeToggle } from '@/components/theme-toggle'
+    11→    11→import {
+    12→    12→  MessageCircle, Search, ChevronLeft, Shield, CheckCircle2,
+    13→    13→  GraduationCap, ArrowRight, ChevronRight, Users, Clock,
+    14→    14→  MessageSquare, TrendingUp, Filter, X,
+    15→    15→} from 'lucide-react'
+    16→    16→import { api } from '@/lib/api-client'
+    17→    17→
+    18→    18→interface DiscussionReply {
+    19→    19→  id: string
+    20→    20→  content: string
+    21→    21→  authorName: string
+    22→    22→  authorVerified: boolean
+    23→    23→  createdAt: string
+    24→    24→}
+    25→    25→
+    26→    26→interface DiscussionItem {
+    27→    27→  id: string
+    28→    28→  title: string
+    29→    29→  content: string
+    30→    30→  authorName: string
+    31→    31→  authorVerified: boolean
+    32→    32→  repliesCount: number
+    33→    33→  hasAdminReply: boolean
+    34→    34→  adminReply?: string | null
+    35→    35→  replies: DiscussionReply[]
+    36→    36→  createdAt: string
+    37→    37→}
+    38→    38→
+    39→    39→interface DiscussionLandingPageProps {
+    40→    40→  onNavigate: (view: string) => void
+    41→    41→  isLoggedIn: boolean
+    42→    42→  userRole: 'admin' | 'student' | null
+    43→    43→}
+    44→    44→
+    45→    45→const timeAgo = (dateStr: string) => {
+    46→    46→  const now = new Date()
+    47→    47→  const date = new Date(dateStr)
+    48→    48→  const diffMs = now.getTime() - date.getTime()
+    49→    49→  const diffMin = Math.floor(diffMs / 60000)
+    50→    50→  const diffHrs = Math.floor(diffMin / 60)
+    51→    51→  const diffDays = Math.floor(diffHrs / 24)
+    52→    52→  if (diffMin < 1) return 'just now'
+    53→    53→  if (diffMin < 60) return `${diffMin}m ago`
+    54→    54→  if (diffHrs < 24) return `${diffHrs}h ago`
+    55→    55→  if (diffDays < 7) return `${diffDays}d ago`
+    56→    56→  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    57→    57→}
+    58→    58→
+    59→    59→export default function DiscussionLandingPage({ onNavigate, isLoggedIn, userRole }: DiscussionLandingPageProps) {
+    60→    60→  const [discussions, setDiscussions] = useState<DiscussionItem[]>([])
+    61→    61→  const [loading, setLoading] = useState(true)
+    62→    62→  const [search, setSearch] = useState('')
+    63→    63→  const [activeSearch, setActiveSearch] = useState('')
+    64→    64→  const [page, setPage] = useState(1)
+    65→    65→  const [totalPages, setTotalPages] = useState(1)
+    66→    66→  const [total, setTotal] = useState(0)
+    67→    67→  const [expandedId, setExpandedId] = useState<string | null>(null)
+    68→    68→  const [sortBy, setSortBy] = useState<'recent' | 'replied'>('recent')
+    69→    69→
+    70→    70→  const fetchDiscussions = useCallback(async (searchTerm: string = '', pageNum: number = 1) => {
+    71→    71→    setLoading(true)
+    72→    72→    try {
+    73→    73→      const data = await api.publicDiscussions({
+    74→    74→        limit: 10,
+    75→    75→        page: pageNum,
+    76→    76→        search: searchTerm || undefined,
+    77→    77→      })
+    78→    78→      setDiscussions(data.discussions || [])
+    79→    79→      setTotal(data.total || 0)
+    80→    80→      setTotalPages(data.totalPages || 1)
+    81→    81→      setPage(pageNum)
+    82→    82→    } catch (err) {
+    83→    83→      console.error('Failed to fetch discussions:', err)
+    84→    84→      setDiscussions([])
+    85→    85→    } finally {
+    86→    86→      setLoading(false)
+    87→    87→    }
+    88→    88→  }, [])
+    89→    89→
+    90→    90→  useEffect(() => {
+    91→    91→    fetchDiscussions(activeSearch, 1)
+    92→    92→  }, [activeSearch, fetchDiscussions])
+    93→    93→
+    94→    94→  const handleSearch = () => {
+    95→    95→    setActiveSearch(search)
+    96→    96→    setPage(1)
+    97→    97→    setExpandedId(null)
+    98→    98→  }
+    99→    99→
+   100→   100→  const handleClearSearch = () => {
+   101→   101→    setSearch('')
+   102→   102→    setActiveSearch('')
+   103→   103→    setPage(1)
+   104→   104→    setExpandedId(null)
+   105→   105→  }
+   106→   106→
+   107→   107→  const handlePageChange = (newPage: number) => {
+   108→   108→    fetchDiscussions(activeSearch, newPage)
+   109→   109→    setExpandedId(null)
+   110→   110→    window.scrollTo({ top: 0, behavior: 'smooth' })
+   111→   111→  }
+   112→   112→
+   113→   113→  const toggleExpand = (id: string) => {
+   114→   114→    setExpandedId(prev => prev === id ? null : id)
+   115→   115→  }
+   116→   116→
+   117→   117→  const sortedDiscussions = [...discussions].sort((a, b) => {
+   118→   118→    if (sortBy === 'replied') {
+   119→   119→      return b.repliesCount - a.repliesCount
+   120→   120→    }
+   121→   121→    return 0 // Already sorted by recent from API
+   122→   122→  })
+   123→   123→
+   124→   124→  return (
+   125→   125→    <div className="min-h-screen flex flex-col bg-background">
+   126→   126→      {/* Header */}
+   127→   127→      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+   128→   128→        <div className="max-w-6xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+   129→   129→          <div className="flex items-center gap-3">
+   130→   130→            <Button variant="ghost" size="icon" onClick={() => onNavigate('landing')} className="hover:bg-muted/80 transition-colors duration-200">
+   131→   131→              <ChevronLeft className="h-5 w-5" />
+   132→   132→            </Button>
+   133→   133→            <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate('landing')}>
+   134→   134→              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center shadow-sm">
+   135→   135→                <GraduationCap className="h-5 w-5 text-white" />
+   136→   136→              </div>
+   137→   137→              <span className="font-bold text-lg tracking-tight text-foreground hidden sm:inline">MISSION CS</span>
+   138→   138→            </div>
+   139→   139→            <Separator orientation="vertical" className="h-5 mx-1 hidden sm:block" />
+   140→   140→            <div className="hidden sm:flex items-center gap-2">
+   141→   141→              <MessageCircle className="h-5 w-5 text-emerald-600" />
+   142→   142→              <span className="font-semibold text-foreground">Discussion Forum</span>
+   143→   143→            </div>
+   144→   144→          </div>
+   145→   145→          <div className="flex items-center gap-2">
+   146→   146→            <ThemeToggle />
+   147→   147→            {isLoggedIn ? (
+   148→   148→              <Button size="sm" onClick={() => onNavigate(userRole === 'admin' ? 'admin' : 'student')} className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-sm">
+   149→   149→                Dashboard <ChevronRight className="h-4 w-4 ml-1" />
+   150→   150→              </Button>
+   151→   151→            ) : (
+   152→   152→              <Button size="sm" onClick={() => onNavigate('student-signup')} className="bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-sm">
+   153→   153→                Sign Up Free
+   154→   154→              </Button>
+   155→   155→            )}
+   156→   156→          </div>
+   157→   157→        </div>
+   158→   158→      </header>
+   159→   159→
+   160→   160→      {/* Main Content */}
+   161→   161→      <main className="flex-1">
+   162→   162→        {/* Hero Banner */}
+   163→   163→        <section className="relative overflow-hidden border-b">
+   164→   164→          <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-white to-amber-50/40 dark:from-emerald-950/20 dark:via-background dark:to-amber-950/10 pointer-events-none" />
+   165→   165→          <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+   166→   166→            backgroundImage: 'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
+   167→   167→            backgroundSize: '32px 32px',
+   168→   168→          }} />
+   169→   169→          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 relative">
+   170→   170→            <div className="text-center max-w-3xl mx-auto">
+   171→   171→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   172→   172→                <MessageSquare className="w-3 h-3 mr-1" /> Community Forum
+   173→   173→              </Badge>
+   174→   174→              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-4">
+   175→   175→                Discussion <span className="bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent">Forum</span>
+   176→   176→              </h1>
+   177→   177→              <p className="text-lg text-muted-foreground mb-8">
+   178→   178→                Ask questions, share knowledge, and connect with fellow CS aspirants and experienced faculty members.
+   179→   179→              </p>
+   180→   180→
+   181→   181→              {/* Stats Row */}
+   182→   182→              <div className="flex items-center justify-center gap-6 sm:gap-10 mb-8">
+   183→   183→                <div className="text-center">
+   184→   184→                  <div className="text-2xl font-bold text-foreground">{total}</div>
+   185→   185→                  <div className="text-xs text-muted-foreground">Questions</div>
+   186→   186→                </div>
+   187→   187→                <Separator orientation="vertical" className="h-8" />
+   188→   188→                <div className="text-center">
+   189→   189→                  <div className="text-2xl font-bold text-emerald-600">
+   190→   190→                    {discussions.filter(d => d.hasAdminReply).length}
+   191→   191→                  </div>
+   192→   192→                  <div className="text-xs text-muted-foreground">Answered</div>
+   193→   193→                </div>
+   194→   194→                <Separator orientation="vertical" className="h-8" />
+   195→   195→                <div className="text-center">
+   196→   196→                  <div className="text-2xl font-bold text-amber-600">
+   197→   197→                    {discussions.reduce((sum, d) => sum + d.repliesCount, 0)}
+   198→   198→                  </div>
+   199→   199→                  <div className="text-xs text-muted-foreground">Replies</div>
+   200→   200→                </div>
+   201→   201→              </div>
+   202→   202→
+   203→   203→              {/* Search Bar */}
+   204→   204→              <div className="max-w-xl mx-auto flex gap-2">
+   205→   205→                <div className="relative flex-1">
+   206→   206→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   207→   207→                  <Input
+   208→   208→                    placeholder="Search discussions..."
+   209→   209→                    value={search}
+   210→   210→                    onChange={(e) => setSearch(e.target.value)}
+   211→   211→                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
+   212→   212→                    className="pl-9 h-11 bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm border-border/60"
+   213→   213→                  />
+   214→   214→                  {search && (
+   215→   215→                    <button onClick={handleClearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+   216→   216→                      <X className="h-4 w-4" />
+   217→   217→                    </button>
+   218→   218→                  )}
+   219→   219→                </div>
+   220→   220→                <Button onClick={handleSearch} className="h-11 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-sm">
+   221→   221→                  <Search className="h-4 w-4 mr-2" /> Search
+   222→   222→                </Button>
+   223→   223→              </div>
+   224→   224→            </div>
+   225→   225→          </div>
+   226→   226→        </section>
+   227→   227→
+   228→   228→        {/* Filter Bar */}
+   229→   229→        <section className="border-b bg-muted/30">
+   230→   230→          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+   231→   231→            <div className="flex items-center justify-between flex-wrap gap-2">
+   232→   232→              <div className="flex items-center gap-2">
+   233→   233→                <Filter className="h-4 w-4 text-muted-foreground" />
+   234→   234→                <span className="text-sm text-muted-foreground">Sort by:</span>
+   235→   235→                <Button
+   236→   236→                  variant={sortBy === 'recent' ? 'default' : 'ghost'}
+   237→   237→                  size="sm"
+   238→   238→                  onClick={() => setSortBy('recent')}
+   239→   239→                  className={sortBy === 'recent' ? 'bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs' : 'h-8 text-xs'}
+   240→   240→                >
+   241→   241→                  <Clock className="h-3 w-3 mr-1" /> Most Recent
+   242→   242→                </Button>
+   243→   243→                <Button
+   244→   244→                  variant={sortBy === 'replied' ? 'default' : 'ghost'}
+   245→   245→                  size="sm"
+   246→   246→                  onClick={() => setSortBy('replied')}
+   247→   247→                  className={sortBy === 'replied' ? 'bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs' : 'h-8 text-xs'}
+   248→   248→                >
+   249→   249→                  <TrendingUp className="h-3 w-3 mr-1" /> Most Replied
+   250→   250→                </Button>
+   251→   251→              </div>
+   252→   252→              <div className="text-sm text-muted-foreground">
+   253→   253→                {activeSearch && (
+   254→   254→                  <span className="flex items-center gap-1">
+   255→   255→                    Results for &quot;{activeSearch}&quot;
+   256→   256→                    <button onClick={handleClearSearch} className="text-emerald-600 hover:text-emerald-700 font-medium ml-1">Clear</button>
+   257→   257→                  </span>
+   258→   258→                )}
+   259→   259→              </div>
+   260→   260→            </div>
+   261→   261→          </div>
+   262→   262→        </section>
+   263→   263→
+   264→   264→        {/* Discussion List */}
+   265→   265→        <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+   266→   266→          {loading ? (
+   267→   267→            <div className="space-y-4">
+   268→   268→              {[1, 2, 3, 4, 5].map(i => (
+   269→   269→                <Card key={i} className="overflow-hidden">
+   270→   270→                  <CardContent className="p-5">
+   271→   271→                    <div className="flex gap-3">
+   272→   272→                      <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+   273→   273→                      <div className="flex-1 space-y-2">
+   274→   274→                        <Skeleton className="h-5 w-3/4" />
+   275→   275→                        <Skeleton className="h-4 w-full" />
+   276→   276→                        <Skeleton className="h-4 w-1/2" />
+   277→   277→                      </div>
+   278→   278→                    </div>
+   279→   279→                  </CardContent>
+   280→   280→                </Card>
+   281→   281→              ))}
+   282→   282→            </div>
+   283→   283→          ) : sortedDiscussions.length === 0 ? (
+   284→   284→            <Card className="max-w-md mx-auto">
+   285→   285→              <CardContent className="py-16 text-center">
+   286→   286→                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-950/30 dark:to-amber-950/30 flex items-center justify-center mx-auto mb-4">
+   287→   287→                  <MessageCircle className="h-8 w-8 text-emerald-600" />
+   288→   288→                </div>
+   289→   289→                <h3 className="text-lg font-semibold mb-2">
+   290→   290→                  {activeSearch ? 'No discussions found' : 'No discussions yet'}
+   291→   291→                </h3>
+   292→   292→                <p className="text-sm text-muted-foreground mb-6">
+   293→   293→                  {activeSearch
+   294→   294→                    ? `No results for "${activeSearch}". Try a different search term.`
+   295→   295→                    : 'Be the first to start a discussion! Sign up to ask questions and share knowledge.'}
+   296→   296→                </p>
+   297→   297→                {activeSearch ? (
+   298→   298→                  <Button variant="outline" onClick={handleClearSearch}>Clear Search</Button>
+   299→   299→                ) : (
+   300→   300→                  <Button onClick={() => onNavigate('student-signup')} className="bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-sm">
+   301→   301→                    Sign Up to Discuss <ArrowRight className="h-4 w-4 ml-2" />
+   302→   302→                  </Button>
+   303→   303→                )}
+   304→   304→              </CardContent>
+   305→   305→            </Card>
+   306→   306→          ) : (
+   307→   307→            <div className="space-y-4">
+   308→   308→              {sortedDiscussions.map((d) => (
+   309→   309→                <Card
+   310→   310→                  key={d.id}
+   311→   311→                  className="overflow-hidden hover:shadow-md transition-all duration-300 border-border/60 hover:border-emerald-200 dark:hover:border-emerald-800/50"
+   312→   312→                >
+   313→   313→                  <CardContent className="p-0">
+   314→   314→                    {/* Question Section */}
+   315→   315→                    <div className="p-5 sm:p-6">
+   316→   316→                      <div className="flex gap-3 sm:gap-4">
+   317→   317→                        {/* Avatar */}
+   318→   318→                        <div className="flex-shrink-0">
+   319→   319→                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-900/30 dark:to-amber-900/30 flex items-center justify-center text-sm font-bold text-emerald-700 dark:text-emerald-400 ring-2 ring-background shadow-sm">
+   320→   320→                            {(d.authorName || 'U').charAt(0).toUpperCase()}
+   321→   321→                          </div>
+   322→   322→                        </div>
+   323→   323→
+   324→   324→                        {/* Content */}
+   325→   325→                        <div className="flex-1 min-w-0">
+   326→   326→                          <div className="flex items-start justify-between gap-2 mb-1.5">
+   327→   327→                            <h3
+   328→   328→                              className="text-base sm:text-lg font-semibold text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer transition-colors line-clamp-2"
+   329→   329→                              onClick={() => toggleExpand(d.id)}
+   330→   330→                            >
+   331→   331→                              {d.title}
+   332→   332→                            </h3>
+   333→   333→                            {d.hasAdminReply && (
+   334→   334→                              <Badge className="flex-shrink-0 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-medium border-0">
+   335→   335→                                <Shield className="w-3 h-3 mr-1" /> Answered
+   336→   336→                              </Badge>
+   337→   337→                            )}
+   338→   338→                          </div>
+   339→   339→
+   340→   340→                          {/* Author info */}
+   341→   341→                          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+   342→   342→                            <span className="font-medium text-foreground/80">{d.authorName}</span>
+   343→   343→                            {d.authorVerified && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+   344→   344→                            <span className="text-border">•</span>
+   345→   345→                            <Clock className="w-3 h-3" />
+   346→   346→                            <span>{timeAgo(d.createdAt)}</span>
+   347→   347→                          </div>
+   348→   348→
+   349→   349→                          {/* Content preview */}
+   350→   350→                          <p className={`text-sm text-muted-foreground leading-relaxed ${expandedId === d.id ? '' : 'line-clamp-3'}`}>
+   351→   351→                            {d.content}
+   352→   352→                          </p>
+   353→   353→
+   354→   354→                          {/* Meta bar */}
+   355→   355→                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/40">
+   356→   356→                            <div className="flex items-center gap-4">
+   357→   357→                              <button
+   358→   358→                                onClick={() => toggleExpand(d.id)}
+   359→   359→                                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+   360→   360→                              >
+   361→   361→                                <MessageCircle className="h-4 w-4" />
+   362→   362→                                <span>{d.repliesCount} {d.repliesCount === 1 ? 'reply' : 'replies'}</span>
+   363→   363→                              </button>
+   364→   364→                              {d.repliesCount > 0 && (
+   365→   365→                                <button
+   366→   366→                                  onClick={() => toggleExpand(d.id)}
+   367→   367→                                  className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+   368→   368→                                >
+   369→   369→                                  {expandedId === d.id ? 'Hide replies' : 'View replies'}
+   370→   370→                                  <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 ${expandedId === d.id ? 'rotate-90' : ''}`} />
+   371→   371→                                </button>
+   372→   372→                              )}
+   373→   373→                            </div>
+   374→   374→                            <Button
+   375→   375→                              variant="ghost"
+   376→   376→                              size="sm"
+   377→   377→                              onClick={() => {
+   378→   378→                                if (isLoggedIn && userRole === 'student') {
+   379→   379→                                  onNavigate('student')
+   380→   380→                                } else {
+   381→   381→                                  onNavigate('student-login')
+   382→   382→                                }
+   383→   383→                              }}
+   384→   384→                              className="text-xs h-8 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+   385→   385→                            >
+   386→   386→                              Reply <ArrowRight className="h-3 w-3 ml-1" />
+   387→   387→                            </Button>
+   388→   388→                          </div>
+   389→   389→                        </div>
+   390→   390→                      </div>
+   391→   391→                    </div>
+   392→   392→
+   393→   393→                    {/* Expanded Replies Section */}
+   394→   394→                    {expandedId === d.id && (
+   395→   395→                      <div className="border-t border-border/40 bg-muted/20">
+   396→   396→                        <div className="p-5 sm:p-6 pt-4">
+   397→   397→                          {/* Admin Reply (if exists) */}
+   398→   398→                          {d.adminReply && (
+   399→   399→                            <div className="mb-4 p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-800/30">
+   400→   400→                              <div className="flex items-center gap-2 mb-2">
+   401→   401→                                <div className="w-6 h-6 rounded-full bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold">
+   402→   402→                                  A
+   403→   403→                                </div>
+   404→   404→                                <Badge className="bg-emerald-600 text-white text-[10px] h-5 border-0">
+   405→   405→                                  <Shield className="w-2.5 h-2.5 mr-0.5" /> Admin
+   406→   406→                                </Badge>
+   407→   407→                                <span className="text-[10px] text-muted-foreground">Official Reply</span>
+   408→   408→                              </div>
+   409→   409→                              <p className="text-sm text-foreground leading-relaxed">{d.adminReply}</p>
+   410→   410→                            </div>
+   411→   411→                          )}
+   412→   412→
+   413→   413→                          {/* User Replies */}
+   414→   414→                          {d.replies.length > 0 ? (
+   415→   415→                            <div className="space-y-3">
+   416→   416→                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+   417→   417→                                All Replies ({d.replies.length})
+   418→   418→                              </h4>
+   419→   419→                              {d.replies.map((r, idx) => (
+   420→   420→                                <div key={r.id} className="flex gap-3 p-3 rounded-lg bg-white/60 dark:bg-slate-900/40 border border-border/30">
+   421→   421→                                  <div className="flex-shrink-0">
+   422→   422→                                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-300">
+   423→   423→                                      {(r.authorName || 'U').charAt(0).toUpperCase()}
+   424→   424→                                    </div>
+   425→   425→                                  </div>
+   426→   426→                                  <div className="flex-1 min-w-0">
+   427→   427→                                    <div className="flex items-center gap-2 mb-1">
+   428→   428→                                      <span className="text-xs font-medium text-foreground">{r.authorName}</span>
+   429→   429→                                      {r.authorVerified && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+   430→   430→                                      <span className="text-[10px] text-muted-foreground">{timeAgo(r.createdAt)}</span>
+   431→   431→                                    </div>
+   432→   432→                                    <p className="text-sm text-muted-foreground leading-relaxed">{r.content}</p>
+   433→   433→                                  </div>
+   434→   434→                                </div>
+   435→   435→                              ))}
+   436→   436→                            </div>
+   437→   437→                          ) : !d.adminReply ? (
+   438→   438→                            <div className="text-center py-4">
+   439→   439→                              <p className="text-sm text-muted-foreground">No replies yet. Be the first to respond!</p>
+   440→   440→                            </div>
+   441→   441→                          ) : null}
+   442→   442→
+   443→   443→                          {/* Reply CTA */}
+   444→   444→                          <div className="mt-4 pt-3 border-t border-border/30">
+   445→   445→                            <div className="flex items-center justify-between">
+   446→   446→                              <p className="text-xs text-muted-foreground">Have an answer or insight?</p>
+   447→   447→                              <Button
+   448→   448→                                size="sm"
+   449→   449→                                onClick={() => {
+   450→   450→                                  if (isLoggedIn && userRole === 'student') {
+   451→   451→                                    onNavigate('student')
+   452→   452→                                  } else {
+   453→   453→                                    onNavigate('student-login')
+   454→   454→                                  }
+   455→   455→                                }}
+   456→   456→                                className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-sm text-xs h-8"
+   457→   457→                              >
+   458→   458→                                {isLoggedIn ? 'Reply Now' : 'Sign In to Reply'} <ArrowRight className="h-3 w-3 ml-1" />
+   459→   459→                              </Button>
+   460→   460→                            </div>
+   461→   461→                          </div>
+   462→   462→                        </div>
+   463→   463→                      </div>
+   464→   464→                    )}
+   465→   465→                  </CardContent>
+   466→   466→                </Card>
+   467→   467→              ))}
+   468→   468→
+   469→   469→              {/* Pagination */}
+   470→   470→              {totalPages > 1 && (
+   471→   471→                <div className="flex items-center justify-center gap-2 pt-6">
+   472→   472→                  <Button
+   473→   473→                    variant="outline"
+   474→   474→                    size="sm"
+   475→   475→                    disabled={page <= 1}
+   476→   476→                    onClick={() => handlePageChange(page - 1)}
+   477→   477→                    className="h-9"
+   478→   478→                  >
+   479→   479→                    <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+   480→   480→                  </Button>
+   481→   481→                  <div className="flex items-center gap-1">
+   482→   482→                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+   483→   483→                      <Button
+   484→   484→                        key={p}
+   485→   485→                        variant={p === page ? 'default' : 'ghost'}
+   486→   486→                        size="sm"
+   487→   487→                        onClick={() => handlePageChange(p)}
+   488→   488→                        className={`h-9 w-9 ${p === page ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
+   489→   489→                      >
+   490→   490→                        {p}
+   491→   491→                      </Button>
+   492→   492→                    ))}
+   493→   493→                  </div>
+   494→   494→                  <Button
+   495→   495→                    variant="outline"
+   496→   496→                    size="sm"
+   497→   497→                    disabled={page >= totalPages}
+   498→   498→                    onClick={() => handlePageChange(page + 1)}
+   499→   499→                    className="h-9"
+   500→   500→                  >
+   501→   501→                    Next <ChevronRight className="h-4 w-4 ml-1" />
+   502→   502→                  </Button>
+   503→   503→                </div>
+   504→   504→              )}
+   505→   505→            </div>
+   506→   506→          )}
+   507→   507→        </section>
+   508→   508→
+   509→   509→        {/* CTA Banner */}
+   510→   510→        {!isLoggedIn && (
+   511→   511→          <section className="border-t bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/20 dark:to-amber-950/20">
+   512→   512→            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
+   513→   513→              <Users className="h-8 w-8 text-emerald-600 mx-auto mb-3" />
+   514→   514→              <h3 className="text-xl font-bold mb-2">Join Our Community</h3>
+   515→   515→              <p className="text-sm text-muted-foreground mb-6 max-w-lg mx-auto">
+   516→   516→                Sign up to ask questions, share your knowledge, and connect with thousands of CS exam aspirants.
+   517→   517→              </p>
+   518→   518→              <div className="flex items-center justify-center gap-3">
+   519→   519→                <Button onClick={() => onNavigate('student-signup')} className="bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-md">
+   520→   520→                  Sign Up Free <ArrowRight className="h-4 w-4 ml-2" />
+   521→   521→                </Button>
+   522→   522→                <Button variant="outline" onClick={() => onNavigate('student-login')}>
+   523→   523→                  Sign In
+   524→   524→                </Button>
+   525→   525→              </div>
+   526→   526→            </div>
+   527→   527→          </section>
+   528→   528→        )}
+   529→   529→      </main>
+   530→   530→
+   531→   531→      {/* Footer */}
+   532→   532→      <footer className="border-t bg-muted/30">
+   533→   533→        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+   534→   534→          <div className="flex items-center justify-between flex-wrap gap-3">
+   535→   535→            <div className="flex items-center gap-2">
+   536→   536→              <div className="w-6 h-6 rounded bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center">
+   537→   537→                <GraduationCap className="h-4 w-4 text-white" />
+   538→   538→              </div>
+   539→   539→              <span className="text-sm font-medium text-foreground">Mission CS Test Series</span>
+   540→   540→            </div>
+   541→   541→            <p className="text-xs text-muted-foreground">
+   542→   542→              © {new Date().getFullYear()} Mission CS. All rights reserved.
+   543→   543→            </p>
+   544→   544→          </div>
+   545→   545→        </div>
+   546→   546→      </footer>
+   547→   547→    </div>
+   548→   548→  )
+   549→   549→}
+   550→   550→

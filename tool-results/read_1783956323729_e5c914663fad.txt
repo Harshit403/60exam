@@ -1,0 +1,424 @@
+     1→'use client'
+     2→
+     3→import { Button } from '@/components/ui/button'
+     4→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     5→import { Badge } from '@/components/ui/badge'
+     6→import { Separator } from '@/components/ui/separator'
+     7→import {
+     8→  BookOpen, Gavel, CheckCircle2, ArrowRight, ExternalLink,
+     9→  GraduationCap, Shield, Award, TrendingUp, FileText, Users,
+    10→  Target, Clock, Zap, BarChart3, BookMarked, Briefcase, ChevronRight,
+    11→  ArrowLeft, Star, Trophy, Lightbulb, Scale, Building2, PieChart,
+    12→  LayoutList, PenTool, Landmark, FileSearch, Banknote,
+    13→} from 'lucide-react'
+    14→
+    15→interface CSProfessionalPageProps {
+    16→  onNavigate: (view: string) => void
+    17→}
+    18→
+    19→export default function CSProfessionalPage({ onNavigate }: CSProfessionalPageProps) {
+    20→  return (
+    21→    <div className="min-h-screen flex flex-col bg-background">
+    22→      {/* Header */}
+    23→      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-xl shadow-sm">
+    24→        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+    25→          <div className="flex items-center gap-2 cursor-pointer group" onClick={() => onNavigate('landing')}>
+    26→            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
+    27→              <GraduationCap className="h-5 w-5 text-white" />
+    28→            </div>
+    29→            <span className="font-bold text-lg tracking-tight text-foreground">MISSION CS</span>
+    30→            <Badge variant="secondary" className="hidden sm:inline-flex text-[10px] px-1.5 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">Test Series</Badge>
+    31→          </div>
+    32→          <Button variant="ghost" size="sm" onClick={() => onNavigate('landing')} className="hover:bg-muted/80 transition-colors duration-200">
+    33→            <ArrowLeft className="h-4 w-4 mr-1" />Back to Home
+    34→          </Button>
+    35→        </div>
+    36→      </header>
+    37→
+    38→      <main className="flex-1">
+    39→        {/* Hero Section */}
+    40→        <section className="relative overflow-hidden">
+    41→          <div className="absolute inset-0 bg-gradient-to-br from-amber-700 via-orange-700 to-rose-800 pointer-events-none" />
+    42→          <div className="absolute inset-0 pointer-events-none opacity-10" style={{
+    43→            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+    44→            backgroundSize: '40px 40px',
+    45→          }} />
+    46→          <div className="absolute top-16 left-[8%] w-36 h-36 rounded-full bg-white/10 blur-3xl pointer-events-none" />
+    47→          <div className="absolute bottom-12 right-[10%] w-44 h-44 rounded-full bg-emerald-400/10 blur-3xl pointer-events-none" />
+    48→
+    49→          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 lg:py-28">
+    50→            <div className="text-center max-w-4xl mx-auto">
+    51→              <Badge variant="secondary" className="mb-6 text-xs font-medium px-4 py-1.5 bg-white/15 text-white border-white/25 backdrop-blur-sm">
+    52→                <Gavel className="h-3.5 w-3.5 mr-1.5" />
+    53→                CS Professional Programme
+    54→              </Badge>
+    55→              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
+    56→                CS Professional<br />
+    57→                <span className="text-amber-200">Test Series 2025</span>
+    58→              </h1>
+    59→              <p className="mt-6 text-lg sm:text-xl text-amber-100/90 max-w-2xl mx-auto leading-relaxed">
+    60→                Conquer the final frontier of the Company Secretary course. Our Professional test series prepares you for 9 advanced papers with rigorous practice, expert evaluation, and proven strategies.
+    61→              </p>
+    62→              <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+    63→                <Button size="lg" asChild className="text-base px-8 py-6 bg-white text-amber-800 hover:bg-amber-50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 group">
+    64→                  <a href="https://missioncstestseries.com" target="_blank" rel="noopener noreferrer">
+    65→                    Enroll Now<ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-0.5 transition-transform duration-200" />
+    66→                  </a>
+    67→                </Button>
+    68→                <Button size="lg" variant="outline" onClick={() => onNavigate('landing')} className="text-base px-8 py-6 border-white/30 text-white hover:bg-white/10 hover:border-white/50 transition-all duration-300">
+    69→                  Back to Home
+    70→                </Button>
+    71→              </div>
+    72→              <div className="mt-12 flex flex-wrap justify-center gap-6 sm:gap-10">
+    73→                {[
+    74→                  { value: '9', label: 'Papers Covered' },
+    75→                  { value: '3', label: 'Modules' },
+    76→                  { value: 'AIR 8', label: 'Best Result' },
+    77→                  { value: '900', label: 'Total Marks' },
+    78→                ].map((stat) => (
+    79→                  <div key={stat.label} className="text-center">
+    80→                    <div className="text-2xl sm:text-3xl font-bold text-white">{stat.value}</div>
+    81→                    <div className="text-xs text-amber-200/80 uppercase tracking-wider mt-1">{stat.label}</div>
+    82→                  </div>
+    83→                ))}
+    84→              </div>
+    85→            </div>
+    86→          </div>
+    87→        </section>
+    88→
+    89→        {/* About CS Professional Section */}
+    90→        <section className="py-16 sm:py-20">
+    91→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    92→            <div className="max-w-4xl mx-auto">
+    93→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-6">
+    94→                About the CS Professional Programme
+    95→              </h2>
+    96→              <div className="prose prose-lg dark:prose-invert max-w-none space-y-4 text-muted-foreground leading-relaxed">
+    97→                <p>
+    98→                  The Company Secretary Professional programme represents the pinnacle of the CS course curriculum, designed to transform aspiring Company Secretaries into seasoned professionals capable of handling the most complex corporate governance challenges. Administered by the Institute of Company Secretaries of India (ICSI), this programme demands not just knowledge of advanced legal provisions but the ability to synthesize multiple areas of law and practice into comprehensive, real-world solutions. Successfully clearing the Professional programme opens the door to practicing as a Company Secretary — one of the most respected professional designations in India&apos;s corporate landscape.
+    99→                </p>
+   100→                <p>
+   101→                  The CS Professional curriculum consists of nine papers organized across three modules. Module 1 covers Governance, Risk Management & Compliances; Advanced Company Law & Practice; and Secretarial Audit, Due Diligence & Compliance Management. Module 2 encompasses Corporate Funding & Listings; Corporate Restructuring, Insolvency & Liquidation; and Resolution of Corporate Disputes. Module 3 includes Multi-Disciplinary Case Studies and two elective papers chosen from five options including Banking Law, Insurance Law, Intellectual Property Rights, Forensic Audit, and Valuation & Business Modelling. Each paper carries 100 marks, totaling 900 marks across the programme.
+   102→                </p>
+   103→                <p>
+   104→                  What distinguishes the Professional programme from the Executive level is the heightened complexity and the multi-disciplinary nature of the questions. At this level, ICSI expects candidates to demonstrate not merely knowledge of individual statutes but the ability to analyze complex corporate scenarios from multiple legal perspectives simultaneously. A single question might require you to apply provisions from the Companies Act, SEBI regulations, FEMA guidelines, and competition law — all within a cohesive, well-structured answer. The Multi-Disciplinary Case Studies paper specifically tests this integration of knowledge across multiple domains, making it one of the most challenging papers in the entire CS curriculum.
+   105→                </p>
+   106→                <p>
+   107→                  The Professional programme also places significant emphasis on practical application and professional judgment. Questions often present real-world corporate scenarios where you must identify the legal issues, determine the applicable provisions, evaluate the options available, and recommend a course of action — exactly as you would in professional practice. This is why rote memorization alone is insufficient at this level, and why structured practice with expert feedback is absolutely essential for success. Mission CS Professional Test Series is specifically designed to develop this multi-dimensional analytical thinking and professional judgment through rigorous, scenario-based practice.
+   108→                </p>
+   109→              </div>
+   110→            </div>
+   111→          </div>
+   112→        </section>
+   113→
+   114→        <Separator className="max-w-7xl mx-auto" />
+   115→
+   116→        {/* Module-wise Coverage */}
+   117→        <section className="py-16 sm:py-20 bg-muted/30">
+   118→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   119→            <div className="text-center mb-12">
+   120→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   121→                <BookMarked className="h-3.5 w-3.5 mr-1.5" />Curriculum
+   122→              </Badge>
+   123→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Module-wise Paper Coverage</h2>
+   124→              <p className="mt-3 text-muted-foreground max-w-2xl mx-auto">Comprehensive test coverage across all 9 papers with specialized tests for case studies and elective papers.</p>
+   125→            </div>
+   126→
+   127→            <div className="grid md:grid-cols-3 gap-6">
+   128→              {/* Module 1 */}
+   129→              <Card className="border-emerald-200/50 dark:border-emerald-800/30 shadow-sm">
+   130→                <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 rounded-t-lg">
+   131→                  <CardTitle className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 text-base">
+   132→                    <Shield className="h-5 w-5" />
+   133→                    Module 1 — Governance & Audit
+   134→                  </CardTitle>
+   135→                </CardHeader>
+   136→                <CardContent className="pt-6 space-y-4">
+   137→                  {[
+   138→                    { name: 'Governance, Risk Management & Compliances', desc: 'Board dynamics, risk frameworks, compliance management systems, ESG reporting, and corporate governance codes.' },
+   139→                    { name: 'Advanced Company Law & Practice', desc: 'Corporate restructuring, insolvency, cross-border mergers, NCLT proceedings, and advanced provisions of the Companies Act.' },
+   140→                    { name: 'Secretarial Audit & Due Diligence', desc: 'Comprehensive audit procedures, compliance verification, due diligence for mergers & acquisitions, and secretarial standards.' },
+   141→                  ].map((paper) => (
+   142→                    <div key={paper.name} className="flex gap-3">
+   143→                      <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+   144→                      <div>
+   145→                        <p className="font-semibold text-foreground text-sm">{paper.name}</p>
+   146→                        <p className="text-sm text-muted-foreground mt-0.5">{paper.desc}</p>
+   147→                      </div>
+   148→                    </div>
+   149→                  ))}
+   150→                </CardContent>
+   151→              </Card>
+   152→
+   153→              {/* Module 2 */}
+   154→              <Card className="border-amber-200/50 dark:border-amber-800/30 shadow-sm">
+   155→                <CardHeader className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 rounded-t-lg">
+   156→                  <CardTitle className="flex items-center gap-2 text-amber-800 dark:text-amber-300 text-base">
+   157→                    <Landmark className="h-5 w-5" />
+   158→                    Module 2 — Finance & Restructuring
+   159→                  </CardTitle>
+   160→                </CardHeader>
+   161→                <CardContent className="pt-6 space-y-4">
+   162→                  {[
+   163→                    { name: 'Corporate Funding & Listings', desc: 'IPO processes, debt instruments, listing obligations, SEBI disclosure requirements, and private placement frameworks.' },
+   164→                    { name: 'Corporate Restructuring, Insolvency & Liquidation', desc: 'Mergers, demergers, amalgamations, IBC proceedings, liquidation process, and cross-border restructuring mechanisms.' },
+   165→                    { name: 'Resolution of Corporate Disputes', desc: 'Arbitration, mediation, NCLT/NCLAT proceedings, shareholder disputes, and alternative dispute resolution mechanisms.' },
+   166→                  ].map((paper) => (
+   167→                    <div key={paper.name} className="flex gap-3">
+   168→                      <CheckCircle2 className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+   169→                      <div>
+   170→                        <p className="font-semibold text-foreground text-sm">{paper.name}</p>
+   171→                        <p className="text-sm text-muted-foreground mt-0.5">{paper.desc}</p>
+   172→                      </div>
+   173→                    </div>
+   174→                  ))}
+   175→                </CardContent>
+   176→              </Card>
+   177→
+   178→              {/* Module 3 */}
+   179→              <Card className="border-rose-200/50 dark:border-rose-800/30 shadow-sm">
+   180→                <CardHeader className="bg-gradient-to-r from-rose-50 to-pink-50 dark:from-rose-950/30 dark:to-pink-950/20 rounded-t-lg">
+   181→                  <CardTitle className="flex items-center gap-2 text-rose-800 dark:text-rose-300 text-base">
+   182→                    <FileSearch className="h-5 w-5" />
+   183→                    Module 3 — Case Studies & Electives
+   184→                  </CardTitle>
+   185→                </CardHeader>
+   186→                <CardContent className="pt-6 space-y-4">
+   187→                  {[
+   188→                    { name: 'Multi-Disciplinary Case Studies', desc: 'Integrated case studies requiring application of multiple laws — the most challenging paper that tests your comprehensive analytical ability.' },
+   189→                    { name: 'Elective 1 (Choose from 5)', desc: 'Banking Law & Practice, Insurance Law & Practice, Intellectual Property Rights, Forensic Audit, or Valuation & Business Modelling.' },
+   190→                    { name: 'Elective 2 (Choose from 5)', desc: 'Choose a second specialization aligned with your career goals. Each elective covers advanced practical aspects of the chosen domain.' },
+   191→                  ].map((paper) => (
+   192→                    <div key={paper.name} className="flex gap-3">
+   193→                      <CheckCircle2 className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+   194→                      <div>
+   195→                        <p className="font-semibold text-foreground text-sm">{paper.name}</p>
+   196→                        <p className="text-sm text-muted-foreground mt-0.5">{paper.desc}</p>
+   197→                      </div>
+   198→                    </div>
+   199→                  ))}
+   200→                </CardContent>
+   201→              </Card>
+   202→            </div>
+   203→          </div>
+   204→        </section>
+   205→
+   206→        {/* Features Section */}
+   207→        <section className="py-16 sm:py-20">
+   208→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   209→            <div className="text-center mb-12">
+   210→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   211→                <Zap className="h-3.5 w-3.5 mr-1.5" />Features
+   212→              </Badge>
+   213→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Why Choose Our CS Professional Test Series?</h2>
+   214→              <p className="mt-3 text-muted-foreground max-w-2xl mx-auto">Advanced features designed for the most challenging level of the CS course, with focus on multi-disciplinary analysis and professional judgment.</p>
+   215→            </div>
+   216→
+   217→            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+   218→              {[
+   219→                { icon: <Gavel className="h-6 w-6" />, title: 'Multi-Law Scenario Questions', desc: 'Our test papers include advanced scenario-based questions that require the application of multiple statutes simultaneously — mirroring the actual ICSI examination pattern and the Multi-Disciplinary Case Studies paper format.' },
+   220→                { icon: <Award className="h-6 w-6" />, title: 'Senior Faculty Evaluation', desc: 'Professional-level papers are evaluated by senior practicing Company Secretaries and subject matter experts with decades of experience. Their feedback goes beyond marking — they provide strategic guidance on answer approach.' },
+   221→                { icon: <Clock className="h-6 w-6" />, title: 'Priority Evaluation Queue', desc: 'Professional test series students receive priority evaluation with results delivered within 24 working hours. We understand the time pressure of the final level and ensure your feedback arrives when you need it most.' },
+   222→                { icon: <BarChart3 className="h-6 w-6" />, title: 'Advanced Performance Analytics', desc: 'Detailed analytics tracking your competency across all nine papers, with module-wise analysis, topic-level insights, and predictive scoring based on your improvement trajectory. Know exactly where you stand before the exam.' },
+   223→                { icon: <FileText className="h-6 w-6" />, title: 'Case Study Workshops', desc: 'Regular case study workshops where complex real-world scenarios are discussed and solved collaboratively. These sessions develop the analytical thinking needed for the Multi-Disciplinary Case Studies paper.' },
+   224→                { icon: <Target className="h-6 w-6" />, title: 'Elective Paper Specialization', desc: 'Dedicated test series for each elective option with specialized faculty evaluation. Whether you choose Banking Law, Insurance, IPR, Forensic Audit, or Valuation — we have comprehensive preparation material ready.' },
+   225→              ].map((feature) => (
+   226→                <Card key={feature.title} className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-border/60">
+   227→                  <CardContent className="pt-6">
+   228→                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-100 to-rose-100 dark:from-amber-950/40 dark:to-rose-950/40 flex items-center justify-center mb-4 text-amber-700 dark:text-amber-400 group-hover:scale-110 transition-transform duration-300">
+   229→                      {feature.icon}
+   230→                    </div>
+   231→                    <h3 className="font-semibold text-foreground mb-2">{feature.title}</h3>
+   232→                    <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
+   233→                  </CardContent>
+   234→                </Card>
+   235→              ))}
+   236→            </div>
+   237→          </div>
+   238→        </section>
+   239→
+   240→        <Separator className="max-w-7xl mx-auto" />
+   241→
+   242→        {/* Exam Pattern Section */}
+   243→        <section className="py-16 sm:py-20 bg-muted/30">
+   244→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   245→            <div className="text-center mb-12">
+   246→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   247→                <LayoutList className="h-3.5 w-3.5 mr-1.5" />Exam Pattern
+   248→              </Badge>
+   249→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground">CS Professional Exam Pattern 2025</h2>
+   250→              <p className="mt-3 text-muted-foreground max-w-2xl mx-auto">Understand the examination structure and plan your preparation for the final level of the CS course.</p>
+   251→            </div>
+   252→
+   253→            <div className="max-w-3xl mx-auto">
+   254→              <Card className="shadow-sm">
+   255→                <CardContent className="pt-6">
+   256→                  <div className="space-y-3">
+   257→                    {[
+   258→                      { subject: 'Governance, Risk Management & Compliances', marks: '100 Marks', module: '1' },
+   259→                      { subject: 'Advanced Company Law & Practice', marks: '100 Marks', module: '1' },
+   260→                      { subject: 'Secretarial Audit, Due Diligence & Compliance Mgmt', marks: '100 Marks', module: '1' },
+   261→                      { subject: 'Corporate Funding & Listings', marks: '100 Marks', module: '2' },
+   262→                      { subject: 'Corporate Restructuring, Insolvency & Liquidation', marks: '100 Marks', module: '2' },
+   263→                      { subject: 'Resolution of Corporate Disputes', marks: '100 Marks', module: '2' },
+   264→                      { subject: 'Multi-Disciplinary Case Studies', marks: '100 Marks', module: '3' },
+   265→                      { subject: 'Elective Paper 1 (Choose from 5 options)', marks: '100 Marks', module: '3' },
+   266→                      { subject: 'Elective Paper 2 (Choose from 5 options)', marks: '100 Marks', module: '3' },
+   267→                    ].map((paper, idx) => (
+   268→                      <div key={idx} className={`flex items-center justify-between py-3 px-4 rounded-lg ${idx % 2 === 0 ? 'bg-muted/50' : ''}`}>
+   269→                        <div className="flex items-center gap-3">
+   270→                          <Badge variant={paper.module === '1' ? 'default' : paper.module === '2' ? 'secondary' : 'outline'} className="text-[10px] w-6 h-6 p-0 flex items-center justify-center">
+   271→                            {paper.module}
+   272→                          </Badge>
+   273→                          <span className="text-sm font-medium text-foreground">{paper.subject}</span>
+   274→                        </div>
+   275→                        <span className="text-sm font-semibold text-muted-foreground">{paper.marks}</span>
+   276→                      </div>
+   277→                    ))}
+   278→                    <Separator />
+   279→                    <div className="flex items-center justify-between py-3 px-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg">
+   280→                      <span className="text-sm font-bold text-amber-800 dark:text-amber-300">Total (9 Papers)</span>
+   281→                      <span className="text-sm font-bold text-amber-800 dark:text-amber-300">900 Marks</span>
+   282→                    </div>
+   283→                    <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+   284→                      <p><strong className="text-foreground">Passing Criteria:</strong> 40% in each paper individually and 50% aggregate per module</p>
+   285→                      <p><strong className="text-foreground">Exam Sessions:</strong> June and December each year</p>
+   286→                      <p><strong className="text-foreground">Duration:</strong> 3 hours per paper</p>
+   287→                      <p><strong className="text-foreground">Question Type:</strong> Descriptive with case studies and scenario-based questions</p>
+   288→                      <p><strong className="text-foreground">Elective Options:</strong> Banking Law, Insurance Law, IPR, Forensic Audit, Valuation & Business Modelling</p>
+   289→                    </div>
+   290→                  </div>
+   291→                </CardContent>
+   292→              </Card>
+   293→            </div>
+   294→          </div>
+   295→        </section>
+   296→
+   297→        {/* Benefits Section */}
+   298→        <section className="py-16 sm:py-20">
+   299→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   300→            <div className="text-center mb-12">
+   301→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   302→                <TrendingUp className="h-3.5 w-3.5 mr-1.5" />Benefits
+   303→              </Badge>
+   304→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground">How Mission CS Professional Test Series Gives You the Edge</h2>
+   305→            </div>
+   306→
+   307→            <div className="max-w-4xl mx-auto space-y-4">
+   308→              {[
+   309→                { title: 'Master Multi-Disciplinary Analysis', desc: 'The CS Professional examination demands the ability to analyze situations from the perspective of multiple statutes simultaneously. Our case study-based practice questions train you to think across legal domains — combining Companies Act provisions with SEBI regulations, FEMA guidelines, and competition law principles. This multi-dimensional thinking is what separates successful candidates from those who fall short, and it is the core skill that Mission CS Professional Test Series develops through systematic, progressive practice.' },
+   310→                { title: 'Develop Professional Judgment', desc: 'At the Professional level, ICSI does not merely test your knowledge of legal provisions — they test your ability to exercise professional judgment in complex corporate situations. Our test series includes questions that present ambiguous scenarios where multiple interpretations are possible, forcing you to evaluate options, justify your recommendations, and anticipate counter-arguments. This is the skill that makes you effective as a practicing Company Secretary, not just an exam passer.' },
+   311→                { title: 'Build Exam-Temperature Resilience', desc: 'The CS Professional examination is a grueling multi-day affair spanning nine papers. Our full-length mock test series builds the mental stamina and endurance needed to maintain peak performance across all papers. By simulating the actual examination schedule and time constraints, we prepare you not just academically but psychologically for the challenge ahead.' },
+   312→                { title: 'Elective Paper Mastery', desc: 'Choosing and mastering your elective papers is a strategic decision that can significantly impact your overall score. Our specialized elective test series covers all five options in depth, helping you not only prepare for your chosen electives but also make an informed choice based on your strengths and career aspirations. Each elective receives dedicated attention from subject matter experts.' },
+   313→                { title: 'Rank-Oriented Strategy', desc: 'For aspirants aiming for top ranks, we provide rank-oriented feedback that goes beyond mere passing. Our evaluators identify the subtle improvements that can elevate your answers from good to outstanding — the precise legal terminology, the strategic case law references, and the presentation techniques that earn distinction marks. Our recent AIR 8 and AIR 9 results demonstrate the effectiveness of this approach.' },
+   314→              ].map((benefit, idx) => (
+   315→                <Card key={idx} className="border-border/60 hover:shadow-md transition-all duration-300">
+   316→                  <CardContent className="pt-6 flex gap-4">
+   317→                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-100 to-rose-100 dark:from-amber-950/40 dark:to-rose-950/40 flex items-center justify-center shrink-0 text-amber-700 dark:text-amber-400 font-bold text-sm">
+   318→                      {idx + 1}
+   319→                    </div>
+   320→                    <div>
+   321→                      <h3 className="font-semibold text-foreground mb-1">{benefit.title}</h3>
+   322→                      <p className="text-sm text-muted-foreground leading-relaxed">{benefit.desc}</p>
+   323→                    </div>
+   324→                  </CardContent>
+   325→                </Card>
+   326→              ))}
+   327→            </div>
+   328→          </div>
+   329→        </section>
+   330→
+   331→        <Separator className="max-w-7xl mx-auto" />
+   332→
+   333→        {/* Preparation Tips */}
+   334→        <section className="py-16 sm:py-20 bg-muted/30">
+   335→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   336→            <div className="text-center mb-12">
+   337→              <Badge variant="secondary" className="mb-4 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">
+   338→                <Lightbulb className="h-3.5 w-3.5 mr-1.5" />Expert Tips
+   339→              </Badge>
+   340→              <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Preparation Tips for CS Professional</h2>
+   341→            </div>
+   342→
+   343→            <div className="max-w-4xl mx-auto grid sm:grid-cols-2 gap-4">
+   344→              {[
+   345→                { title: 'Think Like a Practicing CS', tip: 'At the Professional level, you are being trained for real-world practice. Approach every question as if you are advising a client — identify all legal issues, evaluate options, and recommend the best course of action with proper reasoning.' },
+   346→                { title: 'Connect Across Subjects', tip: 'The Multi-Disciplinary Case Studies paper tests integration of knowledge. Practice connecting concepts across different papers — how does a corporate restructuring affect securities law compliance? What governance issues arise during insolvency?' },
+   347→                { title: 'Study Recent Amendments', tip: 'Professional-level questions frequently test recent amendments and new regulations. Stay updated with changes to the Companies Act, SEBI LODR, IBC provisions, and RBI guidelines through our regular amendment updates.' },
+   348→                { title: 'Master Secretarial Standards', tip: 'Secretarial Standards SS-1 and SS-2 are frequently tested in the Professional programme. These standards prescribe the procedures for board and general meetings — memorize them thoroughly for both direct and application-based questions.' },
+   349→                { title: 'Choose Electives Strategically', tip: 'Select your elective papers based on your existing knowledge base and career goals, not perceived easiness. A paper you find interesting is easier to study deeply, and deep knowledge always scores better than superficial coverage of an "easy" subject.' },
+   350→                { title: 'Practice Time Allocation', tip: 'With case studies requiring extended analysis, time management becomes even more critical at the Professional level. Practice allocating time proportionally — longer answers for higher-mark questions, concise responses for shorter questions.' },
+   351→                { title: 'Build a Case Law Repository', tip: 'Maintain a curated collection of landmark and recent case laws organized by topic. At the Professional level, citing relevant case law in your answers demonstrates depth of understanding and earns valuable additional marks.' },
+   352→                { title: 'Attempt Full-Length Mocks', tip: 'Never skip full-length mock tests under timed conditions. The Professional exam requires sustained focus over three hours per paper. Only regular full-length practice builds the stamina and concentration needed for exam day.' },
+   353→              ].map((tip, idx) => (
+   354→                <Card key={idx} className="border-border/60">
+   355→                  <CardContent className="pt-5 pb-4 px-5">
+   356→                    <div className="flex items-start gap-3">
+   357→                      <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0 mt-0.5">
+   358→                        <CheckCircle2 className="h-4 w-4 text-amber-600" />
+   359→                      </div>
+   360→                      <div>
+   361→                        <h4 className="font-semibold text-foreground text-sm mb-1">{tip.title}</h4>
+   362→                        <p className="text-xs text-muted-foreground leading-relaxed">{tip.tip}</p>
+   363→                      </div>
+   364→                    </div>
+   365→                  </CardContent>
+   366→                </Card>
+   367→              ))}
+   368→            </div>
+   369→          </div>
+   370→        </section>
+   371→
+   372→        {/* CTA Section */}
+   373→        <section className="py-16 sm:py-20">
+   374→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   375→            <Card className="bg-gradient-to-br from-amber-700 via-orange-700 to-rose-800 border-0 shadow-2xl overflow-hidden relative">
+   376→              <div className="absolute inset-0 pointer-events-none opacity-10" style={{
+   377→                backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+   378→                backgroundSize: '30px 30px',
+   379→              }} />
+   380→              <CardContent className="pt-10 pb-10 text-center relative">
+   381→                <Trophy className="h-12 w-12 text-amber-300 mx-auto mb-4" />
+   382→                <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">Ready to Complete Your CS Journey?</h2>
+   383→                <p className="text-amber-100/90 max-w-xl mx-auto mb-8 text-lg">
+   384→                  The Professional programme is your final challenge. Join Mission CS and clear it with confidence — just like our AIR 8 and AIR 9 rankers did.
+   385→                </p>
+   386→                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+   387→                  <Button size="lg" asChild className="text-base px-8 py-6 bg-white text-amber-800 hover:bg-amber-50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 group">
+   388→                    <a href="https://missioncstestseries.com" target="_blank" rel="noopener noreferrer">
+   389→                      Enroll Now<ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-0.5 transition-transform duration-200" />
+   390→                    </a>
+   391→                  </Button>
+   392→                  <Button size="lg" variant="outline" onClick={() => onNavigate('student-signup')} className="text-base px-8 py-6 border-white/30 text-white hover:bg-white/10 hover:border-white/50 transition-all duration-300">
+   393→                    Create Free Account
+   394→                  </Button>
+   395→                </div>
+   396→              </CardContent>
+   397→            </Card>
+   398→          </div>
+   399→        </section>
+   400→      </main>
+   401→
+   402→      {/* Sticky Footer */}
+   403→      <footer className="border-t bg-muted/30 mt-auto">
+   404→        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+   405→          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+   406→            <div className="flex items-center gap-2">
+   407→              <div className="w-6 h-6 rounded-md bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center">
+   408→                <GraduationCap className="h-4 w-4 text-white" />
+   409→              </div>
+   410→              <span className="font-semibold text-sm text-foreground">MISSION CS Test Series</span>
+   411→            </div>
+   412→            <p className="text-xs text-muted-foreground text-center">
+   413→              &copy; {new Date().getFullYear()} Mission CS Test Series. All rights reserved. Empowering CS aspirants across India.
+   414→            </p>
+   415→            <Button variant="ghost" size="sm" onClick={() => onNavigate('landing')} className="text-xs hover:bg-muted/80">
+   416→              Back to Home
+   417→            </Button>
+   418→          </div>
+   419→        </div>
+   420→      </footer>
+   421→    </div>
+   422→  )
+   423→}
+   424→

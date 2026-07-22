@@ -1,0 +1,295 @@
+   800→    </AlertDialogContent></AlertDialog>
+   801→  </div>
+   802→}
+   803→
+   804→// ─── 5. Chapters Page ────────────────────────────────────────────
+   805→function ChaptersPage() {
+   806→  const [search,setSearch]=useState(''), [courseFilter,setCourseFilter]=useState(''), [subjectFilter,setSubjectFilter]=useState('')
+   807→  const [addOpen,setAddOpen]=useState(false), [addCourseId,setAddCourseId]=useState('')
+   808→  const [editChapter,setEditChapter]=useState<Chapter|null>(null), [deleteChapter,setDeleteChapter]=useState<Chapter|null>(null)
+   809→
+   810→  const { data:chapters, loading, refresh } = useFetch<Chapter[]>(()=>api.adminChapters(search||undefined,subjectFilter||undefined,courseFilter||undefined).then(r=>r.data||r.chapters||r), [search,courseFilter,subjectFilter])
+   811→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   812→  const { data:subjects } = useFetch<Subject[]>(()=>api.adminSubjects().then(r=>r.data||r.subjects||r), [])
+   813→  const courseList=courses||[], subjectList=subjects||[], chapterList=chapters||[], pagination=usePagination(chapterList,10)
+   814→
+   815→  const filteredSubjects=useMemo(()=>courseFilter&&courseFilter!=='__all__'?subjectList.filter(s=>s.courseId===courseFilter):subjectList,[courseFilter,subjectList])
+   816→  const addSubjects=useMemo(()=>addCourseId?subjectList.filter(s=>s.courseId===addCourseId):[] as Subject[],[addCourseId,subjectList])
+   817→
+   818→  const handleCourseFilterChange=(v:string)=>{setCourseFilter(v==='__all__'?'':v);setSubjectFilter('')}
+   819→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateChapter({name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter created');setAddOpen(false);setAddCourseId('');refresh()}catch(e:any){toast.error(e.message)}}
+   820→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editChapter)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateChapter(editChapter.id,{name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter updated');setEditChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+   821→  const handleDelete=async()=>{if(!deleteChapter)return;try{await api.adminDeleteChapter(deleteChapter.id);toast.success('Chapter deleted');setDeleteChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+   822→
+   823→  return <div className="space-y-4">
+   824→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   825→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   826→        <SearchBar value={search} onChange={setSearch} placeholder="Search chapters..." className="w-full sm:w-64" />
+   827→        <Select value={courseFilter||'__all__'} onValueChange={handleCourseFilterChange}><SelectTrigger className="w-full sm:w-44 input-focus-ring"><SelectValue placeholder="All Courses" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Courses</SelectItem>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select>
+   828→        <Select value={subjectFilter||'__all__'} onValueChange={v=>setSubjectFilter(v==='__all__'?'':v)}><SelectTrigger className="w-full sm:w-44 input-focus-ring"><SelectValue placeholder="All Subjects" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Subjects</SelectItem>{filteredSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select>
+   829→      </div>
+   830→      <GradientButton onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Chapter</GradientButton>
+   831→    </div>
+   832→    <Card className="card-lift"><CardContent className="p-0">{loading?<TableSkeleton cols={4}/>:!pagination.paginated.length?<EmptyState icon={FileText} title="No chapters found" description="Create your first chapter to add content" action={<GradientButton onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Chapter</GradientButton>}/>:<StyledTable><Table>
+   833→      <TableHeader><TableRow className="bg-gradient-to-r from-muted/60 to-muted/30"><TableHead>Name</TableHead><TableHead>Subject</TableHead><TableHead className="hidden sm:table-cell">Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   834→      <TableBody>
+   835→        {pagination.paginated.map((ch,i)=>(
+   836→        <TableRow key={ch.id} className={`transition-all duration-150 hover:bg-teal-500/5 ${i%2===1?'bg-muted/8':''}`}><TableCell className="font-medium">{ch.name}</TableCell><TableCell>{ch.subject?.name||'—'}</TableCell><TableCell className="hidden sm:table-cell">{ch.subject?.course?.title||'—'}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-0.5"><ActionButton icon={Pencil} tooltip="Edit" onClick={()=>setEditChapter(ch)} /><ActionButton icon={Trash2} tooltip="Delete" onClick={()=>setDeleteChapter(ch)} className="text-destructive hover:text-destructive/80" /></div></TableCell></TableRow>
+   837→      ))}</TableBody>
+   838→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   839→
+   840→    {/* Add Chapter - cascading dropdown */}
+   841→    <Dialog open={addOpen} onOpenChange={v=>{setAddOpen(v);if(!v)setAddCourseId('')}}><DialogContent>
+   842→      <DialogHeader className="dialog-gradient-header -mx-6 -mt-6 px-6 pt-6 pb-4"><DialogTitle className="flex items-center gap-2"><div className="flex size-8 items-center justify-center rounded-lg bg-teal-500/15 text-teal-600"><FileText className="size-4" /></div> Add Chapter</DialogTitle></DialogHeader>
+   843→      <form onSubmit={handleAdd} className="space-y-4">
+   844→        <div className="space-y-1.5"><Label>Course</Label><Select value={addCourseId} onValueChange={setAddCourseId}><SelectTrigger className="w-full input-focus-ring"><SelectValue placeholder="Select course first" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   845→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" required disabled={!addCourseId}><SelectTrigger className="w-full input-focus-ring"><SelectValue placeholder={addCourseId?'Select subject':'Select course first'} /></SelectTrigger><SelectContent>{addSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   846→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" required className="input-focus-ring" /></div>
+   847→        <DialogFooter><GradientButton type="submit" disabled={!addCourseId}>Create Chapter</GradientButton></DialogFooter>
+   848→      </form>
+   849→    </DialogContent></Dialog>
+   850→
+   851→    <Dialog open={!!editChapter} onOpenChange={o=>!o&&setEditChapter(null)}><DialogContent>
+   852→      <DialogHeader className="dialog-gradient-header -mx-6 -mt-6 px-6 pt-6 pb-4"><DialogTitle className="flex items-center gap-2"><div className="flex size-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-600"><Pencil className="size-4" /></div> Edit Chapter</DialogTitle></DialogHeader>
+   853→      {editChapter&&<form onSubmit={handleEdit} className="space-y-4">
+   854→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" defaultValue={editChapter.subjectId}><SelectTrigger className="w-full input-focus-ring"><SelectValue placeholder="Select subject" /></SelectTrigger><SelectContent>{subjectList.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   855→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" defaultValue={editChapter.name} required className="input-focus-ring" /></div>
+   856→        <DialogFooter><GradientButton type="submit">Save Changes</GradientButton></DialogFooter>
+   857→      </form>}
+   858→    </DialogContent></Dialog>
+   859→
+   860→    <AlertDialog open={!!deleteChapter} onOpenChange={o=>!o&&setDeleteChapter(null)}><AlertDialogContent>
+   861→      <AlertDialogHeader><AlertDialogTitle>Delete Chapter</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteChapter?.name}&quot;?</AlertDialogDescription></AlertDialogHeader>
+   862→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   863→    </AlertDialogContent></AlertDialog>
+   864→  </div>
+   865→}
+   866→
+   867→// ─── 6. Top Performers Page ──────────────────────────────────────
+   868→function TopPerformersPage() {
+   869→  const [search,setSearch]=useState('')
+   870→  const { data:performers, loading } = useFetch<TopPerformer[]>(()=>api.adminTopPerformers(search||undefined).then(r=>r.data||r.performers||r), [search])
+   871→  const performerList=performers||[], pagination=usePagination(performerList,10)
+   872→  const maxHours=useMemo(()=>Math.max(...performerList.map(p=>p.studyHours),1),[performerList])
+   873→
+   874→  const handleExport=()=>{exportCSV('top-performers',['Rank','Name','Mobile','Email','Course','Study Hours','Subjects Studied'],performerList.map((p,i)=>[String(i+1),p.name,p.mobile,p.email,p.course||'',String(p.studyHours),String(p.subjectsStudied)]));toast.success('CSV exported')}
+   875→  const medalEmoji=(i:number)=>i===0?'🥇':i===1?'🥈':i===2?'🥉':null
+   876→
+   877→  return <div className="space-y-4">
+   878→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   879→      <SearchBar value={search} onChange={setSearch} placeholder="Search performers..." className="w-full sm:w-72" />
+   880→      <Button variant="outline" className="gap-1.5 hover:bg-muted/80 transition-colors" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   881→    </div>
+   882→
+   883→    {!loading&&performerList.length>0&&<Card className="card-lift">
+   884→      <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Trophy className="size-4 text-amber-500" /> Study Hours Overview</CardTitle></CardHeader>
+   885→      <CardContent><InlineBarChart data={performerList.slice(0,10)} /></CardContent>
+   886→    </Card>}
+   887→
+   888→    <Card className="card-lift"><CardContent className="p-0">{loading?<TableSkeleton cols={6}/>:!pagination.paginated.length?<EmptyState icon={Trophy} title="No performers found" description="Student study data will appear here as they use the platform" />:<StyledTable><Table>
+   889→      <TableHeader><TableRow className="bg-gradient-to-r from-muted/60 to-muted/30"><TableHead>Rank</TableHead><TableHead>Name</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Course</TableHead><TableHead>Study Hours</TableHead></TableRow></TableHeader>
+   890→      <TableBody>
+   891→        {pagination.paginated.map((p,i)=>{
+   892→          const gi=(pagination.page-1)*10+i, medal=medalEmoji(gi)
+   893→          return <TableRow key={p.id} className={`transition-all duration-150 hover:bg-orange-500/5 ${i%2===1?'bg-muted/8':''}`}>
+   894→            <TableCell><div className="flex items-center gap-1.5">{medal?<span className="text-lg">{medal}</span>:<div className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-muted to-muted/60 text-muted-foreground text-xs font-bold shadow-sm">{gi+1}</div>}</div></TableCell>
+   895→            <TableCell className="font-medium">{p.name}</TableCell><TableCell className="hidden md:table-cell">{p.mobile}</TableCell><TableCell className="hidden lg:table-cell text-sm">{p.email}</TableCell><TableCell>{p.course||'—'}</TableCell>
+   896→            <TableCell><div className="flex items-center gap-2"><Badge variant="secondary" className="bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 border-amber-500/20">{p.studyHours}h</Badge><div className="hidden sm:block w-20"><Progress value={(p.studyHours/maxHours)*100} className="h-1.5 [&>div]:bg-gradient-to-r [&>div]:from-amber-500 [&>div]:to-orange-500" /></div></div></TableCell>
+   897→          </TableRow>
+   898→        })
+   899→      }</TableBody>
+   900→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   901→  </div>
+   902→}
+   903→
+   904→// ─── 7. Reviews Page ─────────────────────────────────────────────
+   905→function ReviewsPage() {
+   906→  const [search,setSearch]=useState(''), [addOpen,setAddOpen]=useState(false), [deleteReview,setDeleteReview]=useState<Review|null>(null)
+   907→  const { data:reviews, loading, refresh } = useFetch<Review[]>(()=>api.adminReviews(search||undefined).then(r=>r.data||r.reviews||r), [search])
+   908→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   909→  const courseList=courses||[], reviewList=reviews||[], pagination=usePagination(reviewList,10)
+   910→
+   911→  const handleExport=()=>{exportCSV('reviews',['Author','Text','Rating','Course','Source','Status'],reviewList.map(r=>[r.authorName,r.text,String(r.rating),r.course?.title||'',r.source,r.status]));toast.success('CSV exported')}
+   912→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateReview({authorName:fd.get('authorName'),text:fd.get('text'),rating:Number(fd.get('rating')),courseId:fd.get('courseId')||null});toast.success('Review created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   913→  const handleStatusChange=async(id:string,status:string)=>{try{await api.adminUpdateReview(id,{status});toast.success(`Review ${status.toLowerCase()}`);refresh()}catch(e:any){toast.error(e.message)}}
+   914→  const handleDelete=async()=>{if(!deleteReview)return;try{await api.adminDeleteReview(deleteReview.id);toast.success('Review deleted');setDeleteReview(null);refresh()}catch(e:any){toast.error(e.message)}}
+   915→  const sourceBadge=(s:string)=>s==='ADMIN'?'bg-slate-100 text-slate-700 border-slate-200':'bg-amber-100 text-amber-700 border-amber-200'
+   916→
+   917→  return <div className="space-y-4">
+   918→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   919→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   920→        <SearchBar value={search} onChange={setSearch} placeholder="Search reviews..." className="w-full sm:w-72" />
+   921→        <Button variant="outline" className="gap-1.5 hover:bg-muted/80 transition-colors" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   922→      </div>
+   923→      <GradientButton onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Review</GradientButton>
+   924→    </div>
+   925→    <Card className="card-lift"><CardContent className="p-0">{loading?<TableSkeleton cols={7}/>:!pagination.paginated.length?<EmptyState icon={Star} title="No reviews found" description="Reviews from students will appear here" />:<StyledTable><div className="overflow-x-auto"><Table>
+   926→      <TableHeader><TableRow className="bg-gradient-to-r from-muted/60 to-muted/30"><TableHead>Author</TableHead><TableHead className="max-w-[200px]">Text</TableHead><TableHead>Rating</TableHead><TableHead className="hidden md:table-cell">Course</TableHead><TableHead>Source</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   927→      <TableBody>
+   928→        {pagination.paginated.map((r,i)=>(
+   929→        <TableRow key={r.id} className={`transition-all duration-150 hover:bg-rose-500/5 ${i%2===1?'bg-muted/8':''}`}>
+   930→          <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[200px] truncate">{r.text}</TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
+   931→          <TableCell className="hidden md:table-cell">{r.course?.title||'—'}</TableCell>
+   932→          <TableCell><Badge variant="outline" className={sourceBadge(r.source)}>{r.source}</Badge></TableCell>
+   933→          <TableCell><Badge variant={r.status==='APPROVED'?'default':r.status==='REJECTED'?'destructive':'secondary'} className={r.status==='APPROVED'?'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20':''}>{r.status}</Badge></TableCell>
+   934→          <TableCell className="text-right"><div className="flex items-center justify-end gap-0.5">
+   935→            {r.status==='PENDING'&&r.studentId&&<><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'APPROVED')} className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"><Check className="size-3.5" /> Approve</Button><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'REJECTED')} className="text-destructive hover:text-red-700 hover:bg-destructive/10"><X className="size-3.5" /> Reject</Button></>}
+   936→            <ActionButton icon={Trash2} tooltip="Delete" onClick={()=>setDeleteReview(r)} className="text-destructive hover:text-destructive/80" />
+   937→          </div></TableCell>
+   938→        </TableRow>
+   939→      ))}</TableBody>
+   940→    </Table></div><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   941→
+   942→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+   943→      <DialogHeader className="dialog-gradient-header -mx-6 -mt-6 px-6 pt-6 pb-4"><DialogTitle className="flex items-center gap-2"><div className="flex size-8 items-center justify-center rounded-lg bg-rose-500/15 text-rose-600"><Star className="size-4" /></div> Add Review</DialogTitle></DialogHeader>
+   944→      <form onSubmit={handleAdd} className="space-y-4">
+   945→        <IconField icon={User} label="Author Name" name="authorName" required />
+   946→        <div className="space-y-1.5"><Label>Review Text</Label><Textarea name="text" required className="input-focus-ring min-h-[80px]" /></div>
+   947→        <div className="space-y-1.5"><Label>Rating</Label><Select name="rating" required><SelectTrigger className="w-full input-focus-ring"><SelectValue placeholder="Select rating" /></SelectTrigger><SelectContent>{[1,2,3,4,5].map(r=><SelectItem key={r} value={String(r)}>{r} Star{r>1?'s':''}</SelectItem>)}</SelectContent></Select></div>
+   948→        <div className="space-y-1.5"><Label>Course (Optional)</Label><Select name="courseId"><SelectTrigger className="w-full input-focus-ring"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   949→        <DialogFooter><GradientButton type="submit">Create Review</GradientButton></DialogFooter>
+   950→      </form>
+   951→    </DialogContent></Dialog>
+   952→
+   953→    <AlertDialog open={!!deleteReview} onOpenChange={o=>!o&&setDeleteReview(null)}><AlertDialogContent>
+   954→      <AlertDialogHeader><AlertDialogTitle>Delete Review</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this review?</AlertDialogDescription></AlertDialogHeader>
+   955→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   956→    </AlertDialogContent></AlertDialog>
+   957→  </div>
+   958→}
+   959→
+   960→// ─── 8. Approvals Page ───────────────────────────────────────────
+   961→function ApprovalsPage() {
+   962→  const [search,setSearch]=useState('')
+   963→  const { data:approvals, loading, refresh:refreshApprovals } = useFetch<Approval[]>(()=>api.adminApprovals().then(r=>r.data||r.approvals||r.pendingStudents||r.students||[]), [])
+   964→  const { data:settings, refresh:refreshSettings } = useFetch<any>(()=>api.adminGetSettings().then(r=>r.data||r), [])
+   965→  const approvalEnabled=useMemo(()=>{if(settings){const v=settings.signup_approval||settings.signupApproval;return v==='true'||v===true}return false},[settings])
+   966→
+   967→  const handleToggle=async(enabled:boolean)=>{try{await api.adminToggleApproval(enabled);toast.success(`Signup approval ${enabled?'enabled':'disabled'}`);refreshSettings()}catch(e:any){toast.error(e.message)}}
+   968→  const handleApprove=async(id:string)=>{try{await api.adminApproveStudent(id);toast.success('Student approved');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   969→  const handleReject=async(id:string)=>{try{await api.adminRejectStudent(id);toast.success('Student rejected');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   970→
+   971→  const approvalList=Array.isArray(approvals)?approvals:[]
+   972→  const filtered=search?approvalList.filter(a=>a.name?.toLowerCase().includes(search.toLowerCase())||a.email?.toLowerCase().includes(search.toLowerCase())||a.mobile?.includes(search)):approvalList
+   973→  const pagination=usePagination(filtered,10)
+   974→
+   975→  return <div className="space-y-6">
+   976→    <Card className="overflow-hidden relative card-lift">
+   977→      <div className={`absolute inset-0 transition-colors duration-500 ${approvalEnabled?'bg-emerald-500/5':'bg-muted/30'}`} />
+   978→      <CardContent className="p-5 relative">
+   979→        <div className="flex items-center justify-between">
+   980→          <div className="flex items-center gap-3">
+   981→            <div className={`flex size-10 items-center justify-center rounded-xl ${approvalEnabled?'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400':'bg-muted text-muted-foreground'}`}><ShieldCheck className="size-5" /></div>
+   982→            <div><h3 className="font-semibold">Signup Approval Required</h3><p className="text-sm text-muted-foreground">When enabled, new students must be approved before accessing the platform.</p></div>
+   983→          </div>
+   984→          <div className="flex items-center gap-3">
+   985→            <span className={`text-sm font-medium ${approvalEnabled?'text-emerald-600':'text-muted-foreground'}`}>{approvalEnabled?'Enabled':'Disabled'}</span>
+   986→            <Switch checked={approvalEnabled} onCheckedChange={handleToggle} className="data-[state=checked]:bg-emerald-500 scale-110 transition-transform duration-200" />
+   987→          </div>
+   988→        </div>
+   989→      </CardContent>
+   990→    </Card>
+   991→    <div className="space-y-4">
+   992→      <SearchBar value={search} onChange={setSearch} placeholder="Search pending students..." className="w-full sm:w-72" />
+   993→      <Card className="card-lift"><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:!pagination.paginated.length?<EmptyState icon={ShieldCheck} title="No pending approvals" description="All students have been reviewed" />:<StyledTable><Table>
+   994→        <TableHeader><TableRow className="bg-gradient-to-r from-muted/60 to-muted/30"><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead>Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   995→        <TableBody>
+   996→          {pagination.paginated.map((a,i)=>(
+   997→          <TableRow key={a.id} className={`transition-all duration-150 hover:bg-emerald-500/5 ${i%2===1?'bg-muted/8':''}`}>
+   998→            <TableCell className="font-medium"><div className="flex items-center gap-2"><div className="flex size-6 items-center justify-center rounded-full bg-amber-500/10"><XCircle className="size-3.5 text-amber-500" /></div>{a.name}</div></TableCell>
+   999→            <TableCell className="text-sm">{a.email}</TableCell><TableCell className="hidden md:table-cell">{a.mobile}</TableCell><TableCell>{a.course?.title||'—'}</TableCell>
+  1000→            <TableCell className="text-right"><div className="flex items-center justify-end gap-1.5">
+  1001→              <Button size="sm" className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm gap-1" onClick={()=>handleApprove(a.id)}><CheckCircle2 className="size-3.5" /> Accept</Button>
+  1002→              <Button size="sm" variant="destructive" className="gap-1 shadow-sm" onClick={()=>handleReject(a.id)}><XCircle className="size-3.5" /> Reject</Button>
+  1003→            </div></TableCell>
+  1004→          </TableRow>
+  1005→        ))}</TableBody>
+  1006→      </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+  1007→    </div>
+  1008→  </div>
+  1009→}
+  1010→
+  1011→// ─── 9. Discussions Page ─────────────────────────────────────────
+  1012→function DiscussionsPage() {
+  1013→  const [search,setSearch]=useState(''), [replyId,setReplyId]=useState<string|null>(null), [replyText,setReplyText]=useState(''), [deleteId,setDeleteId]=useState<string|null>(null)
+  1014→  const { data:discussions, loading, refresh } = useFetch<Discussion[]>(()=>api.adminDiscussions(search||undefined).then(r=>r.data||r.discussions||r), [search])
+  1015→  const discussionList=discussions||[], pagination=usePagination(discussionList,10)
+  1016→
+  1017→  const handleReply=async(id:string)=>{if(!replyText.trim())return;try{await api.adminReplyDiscussion(id,replyText);toast.success('Reply sent');setReplyId(null);setReplyText('');refresh()}catch(e:any){toast.error(e.message)}}
+  1018→  const handleDelete=async()=>{if(!deleteId)return;try{await api.adminDeleteDiscussion(deleteId);toast.success('Discussion deleted');setDeleteId(null);refresh()}catch(e:any){toast.error(e.message)}}
+  1019→
+  1020→  return <div className="space-y-4">
+  1021→    <SearchBar value={search} onChange={setSearch} placeholder="Search discussions..." className="w-full sm:w-72" />
+  1022→    {loading?<div className="space-y-4">{Array.from({length:3}).map((_,i)=><Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full shimmer-bg rounded-lg" style={{animationDelay:`${i*100}ms`}} /></CardContent></Card>)}</div>
+  1023→     :!pagination.paginated.length?<EmptyState icon={MessageCircle} title="No discussions found" description="Student discussions will appear here" />
+  1024→     :<><div className="space-y-4">{pagination.paginated.map((d,i)=>(
+  1025→        <Card key={d.id} className="overflow-hidden card-lift anim-fade-up" style={{animationDelay:`${i*40}ms`}}>
+  1026→          <CardContent className="p-5 space-y-3">
+  1027→            <div className="flex items-start justify-between">
+  1028→              <div className="flex items-start gap-3">
+  1029→                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/20 to-sky-500/20 text-cyan-600 font-semibold text-xs shrink-0 mt-0.5">{(d.student?.name||'U').charAt(0).toUpperCase()}</div>
+  1030→                <div>
+  1031→                  <h3 className="font-semibold text-sm">{d.title}</h3>
+  1032→                  <div className="flex items-center gap-2 mt-0.5">
+  1033→                    <span className="text-xs text-muted-foreground">{d.student?.name||'Unknown'}</span>
+  1034→                    <span className="text-[10px] text-muted-foreground/50">&middot;</span>
+  1035→                    <span className="text-[10px] text-muted-foreground/50 tabular-nums">{new Date(d.createdAt).toLocaleDateString()}</span>
+  1036→                  </div>
+  1037→                </div>
+  1038→              </div>
+  1039→              <ActionButton icon={Trash2} tooltip="Delete" onClick={()=>setDeleteId(d.id)} className="text-destructive hover:text-destructive/80" />
+  1040→            </div>
+  1041→            <p className="text-sm text-muted-foreground whitespace-pre-wrap pl-12">{d.content}</p>
+  1042→            {d.adminReply&&<div className="ml-9 bg-gradient-to-r from-emerald-500/8 to-teal-500/5 dark:from-emerald-500/12 dark:to-teal-500/8 border border-emerald-500/15 rounded-xl p-3.5 text-sm">
+  1043→              <div className="flex items-center gap-2 mb-1.5">
+  1044→                <div className="flex size-5 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-[8px] font-bold">A</div>
+  1045→                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Admin Reply</p>
+  1046→              </div>
+  1047→              <p className="whitespace-pre-wrap text-muted-foreground">{d.adminReply}</p>
+  1048→            </div>}
+  1049→            {replyId===d.id?<div className="ml-9 space-y-2">
+  1050→              <Textarea placeholder="Type your reply..." value={replyText} onChange={e=>setReplyText(e.target.value)} rows={3} className="input-focus-ring min-h-[80px]" />
+  1051→              <div className="flex gap-2"><GradientButton size="sm" onClick={()=>handleReply(d.id)} disabled={!replyText.trim()}><Send className="size-3.5" /> Send Reply</GradientButton><Button size="sm" variant="outline" onClick={()=>{setReplyId(null);setReplyText('')}}>Cancel</Button></div>
+  1052→            </div>:!d.adminReply?<Button size="sm" variant="outline" className="ml-9 hover:border-emerald-500/50 hover:text-emerald-600 transition-colors" onClick={()=>{setReplyId(d.id);setReplyText('')}}><MessageCircle className="size-3.5" /> Reply</Button>:null}
+  1053→          </CardContent>
+  1054→        </Card>
+  1055→      ))}</div>
+  1056→      <Card><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></Card>
+  1057→    </>}
+  1058→
+  1059→    <AlertDialog open={!!deleteId} onOpenChange={o=>!o&&setDeleteId(null)}><AlertDialogContent>
+  1060→      <AlertDialogHeader><AlertDialogTitle>Delete Discussion</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this discussion? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+  1061→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+  1062→    </AlertDialogContent></AlertDialog>
+  1063→  </div>
+  1064→}
+  1065→
+  1066→// ─── 10. Change Password Dialog ──────────────────────────────────
+  1067→function ChangePasswordDialog({ open, onOpenChange }: { open:boolean; onOpenChange:(open:boolean)=>void }) {
+  1068→  const [currentPassword,setCurrentPassword]=useState(''), [newPassword,setNewPassword]=useState(''), [confirmPassword,setConfirmPassword]=useState(''), [submitting,setSubmitting]=useState(false)
+  1069→
+  1070→  const handleSubmit=async(e:React.FormEvent)=>{
+  1071→    e.preventDefault()
+  1072→    if(newPassword!==confirmPassword){toast.error('New passwords do not match');return}
+  1073→    if(newPassword.length<6){toast.error('Password must be at least 6 characters');return}
+  1074→    setSubmitting(true)
+  1075→    try{await api.adminChangeOwnPassword(currentPassword,newPassword);toast.success('Password changed successfully');onOpenChange(false);setCurrentPassword('');setNewPassword('');setConfirmPassword('')}
+  1076→    catch(e:any){toast.error(e.message||'Failed to change password')}finally{setSubmitting(false)}
+  1077→  }
+  1078→
+  1079→  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
+  1080→    <DialogHeader className="dialog-gradient-header -mx-6 -mt-6 px-6 pt-6 pb-4"><DialogTitle className="flex items-center gap-2"><div className="flex size-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600"><Lock className="size-4" /></div> Change Password</DialogTitle><DialogDescription>Update your admin account password</DialogDescription></DialogHeader>
+  1081→    <form onSubmit={handleSubmit} className="space-y-4">
+  1082→      <div className="space-y-3">
+  1083→        <IconField icon={Lock} label="Current Password" type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} required />
+  1084→      </div>
+  1085→      <Separator />
+  1086→      <div className="space-y-3">
+  1087→        <IconField icon={Lock} label="New Password" type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} required minLength={6} />
+  1088→        <IconField icon={Lock} label="Confirm New Password" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required minLength={6} />
+  1089→      </div>
+  1090→      <DialogFooter><GradientButton type="submit" disabled={submitting}>{submitting&&<Loader2 className="size-4 animate-spin" />} Change Password</GradientButton></DialogFooter>
+  1091→    </form>
+  1092→  </DialogContent></Dialog>
+  1093→}
+  1094→

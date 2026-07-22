@@ -1,0 +1,1646 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback } from 'react'
+     4→import { useAuthStore } from '@/lib/store'
+     5→import { api } from '@/lib/api-client'
+     6→import { toast } from 'sonner'
+     7→
+     8→// shadcn/ui components
+     9→import { Button } from '@/components/ui/button'
+    10→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+    11→import { Input } from '@/components/ui/input'
+    12→import { Label } from '@/components/ui/label'
+    13→import { Badge } from '@/components/ui/badge'
+    14→import { Switch } from '@/components/ui/switch'
+    15→import { Skeleton } from '@/components/ui/skeleton'
+    16→import { Textarea } from '@/components/ui/textarea'
+    17→import { Separator } from '@/components/ui/separator'
+    18→import {
+    19→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    20→} from '@/components/ui/table'
+    21→import {
+    22→  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+    23→} from '@/components/ui/dialog'
+    24→import {
+    25→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+    26→} from '@/components/ui/alert-dialog'
+    27→import {
+    28→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    29→} from '@/components/ui/select'
+    30→import {
+    31→  SidebarProvider, Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, SidebarSeparator,
+    32→} from '@/components/ui/sidebar'
+    33→
+    34→// Icons
+    35→import {
+    36→  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Eye, EyeOff, Check, X, Loader2,
+    37→} from 'lucide-react'
+    38→
+    39→// ─── Types ───────────────────────────────────────────────────────
+    40→interface AdminPanelProps {
+    41→  onLogout: () => void
+    42→}
+    43→
+    44→type PageKey = 'dashboard' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions'
+    45→
+    46→interface DashboardData {
+    47→  totalStudents: number
+    48→  totalCourses: number
+    49→  totalSubjects: number
+    50→  totalChapters: number
+    51→  totalReviews: number
+    52→  totalDiscussions: number
+    53→  recentSignups: any[]
+    54→}
+    55→
+    56→interface Student {
+    57→  id: string
+    58→  name: string
+    59→  email: string
+    60→  mobile: string
+    61→  courseId: string
+    62→  course?: { title: string }
+    63→  status: string
+    64→  createdAt: string
+    65→}
+    66→
+    67→interface Course {
+    68→  id: string
+    69→  title: string
+    70→  slug: string
+    71→  _count?: { students: number; subjects: number }
+    72→}
+    73→
+    74→interface Subject {
+    75→  id: string
+    76→  name: string
+    77→  order: number
+    78→  courseId: string
+    79→  course?: { title: string }
+    80→  _count?: { chapters: number }
+    81→}
+    82→
+    83→interface Chapter {
+    84→  id: string
+    85→  name: string
+    86→  subjectId: string
+    87→  subject?: { name: string; course?: { title: string } }
+    88→}
+    89→
+    90→interface TopPerformer {
+    91→  id: string
+    92→  name: string
+    93→  mobile: string
+    94→  email: string
+    95→  course?: { title: string }
+    96→  totalStudyHours: number
+    97→  subjectsStudied: number
+    98→}
+    99→
+   100→interface Review {
+   101→  id: string
+   102→  authorName: string
+   103→  text: string
+   104→  rating: number
+   105→  courseId: string
+   106→  course?: { title: string }
+   107→  source: string
+   108→  status: string
+   109→  studentId?: string | null
+   110→}
+   111→
+   112→interface Approval {
+   113→  id: string
+   114→  name: string
+   115→  email: string
+   116→  mobile: string
+   117→  courseId: string
+   118→  course?: { title: string }
+   119→  createdAt: string
+   120→}
+   121→
+   122→interface Discussion {
+   123→  id: string
+   124→  title: string
+   125→  content: string
+   126→  student?: { name: string; email: string }
+   127→  adminReply?: string | null
+   128→  createdAt: string
+   129→}
+   130→
+   131→// ─── Sidebar Navigation Config ───────────────────────────────────
+   132→const navItems: { key: PageKey; label: string; icon: React.ElementType }[] = [
+   133→  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+   134→  { key: 'students', label: 'Students', icon: Users },
+   135→  { key: 'courses', label: 'Courses', icon: BookOpen },
+   136→  { key: 'subjects', label: 'Subjects', icon: BookMarked },
+   137→  { key: 'chapters', label: 'Chapters', icon: FileText },
+   138→  { key: 'top-performers', label: 'Top Performers', icon: Trophy },
+   139→  { key: 'reviews', label: 'Reviews', icon: Star },
+   140→  { key: 'approvals', label: 'Approvals', icon: ShieldCheck },
+   141→  { key: 'discussions', label: 'Discussions', icon: MessageCircle },
+   142→]
+   143→
+   144→// ─── Helper: Star rating display ─────────────────────────────────
+   145→function StarRating({ rating }: { rating: number }) {
+   146→  return (
+   147→    <div className="flex items-center gap-0.5">
+   148→      {[1, 2, 3, 4, 5].map((s) => (
+   149→        <Star key={s} className={`size-3.5 ${s <= rating ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40'}`} />
+   150→      ))}
+   151→    </div>
+   152→  )
+   153→}
+   154→
+   155→// ─── Loading Skeleton for tables ─────────────────────────────────
+   156→function TableSkeleton({ cols = 4, rows = 5 }: { cols?: number; rows?: number }) {
+   157→  return (
+   158→    <div className="space-y-3">
+   159→      <div className="flex gap-4">
+   160→        {Array.from({ length: cols }).map((_, i) => (
+   161→          <Skeleton key={i} className="h-8 flex-1" />
+   162→        ))}
+   163→      </div>
+   164→      {Array.from({ length: rows }).map((_, r) => (
+   165→        <div key={r} className="flex gap-4">
+   166→          {Array.from({ length: cols }).map((_, i) => (
+   167→            <Skeleton key={i} className="h-10 flex-1" />
+   168→          ))}
+   169→        </div>
+   170→      ))}
+   171→    </div>
+   172→  )
+   173→}
+   174→
+   175→// ─── Main AdminPanel Component ───────────────────────────────────
+   176→export default function AdminPanel({ onLogout }: AdminPanelProps) {
+   177→  const [activePage, setActivePage] = useState<PageKey>('dashboard')
+   178→  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+   179→
+   180→  const renderPage = () => {
+   181→    switch (activePage) {
+   182→      case 'dashboard': return <DashboardPage />
+   183→      case 'students': return <StudentsPage />
+   184→      case 'courses': return <CoursesPage />
+   185→      case 'subjects': return <SubjectsPage />
+   186→      case 'chapters': return <ChaptersPage />
+   187→      case 'top-performers': return <TopPerformersPage />
+   188→      case 'reviews': return <ReviewsPage />
+   189→      case 'approvals': return <ApprovalsPage />
+   190→      case 'discussions': return <DiscussionsPage />
+   191→    }
+   192→  }
+   193→
+   194→  return (
+   195→    <SidebarProvider>
+   196→      <Sidebar variant="sidebar" collapsible="icon" side="left">
+   197→        <SidebarHeader className="p-3">
+   198→          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+   199→            <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm shrink-0">
+   200→              M
+   201→            </div>
+   202→            <div className="group-data-[collapsible=icon]:hidden">
+   203→              <h2 className="text-sm font-semibold text-sidebar-foreground">MISSION CS</h2>
+   204→              <p className="text-[10px] text-sidebar-foreground/60">Admin Panel</p>
+   205→            </div>
+   206→          </div>
+   207→        </SidebarHeader>
+   208→        <SidebarSeparator />
+   209→        <SidebarContent>
+   210→          <SidebarGroup>
+   211→            <SidebarGroupContent>
+   212→              <SidebarMenu>
+   213→                {navItems.map((item) => (
+   214→                  <SidebarMenuItem key={item.key}>
+   215→                    <SidebarMenuButton
+   216→                      isActive={activePage === item.key}
+   217→                      onClick={() => setActivePage(item.key)}
+   218→                      tooltip={item.label}
+   219→                    >
+   220→                      <item.icon className="size-4" />
+   221→                      <span>{item.label}</span>
+   222→                    </SidebarMenuButton>
+   223→                  </SidebarMenuItem>
+   224→                ))}
+   225→              </SidebarMenu>
+   226→            </SidebarGroupContent>
+   227→          </SidebarGroup>
+   228→        </SidebarContent>
+   229→        <SidebarFooter>
+   230→          <SidebarMenu>
+   231→            <SidebarMenuItem>
+   232→              <SidebarMenuButton tooltip="Change Password" onClick={() => setChangePasswordOpen(true)}>
+   233→                <Lock className="size-4" />
+   234→                <span>Change Password</span>
+   235→              </SidebarMenuButton>
+   236→            </SidebarMenuItem>
+   237→            <SidebarMenuItem>
+   238→              <SidebarMenuButton tooltip="Logout" onClick={onLogout}>
+   239→                <LogOut className="size-4" />
+   240→                <span>Logout</span>
+   241→              </SidebarMenuButton>
+   242→            </SidebarMenuItem>
+   243→          </SidebarMenu>
+   244→        </SidebarFooter>
+   245→        <SidebarRail />
+   246→      </Sidebar>
+   247→
+   248→      <SidebarInset>
+   249→        <header className="flex h-14 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20">
+   250→          <SidebarTrigger className="-ml-1" />
+   251→          <Separator orientation="vertical" className="mr-2 h-4" />
+   252→          <h1 className="text-base font-semibold capitalize">
+   253→            {navItems.find((n) => n.key === activePage)?.label || 'Dashboard'}
+   254→          </h1>
+   255→        </header>
+   256→        <div className="flex-1 p-4 md:p-6 overflow-auto">
+   257→          {renderPage()}
+   258→        </div>
+   259→      </SidebarInset>
+   260→
+   261→      {/* Change Password Dialog */}
+   262→      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+   263→    </SidebarProvider>
+   264→  )
+   265→}
+   266→
+   267→// ─── 1. Dashboard Page ───────────────────────────────────────────
+   268→function DashboardPage() {
+   269→  const [data, setData] = useState<DashboardData | null>(null)
+   270→  const [loading, setLoading] = useState(true)
+   271→
+   272→  useEffect(() => {
+   273→    setLoading(true)
+   274→    api.adminDashboard()
+   275→      .then((res) => setData(res.data || res))
+   276→      .catch((err) => toast.error(err.message || 'Failed to load dashboard'))
+   277→      .finally(() => setLoading(false))
+   278→  }, [])
+   279→
+   280→  const stats = data ? [
+   281→    { label: 'Total Students', value: data.totalStudents, icon: Users, color: 'text-emerald-600 bg-emerald-50' },
+   282→    { label: 'Courses', value: data.totalCourses, icon: BookOpen, color: 'text-amber-600 bg-amber-50' },
+   283→    { label: 'Subjects', value: data.totalSubjects, icon: BookMarked, color: 'text-sky-600 bg-sky-50' },
+   284→    { label: 'Chapters', value: data.totalChapters, icon: FileText, color: 'text-violet-600 bg-violet-50' },
+   285→    { label: 'Reviews', value: data.totalReviews, icon: Star, color: 'text-rose-600 bg-rose-50' },
+   286→    { label: 'Discussions', value: data.totalDiscussions, icon: MessageCircle, color: 'text-teal-600 bg-teal-50' },
+   287→  ] : []
+   288→
+   289→  return (
+   290→    <div className="space-y-6">
+   291→      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+   292→        {loading
+   293→          ? Array.from({ length: 6 }).map((_, i) => (
+   294→              <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>
+   295→            ))
+   296→          : stats.map((s) => (
+   297→              <Card key={s.label} className="py-4">
+   298→                <CardContent className="p-4 pt-0">
+   299→                  <div className="flex items-center gap-3">
+   300→                    <div className={`flex size-10 items-center justify-center rounded-lg ${s.color}`}>
+   301→                      <s.icon className="size-5" />
+   302→                    </div>
+   303→                    <div>
+   304→                      <p className="text-2xl font-bold">{s.value}</p>
+   305→                      <p className="text-xs text-muted-foreground">{s.label}</p>
+   306→                    </div>
+   307→                  </div>
+   308→                </CardContent>
+   309→              </Card>
+   310→            ))
+   311→        }
+   312→      </div>
+   313→
+   314→      <Card>
+   315→        <CardHeader>
+   316→          <CardTitle className="text-base">Recent Signups (Last 24h)</CardTitle>
+   317→          <CardDescription>Students who registered in the last 24 hours</CardDescription>
+   318→        </CardHeader>
+   319→        <CardContent>
+   320→          {loading ? (
+   321→            <TableSkeleton cols={4} rows={3} />
+   322→          ) : !data?.recentSignups?.length ? (
+   323→            <p className="text-sm text-muted-foreground py-8 text-center">No recent signups</p>
+   324→          ) : (
+   325→            <Table>
+   326→              <TableHeader>
+   327→                <TableRow>
+   328→                  <TableHead>Name</TableHead>
+   329→                  <TableHead>Email</TableHead>
+   330→                  <TableHead>Mobile</TableHead>
+   331→                  <TableHead>Date</TableHead>
+   332→                </TableRow>
+   333→              </TableHeader>
+   334→              <TableBody>
+   335→                {data.recentSignups.map((s: any) => (
+   336→                  <TableRow key={s.id}>
+   337→                    <TableCell className="font-medium">{s.name}</TableCell>
+   338→                    <TableCell>{s.email}</TableCell>
+   339→                    <TableCell>{s.mobile}</TableCell>
+   340→                    <TableCell>{new Date(s.createdAt).toLocaleDateString()}</TableCell>
+   341→                  </TableRow>
+   342→                ))}
+   343→              </TableBody>
+   344→            </Table>
+   345→          )}
+   346→        </CardContent>
+   347→      </Card>
+   348→    </div>
+   349→  )
+   350→}
+   351→
+   352→// ─── 2. Students Page ────────────────────────────────────────────
+   353→function StudentsPage() {
+   354→  const [students, setStudents] = useState<Student[]>([])
+   355→  const [loading, setLoading] = useState(true)
+   356→  const [search, setSearch] = useState('')
+   357→  const [addOpen, setAddOpen] = useState(false)
+   358→  const [editStudent, setEditStudent] = useState<Student | null>(null)
+   359→  const [deleteStudent, setDeleteStudent] = useState<Student | null>(null)
+   360→  const [passwordStudent, setPasswordStudent] = useState<Student | null>(null)
+   361→  const [courses, setCourses] = useState<Course[]>([])
+   362→
+   363→  const fetchStudents = useCallback(() => {
+   364→    setLoading(true)
+   365→    api.adminStudents(search || undefined)
+   366→      .then((res) => setStudents(res.data || res.students || res))
+   367→      .catch((err) => toast.error(err.message))
+   368→      .finally(() => setLoading(false))
+   369→  }, [search])
+   370→
+   371→  useEffect(() => { fetchStudents() }, [fetchStudents])
+   372→  useEffect(() => {
+   373→    api.adminCourses()
+   374→      .then((res) => setCourses(res.data || res.courses || res))
+   375→      .catch(() => {})
+   376→  }, [])
+   377→
+   378→  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+   379→    e.preventDefault()
+   380→    const fd = new FormData(e.currentTarget)
+   381→    try {
+   382→      await api.adminCreateStudent({
+   383→        name: fd.get('name'), email: fd.get('email'), mobile: fd.get('mobile'),
+   384→        password: fd.get('password'), courseId: fd.get('courseId'),
+   385→      })
+   386→      toast.success('Student created')
+   387→      setAddOpen(false)
+   388→      fetchStudents()
+   389→    } catch (err: any) { toast.error(err.message) }
+   390→  }
+   391→
+   392→  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+   393→    e.preventDefault()
+   394→    if (!editStudent) return
+   395→    const fd = new FormData(e.currentTarget)
+   396→    try {
+   397→      await api.adminUpdateStudent(editStudent.id, {
+   398→        name: fd.get('name'), email: fd.get('email'), mobile: fd.get('mobile'),
+   399→        courseId: fd.get('courseId'), status: fd.get('status'),
+   400→      })
+   401→      toast.success('Student updated')
+   402→      setEditStudent(null)
+   403→      fetchStudents()
+   404→    } catch (err: any) { toast.error(err.message) }
+   405→  }
+   406→
+   407→  const handleDelete = async () => {
+   408→    if (!deleteStudent) return
+   409→    try {
+   410→      await api.adminDeleteStudent(deleteStudent.id)
+   411→      toast.success('Student deleted')
+   412→      setDeleteStudent(null)
+   413→      fetchStudents()
+   414→    } catch (err: any) { toast.error(err.message) }
+   415→  }
+   416→
+   417→  const handleChangePassword = async (e: React.FormEvent<HTMLFormElement>) => {
+   418→    e.preventDefault()
+   419→    if (!passwordStudent) return
+   420→    const fd = new FormData(e.currentTarget)
+   421→    try {
+   422→      await api.adminChangePassword(passwordStudent.id, fd.get('password') as string)
+   423→      toast.success('Password changed')
+   424→      setPasswordStudent(null)
+   425→    } catch (err: any) { toast.error(err.message) }
+   426→  }
+   427→
+   428→  return (
+   429→    <div className="space-y-4">
+   430→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   431→        <div className="relative w-full sm:w-72">
+   432→          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+   433→          <Input placeholder="Search students..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+   434→        </div>
+   435→        <Button onClick={() => setAddOpen(true)}><Plus className="size-4" /> Add Student</Button>
+   436→      </div>
+   437→
+   438→      <Card>
+   439→        <CardContent className="p-0">
+   440→          {loading ? <div className="p-4"><TableSkeleton cols={6} /></div> : (
+   441→            <Table>
+   442→              <TableHeader>
+   443→                <TableRow>
+   444→                  <TableHead>Name</TableHead>
+   445→                  <TableHead>Email</TableHead>
+   446→                  <TableHead className="hidden md:table-cell">Mobile</TableHead>
+   447→                  <TableHead>Course</TableHead>
+   448→                  <TableHead>Status</TableHead>
+   449→                  <TableHead className="text-right">Actions</TableHead>
+   450→                </TableRow>
+   451→              </TableHeader>
+   452→              <TableBody>
+   453→                {!students.length ? (
+   454→                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No students found</TableCell></TableRow>
+   455→                ) : students.map((s) => (
+   456→                  <TableRow key={s.id}>
+   457→                    <TableCell className="font-medium">{s.name}</TableCell>
+   458→                    <TableCell className="text-sm">{s.email}</TableCell>
+   459→                    <TableCell className="hidden md:table-cell">{s.mobile}</TableCell>
+   460→                    <TableCell>{s.course?.title || '—'}</TableCell>
+   461→                    <TableCell>
+   462→                      <Badge variant={s.status === 'APPROVED' ? 'default' : s.status === 'REJECTED' ? 'destructive' : 'secondary'}>
+   463→                        {s.status}
+   464→                      </Badge>
+   465→                    </TableCell>
+   466→                    <TableCell className="text-right">
+   467→                      <div className="flex items-center justify-end gap-1">
+   468→                        <Button variant="ghost" size="icon" onClick={() => setEditStudent(s)} title="Edit"><Pencil className="size-4" /></Button>
+   469→                        <Button variant="ghost" size="icon" onClick={() => setPasswordStudent(s)} title="Change Password"><Lock className="size-4" /></Button>
+   470→                        <Button variant="ghost" size="icon" onClick={() => setDeleteStudent(s)} title="Delete"><Trash2 className="size-4 text-destructive" /></Button>
+   471→                      </div>
+   472→                    </TableCell>
+   473→                  </TableRow>
+   474→                ))}
+   475→              </TableBody>
+   476→            </Table>
+   477→          )}
+   478→        </CardContent>
+   479→      </Card>
+   480→
+   481→      {/* Add Student Dialog */}
+   482→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   483→        <DialogContent>
+   484→          <DialogHeader><DialogTitle>Add Student</DialogTitle><DialogDescription>Create a new student account</DialogDescription></DialogHeader>
+   485→          <form onSubmit={handleAdd} className="space-y-3">
+   486→            <div><Label>Name</Label><Input name="name" required /></div>
+   487→            <div><Label>Email</Label><Input name="email" type="email" required /></div>
+   488→            <div><Label>Mobile</Label><Input name="mobile" required /></div>
+   489→            <div><Label>Password</Label><Input name="password" type="password" required /></div>
+   490→            <div>
+   491→              <Label>Course</Label>
+   492→              <Select name="courseId">
+   493→                <SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger>
+   494→                <SelectContent>
+   495→                  {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   496→                </SelectContent>
+   497→              </Select>
+   498→            </div>
+   499→            <DialogFooter><Button type="submit">Create Student</Button></DialogFooter>
+   500→          </form>
+   501→        </DialogContent>
+   502→      </Dialog>
+   503→
+   504→      {/* Edit Student Dialog */}
+   505→      <Dialog open={!!editStudent} onOpenChange={(open) => !open && setEditStudent(null)}>
+   506→        <DialogContent>
+   507→          <DialogHeader><DialogTitle>Edit Student</DialogTitle></DialogHeader>
+   508→          {editStudent && (
+   509→            <form onSubmit={handleEdit} className="space-y-3">
+   510→              <div><Label>Name</Label><Input name="name" defaultValue={editStudent.name} required /></div>
+   511→              <div><Label>Email</Label><Input name="email" type="email" defaultValue={editStudent.email} required /></div>
+   512→              <div><Label>Mobile</Label><Input name="mobile" defaultValue={editStudent.mobile} required /></div>
+   513→              <div>
+   514→                <Label>Course</Label>
+   515→                <Select name="courseId" defaultValue={editStudent.courseId || undefined}>
+   516→                  <SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger>
+   517→                  <SelectContent>
+   518→                    {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   519→                  </SelectContent>
+   520→                </Select>
+   521→              </div>
+   522→              <div>
+   523→                <Label>Status</Label>
+   524→                <Select name="status" defaultValue={editStudent.status}>
+   525→                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+   526→                  <SelectContent>
+   527→                    <SelectItem value="PENDING">PENDING</SelectItem>
+   528→                    <SelectItem value="APPROVED">APPROVED</SelectItem>
+   529→                    <SelectItem value="REJECTED">REJECTED</SelectItem>
+   530→                  </SelectContent>
+   531→                </Select>
+   532→              </div>
+   533→              <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   534→            </form>
+   535→          )}
+   536→        </DialogContent>
+   537→      </Dialog>
+   538→
+   539→      {/* Change Student Password Dialog */}
+   540→      <Dialog open={!!passwordStudent} onOpenChange={(open) => !open && setPasswordStudent(null)}>
+   541→        <DialogContent>
+   542→          <DialogHeader><DialogTitle>Change Password</DialogTitle><DialogDescription>For {passwordStudent?.name}</DialogDescription></DialogHeader>
+   543→          <form onSubmit={handleChangePassword} className="space-y-3">
+   544→            <div><Label>New Password</Label><Input name="password" type="password" required minLength={6} /></div>
+   545→            <DialogFooter><Button type="submit">Update Password</Button></DialogFooter>
+   546→          </form>
+   547→        </DialogContent>
+   548→      </Dialog>
+   549→
+   550→      {/* Delete Confirmation */}
+   551→      <AlertDialog open={!!deleteStudent} onOpenChange={(open) => !open && setDeleteStudent(null)}>
+   552→        <AlertDialogContent>
+   553→          <AlertDialogHeader>
+   554→            <AlertDialogTitle>Delete Student</AlertDialogTitle>
+   555→            <AlertDialogDescription>Are you sure you want to delete {deleteStudent?.name}? This action cannot be undone.</AlertDialogDescription>
+   556→          </AlertDialogHeader>
+   557→          <AlertDialogFooter>
+   558→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   559→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+   560→          </AlertDialogFooter>
+   561→        </AlertDialogContent>
+   562→      </AlertDialog>
+   563→    </div>
+   564→  )
+   565→}
+   566→
+   567→// ─── 3. Courses Page ─────────────────────────────────────────────
+   568→function CoursesPage() {
+   569→  const [courses, setCourses] = useState<Course[]>([])
+   570→  const [loading, setLoading] = useState(true)
+   571→  const [search, setSearch] = useState('')
+   572→  const [addOpen, setAddOpen] = useState(false)
+   573→  const [editCourse, setEditCourse] = useState<Course | null>(null)
+   574→  const [deleteCourse, setDeleteCourse] = useState<Course | null>(null)
+   575→
+   576→  const fetchCourses = useCallback(() => {
+   577→    setLoading(true)
+   578→    api.adminCourses(search || undefined)
+   579→      .then((res) => setCourses(res.data || res.courses || res))
+   580→      .catch((err) => toast.error(err.message))
+   581→      .finally(() => setLoading(false))
+   582→  }, [search])
+   583→
+   584→  useEffect(() => { fetchCourses() }, [fetchCourses])
+   585→
+   586→  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+   587→    e.preventDefault()
+   588→    const fd = new FormData(e.currentTarget)
+   589→    try {
+   590→      await api.adminCreateCourse({ title: fd.get('title'), slug: fd.get('slug') })
+   591→      toast.success('Course created')
+   592→      setAddOpen(false)
+   593→      fetchCourses()
+   594→    } catch (err: any) { toast.error(err.message) }
+   595→  }
+   596→
+   597→  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+   598→    e.preventDefault()
+   599→    if (!editCourse) return
+   600→    const fd = new FormData(e.currentTarget)
+   601→    try {
+   602→      await api.adminUpdateCourse(editCourse.id, { title: fd.get('title'), slug: fd.get('slug') })
+   603→      toast.success('Course updated')
+   604→      setEditCourse(null)
+   605→      fetchCourses()
+   606→    } catch (err: any) { toast.error(err.message) }
+   607→  }
+   608→
+   609→  const handleDelete = async () => {
+   610→    if (!deleteCourse) return
+   611→    try {
+   612→      await api.adminDeleteCourse(deleteCourse.id)
+   613→      toast.success('Course deleted')
+   614→      setDeleteCourse(null)
+   615→      fetchCourses()
+   616→    } catch (err: any) { toast.error(err.message) }
+   617→  }
+   618→
+   619→  return (
+   620→    <div className="space-y-4">
+   621→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   622→        <div className="relative w-full sm:w-72">
+   623→          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+   624→          <Input placeholder="Search courses..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+   625→        </div>
+   626→        <Button onClick={() => setAddOpen(true)}><Plus className="size-4" /> Add Course</Button>
+   627→      </div>
+   628→
+   629→      <Card>
+   630→        <CardContent className="p-0">
+   631→          {loading ? <div className="p-4"><TableSkeleton cols={5} /></div> : (
+   632→            <Table>
+   633→              <TableHeader>
+   634→                <TableRow>
+   635→                  <TableHead>Title</TableHead>
+   636→                  <TableHead>Slug</TableHead>
+   637→                  <TableHead className="hidden sm:table-cell">Students</TableHead>
+   638→                  <TableHead className="hidden sm:table-cell">Subjects</TableHead>
+   639→                  <TableHead className="text-right">Actions</TableHead>
+   640→                </TableRow>
+   641→              </TableHeader>
+   642→              <TableBody>
+   643→                {!courses.length ? (
+   644→                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No courses found</TableCell></TableRow>
+   645→                ) : courses.map((c) => (
+   646→                  <TableRow key={c.id}>
+   647→                    <TableCell className="font-medium">{c.title}</TableCell>
+   648→                    <TableCell className="text-sm text-muted-foreground">{c.slug}</TableCell>
+   649→                    <TableCell className="hidden sm:table-cell">{c._count?.students ?? 0}</TableCell>
+   650→                    <TableCell className="hidden sm:table-cell">{c._count?.subjects ?? 0}</TableCell>
+   651→                    <TableCell className="text-right">
+   652→                      <div className="flex items-center justify-end gap-1">
+   653→                        <Button variant="ghost" size="icon" onClick={() => setEditCourse(c)}><Pencil className="size-4" /></Button>
+   654→                        <Button variant="ghost" size="icon" onClick={() => setDeleteCourse(c)}><Trash2 className="size-4 text-destructive" /></Button>
+   655→                      </div>
+   656→                    </TableCell>
+   657→                  </TableRow>
+   658→                ))}
+   659→              </TableBody>
+   660→            </Table>
+   661→          )}
+   662→        </CardContent>
+   663→      </Card>
+   664→
+   665→      {/* Add Course */}
+   666→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   667→        <DialogContent>
+   668→          <DialogHeader><DialogTitle>Add Course</DialogTitle></DialogHeader>
+   669→          <form onSubmit={handleAdd} className="space-y-3">
+   670→            <div><Label>Title</Label><Input name="title" required /></div>
+   671→            <div><Label>Slug</Label><Input name="slug" required placeholder="e.g. computer-science" /></div>
+   672→            <DialogFooter><Button type="submit">Create Course</Button></DialogFooter>
+   673→          </form>
+   674→        </DialogContent>
+   675→      </Dialog>
+   676→
+   677→      {/* Edit Course */}
+   678→      <Dialog open={!!editCourse} onOpenChange={(open) => !open && setEditCourse(null)}>
+   679→        <DialogContent>
+   680→          <DialogHeader><DialogTitle>Edit Course</DialogTitle></DialogHeader>
+   681→          {editCourse && (
+   682→            <form onSubmit={handleEdit} className="space-y-3">
+   683→              <div><Label>Title</Label><Input name="title" defaultValue={editCourse.title} required /></div>
+   684→              <div><Label>Slug</Label><Input name="slug" defaultValue={editCourse.slug} required /></div>
+   685→              <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   686→            </form>
+   687→          )}
+   688→        </DialogContent>
+   689→      </Dialog>
+   690→
+   691→      {/* Delete Course */}
+   692→      <AlertDialog open={!!deleteCourse} onOpenChange={(open) => !open && setDeleteCourse(null)}>
+   693→        <AlertDialogContent>
+   694→          <AlertDialogHeader>
+   695→            <AlertDialogTitle>Delete Course</AlertDialogTitle>
+   696→            <AlertDialogDescription>Are you sure you want to delete &quot;{deleteCourse?.title}&quot;?</AlertDialogDescription>
+   697→          </AlertDialogHeader>
+   698→          <AlertDialogFooter>
+   699→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   700→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+   701→          </AlertDialogFooter>
+   702→        </AlertDialogContent>
+   703→      </AlertDialog>
+   704→    </div>
+   705→  )
+   706→}
+   707→
+   708→// ─── 4. Subjects Page ────────────────────────────────────────────
+   709→function SubjectsPage() {
+   710→  const [subjects, setSubjects] = useState<Subject[]>([])
+   711→  const [courses, setCourses] = useState<Course[]>([])
+   712→  const [loading, setLoading] = useState(true)
+   713→  const [search, setSearch] = useState('')
+   714→  const [courseFilter, setCourseFilter] = useState<string>('')
+   715→  const [addOpen, setAddOpen] = useState(false)
+   716→  const [editSubject, setEditSubject] = useState<Subject | null>(null)
+   717→  const [deleteSubject, setDeleteSubject] = useState<Subject | null>(null)
+   718→
+   719→  const fetchSubjects = useCallback(() => {
+   720→    setLoading(true)
+   721→    api.adminSubjects(search || undefined, courseFilter || undefined)
+   722→      .then((res) => setSubjects(res.data || res.subjects || res))
+   723→      .catch((err) => toast.error(err.message))
+   724→      .finally(() => setLoading(false))
+   725→  }, [search, courseFilter])
+   726→
+   727→  useEffect(() => { fetchSubjects() }, [fetchSubjects])
+   728→  useEffect(() => {
+   729→    api.adminCourses()
+   730→      .then((res) => setCourses(res.data || res.courses || res))
+   731→      .catch(() => {})
+   732→  }, [])
+   733→
+   734→  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+   735→    e.preventDefault()
+   736→    const fd = new FormData(e.currentTarget)
+   737→    try {
+   738→      await api.adminCreateSubject({
+   739→        name: fd.get('name'), courseId: fd.get('courseId'), order: Number(fd.get('order')),
+   740→      })
+   741→      toast.success('Subject created')
+   742→      setAddOpen(false)
+   743→      fetchSubjects()
+   744→    } catch (err: any) { toast.error(err.message) }
+   745→  }
+   746→
+   747→  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+   748→    e.preventDefault()
+   749→    if (!editSubject) return
+   750→    const fd = new FormData(e.currentTarget)
+   751→    try {
+   752→      await api.adminUpdateSubject(editSubject.id, {
+   753→        name: fd.get('name'), courseId: fd.get('courseId'), order: Number(fd.get('order')),
+   754→      })
+   755→      toast.success('Subject updated')
+   756→      setEditSubject(null)
+   757→      fetchSubjects()
+   758→    } catch (err: any) { toast.error(err.message) }
+   759→  }
+   760→
+   761→  const handleDelete = async () => {
+   762→    if (!deleteSubject) return
+   763→    try {
+   764→      await api.adminDeleteSubject(deleteSubject.id)
+   765→      toast.success('Subject deleted')
+   766→      setDeleteSubject(null)
+   767→      fetchSubjects()
+   768→    } catch (err: any) { toast.error(err.message) }
+   769→  }
+   770→
+   771→  return (
+   772→    <div className="space-y-4">
+   773→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   774→        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   775→          <div className="relative w-full sm:w-72">
+   776→            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+   777→            <Input placeholder="Search subjects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+   778→          </div>
+   779→          <Select value={courseFilter} onValueChange={setCourseFilter}>
+   780→            <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Courses" /></SelectTrigger>
+   781→            <SelectContent>
+   782→              <SelectItem value="__all__">All Courses</SelectItem>
+   783→              {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   784→            </SelectContent>
+   785→          </Select>
+   786→        </div>
+   787→        <Button onClick={() => setAddOpen(true)}><Plus className="size-4" /> Add Subject</Button>
+   788→      </div>
+   789→
+   790→      <Card>
+   791→        <CardContent className="p-0">
+   792→          {loading ? <div className="p-4"><TableSkeleton cols={5} /></div> : (
+   793→            <Table>
+   794→              <TableHeader>
+   795→                <TableRow>
+   796→                  <TableHead>Name</TableHead>
+   797→                  <TableHead>Course</TableHead>
+   798→                  <TableHead>Order</TableHead>
+   799→                  <TableHead className="hidden sm:table-cell">Chapters</TableHead>
+   800→                  <TableHead className="text-right">Actions</TableHead>
+   801→                </TableRow>
+   802→              </TableHeader>
+   803→              <TableBody>
+   804→                {!subjects.length ? (
+   805→                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No subjects found</TableCell></TableRow>
+   806→                ) : subjects.map((s) => (
+   807→                  <TableRow key={s.id}>
+   808→                    <TableCell className="font-medium">{s.name}</TableCell>
+   809→                    <TableCell>{s.course?.title || '—'}</TableCell>
+   810→                    <TableCell>{s.order}</TableCell>
+   811→                    <TableCell className="hidden sm:table-cell">{s._count?.chapters ?? 0}</TableCell>
+   812→                    <TableCell className="text-right">
+   813→                      <div className="flex items-center justify-end gap-1">
+   814→                        <Button variant="ghost" size="icon" onClick={() => setEditSubject(s)}><Pencil className="size-4" /></Button>
+   815→                        <Button variant="ghost" size="icon" onClick={() => setDeleteSubject(s)}><Trash2 className="size-4 text-destructive" /></Button>
+   816→                      </div>
+   817→                    </TableCell>
+   818→                  </TableRow>
+   819→                ))}
+   820→              </TableBody>
+   821→            </Table>
+   822→          )}
+   823→        </CardContent>
+   824→      </Card>
+   825→
+   826→      {/* Add Subject */}
+   827→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   828→        <DialogContent>
+   829→          <DialogHeader><DialogTitle>Add Subject</DialogTitle></DialogHeader>
+   830→          <form onSubmit={handleAdd} className="space-y-3">
+   831→            <div>
+   832→              <Label>Course</Label>
+   833→              <Select name="courseId" required>
+   834→                <SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger>
+   835→                <SelectContent>
+   836→                  {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   837→                </SelectContent>
+   838→              </Select>
+   839→            </div>
+   840→            <div><Label>Subject Name</Label><Input name="name" required /></div>
+   841→            <div><Label>Order</Label><Input name="order" type="number" min={1} required /></div>
+   842→            <DialogFooter><Button type="submit">Create Subject</Button></DialogFooter>
+   843→          </form>
+   844→        </DialogContent>
+   845→      </Dialog>
+   846→
+   847→      {/* Edit Subject */}
+   848→      <Dialog open={!!editSubject} onOpenChange={(open) => !open && setEditSubject(null)}>
+   849→        <DialogContent>
+   850→          <DialogHeader><DialogTitle>Edit Subject</DialogTitle></DialogHeader>
+   851→          {editSubject && (
+   852→            <form onSubmit={handleEdit} className="space-y-3">
+   853→              <div>
+   854→                <Label>Course</Label>
+   855→                <Select name="courseId" defaultValue={editSubject.courseId}>
+   856→                  <SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger>
+   857→                  <SelectContent>
+   858→                    {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   859→                  </SelectContent>
+   860→                </Select>
+   861→              </div>
+   862→              <div><Label>Subject Name</Label><Input name="name" defaultValue={editSubject.name} required /></div>
+   863→              <div><Label>Order</Label><Input name="order" type="number" min={1} defaultValue={editSubject.order} required /></div>
+   864→              <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   865→            </form>
+   866→          )}
+   867→        </DialogContent>
+   868→      </Dialog>
+   869→
+   870→      {/* Delete Subject */}
+   871→      <AlertDialog open={!!deleteSubject} onOpenChange={(open) => !open && setDeleteSubject(null)}>
+   872→        <AlertDialogContent>
+   873→          <AlertDialogHeader>
+   874→            <AlertDialogTitle>Delete Subject</AlertDialogTitle>
+   875→            <AlertDialogDescription>Are you sure you want to delete &quot;{deleteSubject?.name}&quot;?</AlertDialogDescription>
+   876→          </AlertDialogHeader>
+   877→          <AlertDialogFooter>
+   878→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   879→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+   880→          </AlertDialogFooter>
+   881→        </AlertDialogContent>
+   882→      </AlertDialog>
+   883→    </div>
+   884→  )
+   885→}
+   886→
+   887→// ─── 5. Chapters Page ────────────────────────────────────────────
+   888→function ChaptersPage() {
+   889→  const [chapters, setChapters] = useState<Chapter[]>([])
+   890→  const [courses, setCourses] = useState<Course[]>([])
+   891→  const [subjects, setSubjects] = useState<Subject[]>([])
+   892→  const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([])
+   893→  const [loading, setLoading] = useState(true)
+   894→  const [search, setSearch] = useState('')
+   895→  const [courseFilter, setCourseFilter] = useState<string>('')
+   896→  const [subjectFilter, setSubjectFilter] = useState<string>('')
+   897→  const [addOpen, setAddOpen] = useState(false)
+   898→  const [addCourseId, setAddCourseId] = useState<string>('')
+   899→  const [editChapter, setEditChapter] = useState<Chapter | null>(null)
+   900→  const [deleteChapter, setDeleteChapter] = useState<Chapter | null>(null)
+   901→
+   902→  const fetchChapters = useCallback(() => {
+   903→    setLoading(true)
+   904→    api.adminChapters(search || undefined, subjectFilter || undefined, courseFilter || undefined)
+   905→      .then((res) => setChapters(res.data || res.chapters || res))
+   906→      .catch((err) => toast.error(err.message))
+   907→      .finally(() => setLoading(false))
+   908→  }, [search, courseFilter, subjectFilter])
+   909→
+   910→  useEffect(() => { fetchChapters() }, [fetchChapters])
+   911→
+   912→  useEffect(() => {
+   913→    api.adminCourses().then((res) => setCourses(res.data || res.courses || res)).catch(() => {})
+   914→    api.adminSubjects().then((res) => setSubjects(res.data || res.subjects || res)).catch(() => {})
+   915→  }, [])
+   916→
+   917→  // Update filtered subjects when course filter changes
+   918→  useEffect(() => {
+   919→    if (courseFilter && courseFilter !== '__all__') {
+   920→      setFilteredSubjects(subjects.filter((s) => s.courseId === courseFilter))
+   921→    } else {
+   922→      setFilteredSubjects(subjects)
+   923→    }
+   924→    setSubjectFilter('')
+   925→  }, [courseFilter, subjects])
+   926→
+   927→  // Update add-form subjects when addCourseId changes
+   928→  const [addSubjects, setAddSubjects] = useState<Subject[]>([])
+   929→  useEffect(() => {
+   930→    if (addCourseId) {
+   931→      setAddSubjects(subjects.filter((s) => s.courseId === addCourseId))
+   932→    } else {
+   933→      setAddSubjects([])
+   934→    }
+   935→  }, [addCourseId, subjects])
+   936→
+   937→  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+   938→    e.preventDefault()
+   939→    const fd = new FormData(e.currentTarget)
+   940→    try {
+   941→      await api.adminCreateChapter({ name: fd.get('name'), subjectId: fd.get('subjectId') })
+   942→      toast.success('Chapter created')
+   943→      setAddOpen(false)
+   944→      setAddCourseId('')
+   945→      fetchChapters()
+   946→    } catch (err: any) { toast.error(err.message) }
+   947→  }
+   948→
+   949→  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+   950→    e.preventDefault()
+   951→    if (!editChapter) return
+   952→    const fd = new FormData(e.currentTarget)
+   953→    try {
+   954→      await api.adminUpdateChapter(editChapter.id, { name: fd.get('name'), subjectId: fd.get('subjectId') })
+   955→      toast.success('Chapter updated')
+   956→      setEditChapter(null)
+   957→      fetchChapters()
+   958→    } catch (err: any) { toast.error(err.message) }
+   959→  }
+   960→
+   961→  const handleDelete = async () => {
+   962→    if (!deleteChapter) return
+   963→    try {
+   964→      await api.adminDeleteChapter(deleteChapter.id)
+   965→      toast.success('Chapter deleted')
+   966→      setDeleteChapter(null)
+   967→      fetchChapters()
+   968→    } catch (err: any) { toast.error(err.message) }
+   969→  }
+   970→
+   971→  return (
+   972→    <div className="space-y-4">
+   973→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   974→        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   975→          <div className="relative w-full sm:w-64">
+   976→            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+   977→            <Input placeholder="Search chapters..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+   978→          </div>
+   979→          <Select value={courseFilter} onValueChange={(v) => setCourseFilter(v === '__all__' ? '' : v)}>
+   980→            <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Courses" /></SelectTrigger>
+   981→            <SelectContent>
+   982→              <SelectItem value="__all__">All Courses</SelectItem>
+   983→              {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+   984→            </SelectContent>
+   985→          </Select>
+   986→          <Select value={subjectFilter} onValueChange={setSubjectFilter}>
+   987→            <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Subjects" /></SelectTrigger>
+   988→            <SelectContent>
+   989→              <SelectItem value="__all__">All Subjects</SelectItem>
+   990→              {filteredSubjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+   991→            </SelectContent>
+   992→          </Select>
+   993→        </div>
+   994→        <Button onClick={() => setAddOpen(true)}><Plus className="size-4" /> Add Chapter</Button>
+   995→      </div>
+   996→
+   997→      <Card>
+   998→        <CardContent className="p-0">
+   999→          {loading ? <div className="p-4"><TableSkeleton cols={4} /></div> : (
+  1000→            <Table>
+  1001→              <TableHeader>
+  1002→                <TableRow>
+  1003→                  <TableHead>Name</TableHead>
+  1004→                  <TableHead>Subject</TableHead>
+  1005→                  <TableHead className="hidden sm:table-cell">Course</TableHead>
+  1006→                  <TableHead className="text-right">Actions</TableHead>
+  1007→                </TableRow>
+  1008→              </TableHeader>
+  1009→              <TableBody>
+  1010→                {!chapters.length ? (
+  1011→                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No chapters found</TableCell></TableRow>
+  1012→                ) : chapters.map((ch) => (
+  1013→                  <TableRow key={ch.id}>
+  1014→                    <TableCell className="font-medium">{ch.name}</TableCell>
+  1015→                    <TableCell>{ch.subject?.name || '—'}</TableCell>
+  1016→                    <TableCell className="hidden sm:table-cell">{ch.subject?.course?.title || '—'}</TableCell>
+  1017→                    <TableCell className="text-right">
+  1018→                      <div className="flex items-center justify-end gap-1">
+  1019→                        <Button variant="ghost" size="icon" onClick={() => setEditChapter(ch)}><Pencil className="size-4" /></Button>
+  1020→                        <Button variant="ghost" size="icon" onClick={() => setDeleteChapter(ch)}><Trash2 className="size-4 text-destructive" /></Button>
+  1021→                      </div>
+  1022→                    </TableCell>
+  1023→                  </TableRow>
+  1024→                ))}
+  1025→              </TableBody>
+  1026→            </Table>
+  1027→          )}
+  1028→        </CardContent>
+  1029→      </Card>
+  1030→
+  1031→      {/* Add Chapter - cascading dropdown */}
+  1032→      <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) setAddCourseId('') }}>
+  1033→        <DialogContent>
+  1034→          <DialogHeader><DialogTitle>Add Chapter</DialogTitle></DialogHeader>
+  1035→          <form onSubmit={handleAdd} className="space-y-3">
+  1036→            <div>
+  1037→              <Label>Course</Label>
+  1038→              <Select value={addCourseId} onValueChange={setAddCourseId}>
+  1039→                <SelectTrigger className="w-full"><SelectValue placeholder="Select course first" /></SelectTrigger>
+  1040→                <SelectContent>
+  1041→                  {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+  1042→                </SelectContent>
+  1043→              </Select>
+  1044→            </div>
+  1045→            <div>
+  1046→              <Label>Subject</Label>
+  1047→              <Select name="subjectId" required disabled={!addCourseId}>
+  1048→                <SelectTrigger className="w-full"><SelectValue placeholder={addCourseId ? 'Select subject' : 'Select course first'} /></SelectTrigger>
+  1049→                <SelectContent>
+  1050→                  {addSubjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+  1051→                </SelectContent>
+  1052→              </Select>
+  1053→            </div>
+  1054→            <div><Label>Chapter Name</Label><Input name="name" required /></div>
+  1055→            <DialogFooter><Button type="submit" disabled={!addCourseId}>Create Chapter</Button></DialogFooter>
+  1056→          </form>
+  1057→        </DialogContent>
+  1058→      </Dialog>
+  1059→
+  1060→      {/* Edit Chapter */}
+  1061→      <Dialog open={!!editChapter} onOpenChange={(open) => !open && setEditChapter(null)}>
+  1062→        <DialogContent>
+  1063→          <DialogHeader><DialogTitle>Edit Chapter</DialogTitle></DialogHeader>
+  1064→          {editChapter && (
+  1065→            <form onSubmit={handleEdit} className="space-y-3">
+  1066→              <div>
+  1067→                <Label>Subject</Label>
+  1068→                <Select name="subjectId" defaultValue={editChapter.subjectId}>
+  1069→                  <SelectTrigger className="w-full"><SelectValue placeholder="Select subject" /></SelectTrigger>
+  1070→                  <SelectContent>
+  1071→                    {subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+  1072→                  </SelectContent>
+  1073→                </Select>
+  1074→              </div>
+  1075→              <div><Label>Chapter Name</Label><Input name="name" defaultValue={editChapter.name} required /></div>
+  1076→              <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+  1077→            </form>
+  1078→          )}
+  1079→        </DialogContent>
+  1080→      </Dialog>
+  1081→
+  1082→      {/* Delete Chapter */}
+  1083→      <AlertDialog open={!!deleteChapter} onOpenChange={(open) => !open && setDeleteChapter(null)}>
+  1084→        <AlertDialogContent>
+  1085→          <AlertDialogHeader>
+  1086→            <AlertDialogTitle>Delete Chapter</AlertDialogTitle>
+  1087→            <AlertDialogDescription>Are you sure you want to delete &quot;{deleteChapter?.name}&quot;?</AlertDialogDescription>
+  1088→          </AlertDialogHeader>
+  1089→          <AlertDialogFooter>
+  1090→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1091→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+  1092→          </AlertDialogFooter>
+  1093→        </AlertDialogContent>
+  1094→      </AlertDialog>
+  1095→    </div>
+  1096→  )
+  1097→}
+  1098→
+  1099→// ─── 6. Top Performers Page ──────────────────────────────────────
+  1100→function TopPerformersPage() {
+  1101→  const [performers, setPerformers] = useState<TopPerformer[]>([])
+  1102→  const [loading, setLoading] = useState(true)
+  1103→  const [search, setSearch] = useState('')
+  1104→
+  1105→  const fetchPerformers = useCallback(() => {
+  1106→    setLoading(true)
+  1107→    api.adminTopPerformers(search || undefined)
+  1108→      .then((res) => setPerformers(res.data || res.performers || res))
+  1109→      .catch((err) => toast.error(err.message))
+  1110→      .finally(() => setLoading(false))
+  1111→  }, [search])
+  1112→
+  1113→  useEffect(() => { fetchPerformers() }, [fetchPerformers])
+  1114→
+  1115→  return (
+  1116→    <div className="space-y-4">
+  1117→      <div className="relative w-full sm:w-72">
+  1118→        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+  1119→        <Input placeholder="Search performers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+  1120→      </div>
+  1121→
+  1122→      <Card>
+  1123→        <CardContent className="p-0">
+  1124→          {loading ? <div className="p-4"><TableSkeleton cols={6} /></div> : (
+  1125→            <Table>
+  1126→              <TableHeader>
+  1127→                <TableRow>
+  1128→                  <TableHead>Rank</TableHead>
+  1129→                  <TableHead>Name</TableHead>
+  1130→                  <TableHead className="hidden md:table-cell">Mobile</TableHead>
+  1131→                  <TableHead className="hidden lg:table-cell">Email</TableHead>
+  1132→                  <TableHead>Course</TableHead>
+  1133→                  <TableHead>Study Hours</TableHead>
+  1134→                </TableRow>
+  1135→              </TableHeader>
+  1136→              <TableBody>
+  1137→                {!performers.length ? (
+  1138→                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No performers found</TableCell></TableRow>
+  1139→                ) : performers.map((p, i) => (
+  1140→                  <TableRow key={p.id}>
+  1141→                    <TableCell>
+  1142→                      <div className={`flex size-7 items-center justify-center rounded-full text-xs font-bold ${
+  1143→                        i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-100 text-slate-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-muted text-muted-foreground'
+  1144→                      }`}>
+  1145→                        {i + 1}
+  1146→                      </div>
+  1147→                    </TableCell>
+  1148→                    <TableCell className="font-medium">{p.name}</TableCell>
+  1149→                    <TableCell className="hidden md:table-cell">{p.mobile}</TableCell>
+  1150→                    <TableCell className="hidden lg:table-cell text-sm">{p.email}</TableCell>
+  1151→                    <TableCell>{p.course?.title || '—'}</TableCell>
+  1152→                    <TableCell>
+  1153→                      <Badge variant="secondary">{p.totalStudyHours}h</Badge>
+  1154→                    </TableCell>
+  1155→                  </TableRow>
+  1156→                ))}
+  1157→              </TableBody>
+  1158→            </Table>
+  1159→          )}
+  1160→        </CardContent>
+  1161→      </Card>
+  1162→    </div>
+  1163→  )
+  1164→}
+  1165→
+  1166→// ─── 7. Reviews Page ─────────────────────────────────────────────
+  1167→function ReviewsPage() {
+  1168→  const [reviews, setReviews] = useState<Review[]>([])
+  1169→  const [courses, setCourses] = useState<Course[]>([])
+  1170→  const [loading, setLoading] = useState(true)
+  1171→  const [search, setSearch] = useState('')
+  1172→  const [addOpen, setAddOpen] = useState(false)
+  1173→  const [deleteReview, setDeleteReview] = useState<Review | null>(null)
+  1174→
+  1175→  const fetchReviews = useCallback(() => {
+  1176→    setLoading(true)
+  1177→    api.adminReviews(search || undefined)
+  1178→      .then((res) => setReviews(res.data || res.reviews || res))
+  1179→      .catch((err) => toast.error(err.message))
+  1180→      .finally(() => setLoading(false))
+  1181→  }, [search])
+  1182→
+  1183→  useEffect(() => { fetchReviews() }, [fetchReviews])
+  1184→  useEffect(() => {
+  1185→    api.adminCourses().then((res) => setCourses(res.data || res.courses || res)).catch(() => {})
+  1186→  }, [])
+  1187→
+  1188→  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+  1189→    e.preventDefault()
+  1190→    const fd = new FormData(e.currentTarget)
+  1191→    try {
+  1192→      await api.adminCreateReview({
+  1193→        authorName: fd.get('authorName'), text: fd.get('text'),
+  1194→        rating: Number(fd.get('rating')), courseId: fd.get('courseId') || null,
+  1195→      })
+  1196→      toast.success('Review created')
+  1197→      setAddOpen(false)
+  1198→      fetchReviews()
+  1199→    } catch (err: any) { toast.error(err.message) }
+  1200→  }
+  1201→
+  1202→  const handleStatusChange = async (id: string, status: string) => {
+  1203→    try {
+  1204→      await api.adminUpdateReview(id, { status })
+  1205→      toast.success(`Review ${status.toLowerCase()}`)
+  1206→      fetchReviews()
+  1207→    } catch (err: any) { toast.error(err.message) }
+  1208→  }
+  1209→
+  1210→  const handleDelete = async () => {
+  1211→    if (!deleteReview) return
+  1212→    try {
+  1213→      await api.adminDeleteReview(deleteReview.id)
+  1214→      toast.success('Review deleted')
+  1215→      setDeleteReview(null)
+  1216→      fetchReviews()
+  1217→    } catch (err: any) { toast.error(err.message) }
+  1218→  }
+  1219→
+  1220→  return (
+  1221→    <div className="space-y-4">
+  1222→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+  1223→        <div className="relative w-full sm:w-72">
+  1224→          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+  1225→          <Input placeholder="Search reviews..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+  1226→        </div>
+  1227→        <Button onClick={() => setAddOpen(true)}><Plus className="size-4" /> Add Review</Button>
+  1228→      </div>
+  1229→
+  1230→      <Card>
+  1231→        <CardContent className="p-0">
+  1232→          {loading ? <div className="p-4"><TableSkeleton cols={6} /></div> : (
+  1233→            <div className="overflow-x-auto">
+  1234→              <Table>
+  1235→                <TableHeader>
+  1236→                  <TableRow>
+  1237→                    <TableHead>Author</TableHead>
+  1238→                    <TableHead className="max-w-[200px]">Text</TableHead>
+  1239→                    <TableHead>Rating</TableHead>
+  1240→                    <TableHead className="hidden md:table-cell">Course</TableHead>
+  1241→                    <TableHead>Source</TableHead>
+  1242→                    <TableHead>Status</TableHead>
+  1243→                    <TableHead className="text-right">Actions</TableHead>
+  1244→                  </TableRow>
+  1245→                </TableHeader>
+  1246→                <TableBody>
+  1247→                  {!reviews.length ? (
+  1248→                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No reviews found</TableCell></TableRow>
+  1249→                  ) : reviews.map((r) => (
+  1250→                    <TableRow key={r.id}>
+  1251→                      <TableCell className="font-medium">{r.authorName}</TableCell>
+  1252→                      <TableCell className="max-w-[200px] truncate">{r.text}</TableCell>
+  1253→                      <TableCell><StarRating rating={r.rating} /></TableCell>
+  1254→                      <TableCell className="hidden md:table-cell">{r.course?.title || '—'}</TableCell>
+  1255→                      <TableCell>
+  1256→                        <Badge variant="outline">{r.source}</Badge>
+  1257→                      </TableCell>
+  1258→                      <TableCell>
+  1259→                        <Badge variant={r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'secondary'}>
+  1260→                          {r.status}
+  1261→                        </Badge>
+  1262→                      </TableCell>
+  1263→                      <TableCell className="text-right">
+  1264→                        <div className="flex items-center justify-end gap-1">
+  1265→                          {r.status === 'PENDING' && r.studentId && (
+  1266→                            <>
+  1267→                              <Button variant="ghost" size="sm" onClick={() => handleStatusChange(r.id, 'APPROVED')} className="text-emerald-600 hover:text-emerald-700">
+  1268→                                <Check className="size-3.5" /> Approve
+  1269→                              </Button>
+  1270→                              <Button variant="ghost" size="sm" onClick={() => handleStatusChange(r.id, 'REJECTED')} className="text-destructive hover:text-red-700">
+  1271→                                <X className="size-3.5" /> Reject
+  1272→                              </Button>
+  1273→                            </>
+  1274→                          )}
+  1275→                          <Button variant="ghost" size="icon" onClick={() => setDeleteReview(r)}><Trash2 className="size-4 text-destructive" /></Button>
+  1276→                        </div>
+  1277→                      </TableCell>
+  1278→                    </TableRow>
+  1279→                  ))}
+  1280→                </TableBody>
+  1281→              </Table>
+  1282→            </div>
+  1283→          )}
+  1284→        </CardContent>
+  1285→      </Card>
+  1286→
+  1287→      {/* Add Review */}
+  1288→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+  1289→        <DialogContent>
+  1290→          <DialogHeader><DialogTitle>Add Review</DialogTitle></DialogHeader>
+  1291→          <form onSubmit={handleAdd} className="space-y-3">
+  1292→            <div><Label>Author Name</Label><Input name="authorName" required /></div>
+  1293→            <div><Label>Review Text</Label><Textarea name="text" required /></div>
+  1294→            <div>
+  1295→              <Label>Rating</Label>
+  1296→              <Select name="rating" required>
+  1297→                <SelectTrigger className="w-full"><SelectValue placeholder="Select rating" /></SelectTrigger>
+  1298→                <SelectContent>
+  1299→                  {[1, 2, 3, 4, 5].map((r) => (
+  1300→                    <SelectItem key={r} value={String(r)}>{r} Star{r > 1 ? 's' : ''}</SelectItem>
+  1301→                  ))}
+  1302→                </SelectContent>
+  1303→              </Select>
+  1304→            </div>
+  1305→            <div>
+  1306→              <Label>Course (Optional)</Label>
+  1307→              <Select name="courseId">
+  1308→                <SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger>
+  1309→                <SelectContent>
+  1310→                  {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+  1311→                </SelectContent>
+  1312→              </Select>
+  1313→            </div>
+  1314→            <DialogFooter><Button type="submit">Create Review</Button></DialogFooter>
+  1315→          </form>
+  1316→        </DialogContent>
+  1317→      </Dialog>
+  1318→
+  1319→      {/* Delete Review */}
+  1320→      <AlertDialog open={!!deleteReview} onOpenChange={(open) => !open && setDeleteReview(null)}>
+  1321→        <AlertDialogContent>
+  1322→          <AlertDialogHeader>
+  1323→            <AlertDialogTitle>Delete Review</AlertDialogTitle>
+  1324→            <AlertDialogDescription>Are you sure you want to delete this review?</AlertDialogDescription>
+  1325→          </AlertDialogHeader>
+  1326→          <AlertDialogFooter>
+  1327→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1328→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+  1329→          </AlertDialogFooter>
+  1330→        </AlertDialogContent>
+  1331→      </AlertDialog>
+  1332→    </div>
+  1333→  )
+  1334→}
+  1335→
+  1336→// ─── 8. Approvals Page ───────────────────────────────────────────
+  1337→function ApprovalsPage() {
+  1338→  const [approvals, setApprovals] = useState<Approval[]>([])
+  1339→  const [loading, setLoading] = useState(true)
+  1340→  const [search, setSearch] = useState('')
+  1341→  const [approvalEnabled, setApprovalEnabled] = useState(false)
+  1342→  const [settingsLoading, setSettingsLoading] = useState(true)
+  1343→
+  1344→  const fetchApprovals = useCallback(() => {
+  1345→    setLoading(true)
+  1346→    api.adminApprovals()
+  1347→      .then((res) => setApprovals(res.data || res.approvals || res.students || res))
+  1348→      .catch((err) => toast.error(err.message))
+  1349→      .finally(() => setLoading(false))
+  1350→  }, [])
+  1351→
+  1352→  const fetchSettings = useCallback(() => {
+  1353→    setSettingsLoading(true)
+  1354→    api.adminGetSettings()
+  1355→      .then((res) => {
+  1356→        const data = res.data || res
+  1357→        const setting = data.signup_approval || data.signupApproval
+  1358→        setApprovalEnabled(setting === 'true' || setting === true)
+  1359→      })
+  1360→      .catch(() => {})
+  1361→      .finally(() => setSettingsLoading(false))
+  1362→  }, [])
+  1363→
+  1364→  useEffect(() => { fetchApprovals(); fetchSettings() }, [fetchApprovals, fetchSettings])
+  1365→
+  1366→  const handleToggle = async (enabled: boolean) => {
+  1367→    try {
+  1368→      await api.adminToggleApproval(enabled)
+  1369→      setApprovalEnabled(enabled)
+  1370→      toast.success(`Signup approval ${enabled ? 'enabled' : 'disabled'}`)
+  1371→    } catch (err: any) { toast.error(err.message) }
+  1372→  }
+  1373→
+  1374→  const handleApprove = async (id: string) => {
+  1375→    try {
+  1376→      await api.adminApproveStudent(id)
+  1377→      toast.success('Student approved')
+  1378→      fetchApprovals()
+  1379→    } catch (err: any) { toast.error(err.message) }
+  1380→  }
+  1381→
+  1382→  const handleReject = async (id: string) => {
+  1383→    try {
+  1384→      await api.adminRejectStudent(id)
+  1385→      toast.success('Student rejected')
+  1386→      fetchApprovals()
+  1387→    } catch (err: any) { toast.error(err.message) }
+  1388→  }
+  1389→
+  1390→  const filtered = search
+  1391→    ? approvals.filter((a) => a.name?.toLowerCase().includes(search.toLowerCase()) || a.email?.toLowerCase().includes(search.toLowerCase()) || a.mobile?.includes(search))
+  1392→    : approvals
+  1393→
+  1394→  return (
+  1395→    <div className="space-y-6">
+  1396→      {/* Toggle */}
+  1397→      <Card className="py-4">
+  1398→        <CardContent className="p-4 pt-0">
+  1399→          <div className="flex items-center justify-between">
+  1400→            <div>
+  1401→              <h3 className="font-semibold">Signup Approval Required</h3>
+  1402→              <p className="text-sm text-muted-foreground">When enabled, new students must be approved before accessing the platform.</p>
+  1403→            </div>
+  1404→            {settingsLoading ? <Skeleton className="h-6 w-10" /> : (
+  1405→              <Switch checked={approvalEnabled} onCheckedChange={handleToggle} />
+  1406→            )}
+  1407→          </div>
+  1408→        </CardContent>
+  1409→      </Card>
+  1410→
+  1411→      {/* Pending list */}
+  1412→      <div className="space-y-4">
+  1413→        <div className="relative w-full sm:w-72">
+  1414→          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+  1415→          <Input placeholder="Search pending students..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+  1416→        </div>
+  1417→
+  1418→        <Card>
+  1419→          <CardContent className="p-0">
+  1420→            {loading ? <div className="p-4"><TableSkeleton cols={5} /></div> : (
+  1421→              <Table>
+  1422→                <TableHeader>
+  1423→                  <TableRow>
+  1424→                    <TableHead>Name</TableHead>
+  1425→                    <TableHead>Email</TableHead>
+  1426→                    <TableHead className="hidden md:table-cell">Mobile</TableHead>
+  1427→                    <TableHead>Course</TableHead>
+  1428→                    <TableHead className="text-right">Actions</TableHead>
+  1429→                  </TableRow>
+  1430→                </TableHeader>
+  1431→                <TableBody>
+  1432→                  {!filtered.length ? (
+  1433→                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No pending approvals</TableCell></TableRow>
+  1434→                  ) : filtered.map((a) => (
+  1435→                    <TableRow key={a.id}>
+  1436→                      <TableCell className="font-medium">{a.name}</TableCell>
+  1437→                      <TableCell className="text-sm">{a.email}</TableCell>
+  1438→                      <TableCell className="hidden md:table-cell">{a.mobile}</TableCell>
+  1439→                      <TableCell>{a.course?.title || '—'}</TableCell>
+  1440→                      <TableCell className="text-right">
+  1441→                        <div className="flex items-center justify-end gap-1">
+  1442→                          <Button size="sm" variant="default" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleApprove(a.id)}>
+  1443→                            <Check className="size-3.5" /> Accept
+  1444→                          </Button>
+  1445→                          <Button size="sm" variant="destructive" onClick={() => handleReject(a.id)}>
+  1446→                            <X className="size-3.5" /> Reject
+  1447→                          </Button>
+  1448→                        </div>
+  1449→                      </TableCell>
+  1450→                    </TableRow>
+  1451→                  ))}
+  1452→                </TableBody>
+  1453→              </Table>
+  1454→            )}
+  1455→          </CardContent>
+  1456→        </Card>
+  1457→      </div>
+  1458→    </div>
+  1459→  )
+  1460→}
+  1461→
+  1462→// ─── 9. Discussions Page ─────────────────────────────────────────
+  1463→function DiscussionsPage() {
+  1464→  const [discussions, setDiscussions] = useState<Discussion[]>([])
+  1465→  const [loading, setLoading] = useState(true)
+  1466→  const [search, setSearch] = useState('')
+  1467→  const [replyId, setReplyId] = useState<string | null>(null)
+  1468→  const [replyText, setReplyText] = useState('')
+  1469→  const [deleteId, setDeleteId] = useState<string | null>(null)
+  1470→
+  1471→  const fetchDiscussions = useCallback(() => {
+  1472→    setLoading(true)
+  1473→    api.adminDiscussions(search || undefined)
+  1474→      .then((res) => setDiscussions(res.data || res.discussions || res))
+  1475→      .catch((err) => toast.error(err.message))
+  1476→      .finally(() => setLoading(false))
+  1477→  }, [search])
+  1478→
+  1479→  useEffect(() => { fetchDiscussions() }, [fetchDiscussions])
+  1480→
+  1481→  const handleReply = async (id: string) => {
+  1482→    if (!replyText.trim()) return
+  1483→    try {
+  1484→      await api.adminReplyDiscussion(id, replyText)
+  1485→      toast.success('Reply sent')
+  1486→      setReplyId(null)
+  1487→      setReplyText('')
+  1488→      fetchDiscussions()
+  1489→    } catch (err: any) { toast.error(err.message) }
+  1490→  }
+  1491→
+  1492→  const handleDelete = async () => {
+  1493→    if (!deleteId) return
+  1494→    try {
+  1495→      await api.adminDeleteDiscussion(deleteId)
+  1496→      toast.success('Discussion deleted')
+  1497→      setDeleteId(null)
+  1498→      fetchDiscussions()
+  1499→    } catch (err: any) { toast.error(err.message) }
+  1500→  }
+  1501→
+  1502→  return (
+  1503→    <div className="space-y-4">
+  1504→      <div className="relative w-full sm:w-72">
+  1505→        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+  1506→        <Input placeholder="Search discussions..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+  1507→      </div>
+  1508→
+  1509→      {loading ? (
+  1510→        <div className="space-y-4">
+  1511→          {Array.from({ length: 3 }).map((_, i) => (
+  1512→            <Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full" /></CardContent></Card>
+  1513→          ))}
+  1514→        </div>
+  1515→      ) : !discussions.length ? (
+  1516→        <Card><CardContent className="py-12 text-center text-muted-foreground">No discussions found</CardContent></Card>
+  1517→      ) : (
+  1518→        <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+  1519→          {discussions.map((d) => (
+  1520→            <Card key={d.id} className="py-4">
+  1521→              <CardContent className="p-4 pt-0 space-y-3">
+  1522→                <div className="flex items-start justify-between">
+  1523→                  <div>
+  1524→                    <h3 className="font-semibold text-sm">{d.title}</h3>
+  1525→                    <p className="text-xs text-muted-foreground">
+  1526→                      By {d.student?.name || 'Unknown'} &middot; {d.student?.email || ''} &middot; {new Date(d.createdAt).toLocaleDateString()}
+  1527→                    </p>
+  1528→                  </div>
+  1529→                  <Button variant="ghost" size="icon" onClick={() => setDeleteId(d.id)}>
+  1530→                    <Trash2 className="size-4 text-destructive" />
+  1531→                  </Button>
+  1532→                </div>
+  1533→                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{d.content}</p>
+  1534→                {d.adminReply && (
+  1535→                  <div className="bg-muted/50 rounded-lg p-3 text-sm">
+  1536→                    <p className="text-xs font-medium text-muted-foreground mb-1">Admin Reply:</p>
+  1537→                    <p className="whitespace-pre-wrap">{d.adminReply}</p>
+  1538→                  </div>
+  1539→                )}
+  1540→                {replyId === d.id ? (
+  1541→                  <div className="space-y-2">
+  1542→                    <Textarea
+  1543→                      placeholder="Type your reply..."
+  1544→                      value={replyText}
+  1545→                      onChange={(e) => setReplyText(e.target.value)}
+  1546→                      rows={3}
+  1547→                    />
+  1548→                    <div className="flex gap-2">
+  1549→                      <Button size="sm" onClick={() => handleReply(d.id)} disabled={!replyText.trim()}>
+  1550→                        <Send className="size-3.5" /> Send Reply
+  1551→                      </Button>
+  1552→                      <Button size="sm" variant="outline" onClick={() => { setReplyId(null); setReplyText('') }}>Cancel</Button>
+  1553→                    </div>
+  1554→                  </div>
+  1555→                ) : !d.adminReply ? (
+  1556→                  <Button size="sm" variant="outline" onClick={() => { setReplyId(d.id); setReplyText('') }}>
+  1557→                    <MessageCircle className="size-3.5" /> Reply
+  1558→                  </Button>
+  1559→                ) : null}
+  1560→              </CardContent>
+  1561→            </Card>
+  1562→          ))}
+  1563→        </div>
+  1564→      )}
+  1565→
+  1566→      {/* Delete Discussion */}
+  1567→      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+  1568→        <AlertDialogContent>
+  1569→          <AlertDialogHeader>
+  1570→            <AlertDialogTitle>Delete Discussion</AlertDialogTitle>
+  1571→            <AlertDialogDescription>Are you sure you want to delete this discussion? This action cannot be undone.</AlertDialogDescription>
+  1572→          </AlertDialogHeader>
+  1573→          <AlertDialogFooter>
+  1574→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1575→            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+  1576→          </AlertDialogFooter>
+  1577→        </AlertDialogContent>
+  1578→      </AlertDialog>
+  1579→    </div>
+  1580→  )
+  1581→}
+  1582→
+  1583→// ─── 10. Change Password Dialog ──────────────────────────────────
+  1584→function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  1585→  const [currentPassword, setCurrentPassword] = useState('')
+  1586→  const [newPassword, setNewPassword] = useState('')
+  1587→  const [confirmPassword, setConfirmPassword] = useState('')
+  1588→  const [submitting, setSubmitting] = useState(false)
+  1589→
+  1590→  const handleSubmit = async (e: React.FormEvent) => {
+  1591→    e.preventDefault()
+  1592→    if (newPassword !== confirmPassword) {
+  1593→      toast.error('New passwords do not match')
+  1594→      return
+  1595→    }
+  1596→    if (newPassword.length < 6) {
+  1597→      toast.error('Password must be at least 6 characters')
+  1598→      return
+  1599→    }
+  1600→    setSubmitting(true)
+  1601→    try {
+  1602→      await api.adminChangeOwnPassword(currentPassword, newPassword)
+  1603→      toast.success('Password changed successfully')
+  1604→      onOpenChange(false)
+  1605→      setCurrentPassword('')
+  1606→      setNewPassword('')
+  1607→      setConfirmPassword('')
+  1608→    } catch (err: any) {
+  1609→      toast.error(err.message || 'Failed to change password')
+  1610→    } finally {
+  1611→      setSubmitting(false)
+  1612→    }
+  1613→  }
+  1614→
+  1615→  return (
+  1616→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1617→      <DialogContent>
+  1618→        <DialogHeader>
+  1619→          <DialogTitle>Change Password</DialogTitle>
+  1620→          <DialogDescription>Update your admin account password</DialogDescription>
+  1621→        </DialogHeader>
+  1622→        <form onSubmit={handleSubmit} className="space-y-3">
+  1623→          <div>
+  1624→            <Label>Current Password</Label>
+  1625→            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
+  1626→          </div>
+  1627→          <div>
+  1628→            <Label>New Password</Label>
+  1629→            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} />
+  1630→          </div>
+  1631→          <div>
+  1632→            <Label>Confirm New Password</Label>
+  1633→            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} />
+  1634→          </div>
+  1635→          <DialogFooter>
+  1636→            <Button type="submit" disabled={submitting}>
+  1637→              {submitting && <Loader2 className="size-4 animate-spin" />}
+  1638→              Change Password
+  1639→            </Button>
+  1640→          </DialogFooter>
+  1641→        </form>
+  1642→      </DialogContent>
+  1643→    </Dialog>
+  1644→  )
+  1645→}
+  1646→

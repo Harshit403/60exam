@@ -1,0 +1,345 @@
+     1→   600→        <DialogFooter><Button type="submit">Create Course</Button></DialogFooter>
+     2→   601→      </form>
+     3→   602→    </DialogContent></Dialog>
+     4→   603→
+     5→   604→    <Dialog open={!!editCourse} onOpenChange={o=>!o&&setEditCourse(null)}><DialogContent>
+     6→   605→      <DialogHeader><DialogTitle>Edit Course</DialogTitle></DialogHeader>
+     7→   606→      {editCourse&&<form onSubmit={handleEdit} className="space-y-4">
+     8→   607→        <div className="space-y-1.5"><Label>Title</Label><Input name="title" defaultValue={editCourse.title} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+     9→   608→        <div className="space-y-1.5"><Label>Slug</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="slug" defaultValue={editCourse.slug} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+    10→   609→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+    11→   610→      </form>}
+    12→   611→    </DialogContent></Dialog>
+    13→   612→
+    14→   613→    <AlertDialog open={!!deleteCourse} onOpenChange={o=>!o&&setDeleteCourse(null)}><AlertDialogContent>
+    15→   614→      <AlertDialogHeader><AlertDialogTitle>Delete Course</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteCourse?.title}&quot;?</AlertDialogDescription></AlertDialogHeader>
+    16→   615→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+    17→   616→    </AlertDialogContent></AlertDialog>
+    18→   617→  </div>
+    19→   618→}
+    20→   619→
+    21→   620→// ─── 4. Subjects Page ────────────────────────────────────────────
+    22→   621→function SubjectsPage() {
+    23→   622→  const [search,setSearch]=useState(''), [courseFilter,setCourseFilter]=useState(''), [addOpen,setAddOpen]=useState(false)
+    24→   623→  const [editSubject,setEditSubject]=useState<Subject|null>(null), [deleteSubject,setDeleteSubject]=useState<Subject|null>(null)
+    25→   624→  const { data:subjects, loading, refresh } = useFetch<Subject[]>(()=>api.adminSubjects(search||undefined,courseFilter||undefined).then(r=>r.data||r.subjects||r), [search,courseFilter])
+    26→   625→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+    27→   626→  const courseList=courses||[], subjectList=subjects||[], pagination=usePagination(subjectList,10)
+    28→   627→
+    29→   628→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateSubject({name:fd.get('name'),courseId:fd.get('courseId'),order:Number(fd.get('order'))});toast.success('Subject created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+    30→   629→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editSubject)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateSubject(editSubject.id,{name:fd.get('name'),courseId:fd.get('courseId'),order:Number(fd.get('order'))});toast.success('Subject updated');setEditSubject(null);refresh()}catch(e:any){toast.error(e.message)}}
+    31→   630→  const handleDelete=async()=>{if(!deleteSubject)return;try{await api.adminDeleteSubject(deleteSubject.id);toast.success('Subject deleted');setDeleteSubject(null);refresh()}catch(e:any){toast.error(e.message)}}
+    32→   631→
+    33→   632→  return <div className="space-y-4">
+    34→   633→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    35→   634→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+    36→   635→        <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search subjects..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+    37→   636→        <Select value={courseFilter||'__all__'} onValueChange={v=>setCourseFilter(v==='__all__'?'':v)}><SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Courses" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Courses</SelectItem>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select>
+    38→   637→      </div>
+    39→   638→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Subject</Button>
+    40→   639→    </div>
+    41→   640→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:<StyledTable><Table>
+    42→   641→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Course</TableHead><TableHead>Order</TableHead><TableHead className="hidden sm:table-cell">Chapters</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+    43→   642→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No subjects found</TableCell></TableRow>
+    44→   643→        :pagination.paginated.map((s,i)=>(
+    45→   644→        <TableRow key={s.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}><TableCell className="font-medium">{s.name}</TableCell><TableCell>{s.course?.title||'—'}</TableCell><TableCell>{s.order}</TableCell><TableCell className="hidden sm:table-cell">{s._count?.chapters??0}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="icon" onClick={()=>setEditSubject(s)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={()=>setDeleteSubject(s)}><Trash2 className="size-4 text-destructive" /></Button></div></TableCell></TableRow>
+    46→   645→      ))}</TableBody>
+    47→   646→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+    48→   647→
+    49→   648→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+    50→   649→      <DialogHeader><DialogTitle>Add Subject</DialogTitle></DialogHeader>
+    51→   650→      <form onSubmit={handleAdd} className="space-y-4">
+    52→   651→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId" required><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+    53→   652→        <div className="space-y-1.5"><Label>Subject Name</Label><Input name="name" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+    54→   653→        <div className="space-y-1.5"><Label>Order</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="order" type="number" min={1} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+    55→   654→        <DialogFooter><Button type="submit">Create Subject</Button></DialogFooter>
+    56→   655→      </form>
+    57→   656→    </DialogContent></Dialog>
+    58→   657→
+    59→   658→    <Dialog open={!!editSubject} onOpenChange={o=>!o&&setEditSubject(null)}><DialogContent>
+    60→   659→      <DialogHeader><DialogTitle>Edit Subject</DialogTitle></DialogHeader>
+    61→   660→      {editSubject&&<form onSubmit={handleEdit} className="space-y-4">
+    62→   661→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId" defaultValue={editSubject.courseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+    63→   662→        <div className="space-y-1.5"><Label>Subject Name</Label><Input name="name" defaultValue={editSubject.name} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+    64→   663→        <div className="space-y-1.5"><Label>Order</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="order" type="number" min={1} defaultValue={editSubject.order} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+    65→   664→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+    66→   665→      </form>}
+    67→   666→    </DialogContent></Dialog>
+    68→   667→
+    69→   668→    <AlertDialog open={!!deleteSubject} onOpenChange={o=>!o&&setDeleteSubject(null)}><AlertDialogContent>
+    70→   669→      <AlertDialogHeader><AlertDialogTitle>Delete Subject</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteSubject?.name}&quot;?</AlertDialogDescription></AlertDialogHeader>
+    71→   670→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+    72→   671→    </AlertDialogContent></AlertDialog>
+    73→   672→  </div>
+    74→   673→}
+    75→   674→
+    76→   675→// ─── 5. Chapters Page ────────────────────────────────────────────
+    77→   676→function ChaptersPage() {
+    78→   677→  const [search,setSearch]=useState(''), [courseFilter,setCourseFilter]=useState(''), [subjectFilter,setSubjectFilter]=useState('')
+    79→   678→  const [addOpen,setAddOpen]=useState(false), [addCourseId,setAddCourseId]=useState('')
+    80→   679→  const [editChapter,setEditChapter]=useState<Chapter|null>(null), [deleteChapter,setDeleteChapter]=useState<Chapter|null>(null)
+    81→   680→
+    82→   681→  const { data:chapters, loading, refresh } = useFetch<Chapter[]>(()=>api.adminChapters(search||undefined,subjectFilter||undefined,courseFilter||undefined).then(r=>r.data||r.chapters||r), [search,courseFilter,subjectFilter])
+    83→   682→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+    84→   683→  const { data:subjects } = useFetch<Subject[]>(()=>api.adminSubjects().then(r=>r.data||r.subjects||r), [])
+    85→   684→  const courseList=courses||[], subjectList=subjects||[], chapterList=chapters||[], pagination=usePagination(chapterList,10)
+    86→   685→
+    87→   686→  const filteredSubjects=useMemo(()=>courseFilter&&courseFilter!=='__all__'?subjectList.filter(s=>s.courseId===courseFilter):subjectList,[courseFilter,subjectList])
+    88→   687→  const addSubjects=useMemo(()=>addCourseId?subjectList.filter(s=>s.courseId===addCourseId):[] as Subject[],[addCourseId,subjectList])
+    89→   688→
+    90→   689→  const handleCourseFilterChange=(v:string)=>{setCourseFilter(v==='__all__'?'':v);setSubjectFilter('')}
+    91→   690→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateChapter({name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter created');setAddOpen(false);setAddCourseId('');refresh()}catch(e:any){toast.error(e.message)}}
+    92→   691→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editChapter)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateChapter(editChapter.id,{name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter updated');setEditChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+    93→   692→  const handleDelete=async()=>{if(!deleteChapter)return;try{await api.adminDeleteChapter(deleteChapter.id);toast.success('Chapter deleted');setDeleteChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+    94→   693→
+    95→   694→  return <div className="space-y-4">
+    96→   695→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    97→   696→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+    98→   697→        <div className="relative w-full sm:w-64"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search chapters..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+    99→   698→        <Select value={courseFilter||'__all__'} onValueChange={handleCourseFilterChange}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Courses" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Courses</SelectItem>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select>
+   100→   699→        <Select value={subjectFilter||'__all__'} onValueChange={v=>setSubjectFilter(v==='__all__'?'':v)}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Subjects" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Subjects</SelectItem>{filteredSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select>
+   101→   700→      </div>
+   102→   701→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Chapter</Button>
+   103→   702→    </div>
+   104→   703→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={4}/>:<StyledTable><Table>
+   105→   704→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Subject</TableHead><TableHead className="hidden sm:table-cell">Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   106→   705→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No chapters found</TableCell></TableRow>
+   107→   706→        :pagination.paginated.map((ch,i)=>(
+   108→   707→        <TableRow key={ch.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}><TableCell className="font-medium">{ch.name}</TableCell><TableCell>{ch.subject?.name||'—'}</TableCell><TableCell className="hidden sm:table-cell">{ch.subject?.course?.title||'—'}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="icon" onClick={()=>setEditChapter(ch)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={()=>setDeleteChapter(ch)}><Trash2 className="size-4 text-destructive" /></Button></div></TableCell></TableRow>
+   109→   708→      ))}</TableBody>
+   110→   709→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   111→   710→
+   112→   711→    {/* Add Chapter - cascading dropdown */}
+   113→   712→    <Dialog open={addOpen} onOpenChange={v=>{setAddOpen(v);if(!v)setAddCourseId('')}}><DialogContent>
+   114→   713→      <DialogHeader><DialogTitle>Add Chapter</DialogTitle></DialogHeader>
+   115→   714→      <form onSubmit={handleAdd} className="space-y-4">
+   116→   715→        <div className="space-y-1.5"><Label>Course</Label><Select value={addCourseId} onValueChange={setAddCourseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select course first" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   117→   716→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" required disabled={!addCourseId}><SelectTrigger className="w-full"><SelectValue placeholder={addCourseId?'Select subject':'Select course first'} /></SelectTrigger><SelectContent>{addSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   118→   717→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   119→   718→        <DialogFooter><Button type="submit" disabled={!addCourseId}>Create Chapter</Button></DialogFooter>
+   120→   719→      </form>
+   121→   720→    </DialogContent></Dialog>
+   122→   721→
+   123→   722→    <Dialog open={!!editChapter} onOpenChange={o=>!o&&setEditChapter(null)}><DialogContent>
+   124→   723→      <DialogHeader><DialogTitle>Edit Chapter</DialogTitle></DialogHeader>
+   125→   724→      {editChapter&&<form onSubmit={handleEdit} className="space-y-4">
+   126→   725→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" defaultValue={editChapter.subjectId}><SelectTrigger className="w-full"><SelectValue placeholder="Select subject" /></SelectTrigger><SelectContent>{subjectList.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   127→   726→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" defaultValue={editChapter.name} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   128→   727→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   129→   728→      </form>}
+   130→   729→    </DialogContent></Dialog>
+   131→   730→
+   132→   731→    <AlertDialog open={!!deleteChapter} onOpenChange={o=>!o&&setDeleteChapter(null)}><AlertDialogContent>
+   133→   732→      <AlertDialogHeader><AlertDialogTitle>Delete Chapter</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteChapter?.name}&quot;?</AlertDialogDescription></AlertDialogHeader>
+   134→   733→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   135→   734→    </AlertDialogContent></AlertDialog>
+   136→   735→  </div>
+   137→   736→}
+   138→   737→
+   139→   738→// ─── 6. Top Performers Page ──────────────────────────────────────
+   140→   739→function TopPerformersPage() {
+   141→   740→  const [search,setSearch]=useState('')
+   142→   741→  const { data:performers, loading } = useFetch<TopPerformer[]>(()=>api.adminTopPerformers(search||undefined).then(r=>r.data||r.performers||r), [search])
+   143→   742→  const performerList=performers||[], pagination=usePagination(performerList,10)
+   144→   743→  const maxHours=useMemo(()=>Math.max(...performerList.map(p=>p.studyHours),1),[performerList])
+   145→   744→
+   146→   745→  const handleExport=()=>{exportCSV('top-performers',['Rank','Name','Mobile','Email','Course','Study Hours','Subjects Studied'],performerList.map((p,i)=>[String(i+1),p.name,p.mobile,p.email,p.course||'',String(p.studyHours),String(p.subjectsStudied)]));toast.success('CSV exported')}
+   147→   746→  const medalEmoji=(i:number)=>i===0?'🥇':i===1?'🥈':i===2?'🥉':null
+   148→   747→
+   149→   748→  return <div className="space-y-4">
+   150→   749→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   151→   750→      <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search performers..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   152→   751→      <Button variant="outline" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   153→   752→    </div>
+   154→   753→
+   155→   754→    {!loading&&performerList.length>0&&<Card>
+   156→   755→      <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Trophy className="size-4 text-amber-500" /> Study Hours Overview</CardTitle></CardHeader>
+   157→   756→      <CardContent><InlineBarChart data={performerList.slice(0,10)} /></CardContent>
+   158→   757→    </Card>}
+   159→   758→
+   160→   759→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={6}/>:<StyledTable><Table>
+   161→   760→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Rank</TableHead><TableHead>Name</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Course</TableHead><TableHead>Study Hours</TableHead></TableRow></TableHeader>
+   162→   761→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No performers found</TableCell></TableRow>
+   163→   762→        :pagination.paginated.map((p,i)=>{
+   164→   763→          const gi=(pagination.page-1)*10+i, medal=medalEmoji(gi)
+   165→   764→          return <TableRow key={p.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   166→   765→            <TableCell><div className="flex items-center gap-1.5">{medal?<span className="text-lg">{medal}</span>:<div className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{gi+1}</div>}</div></TableCell>
+   167→   766→            <TableCell className="font-medium">{p.name}</TableCell><TableCell className="hidden md:table-cell">{p.mobile}</TableCell><TableCell className="hidden lg:table-cell text-sm">{p.email}</TableCell><TableCell>{p.course||'—'}</TableCell>
+   168→   767→            <TableCell><div className="flex items-center gap-2"><Badge variant="secondary">{p.studyHours}h</Badge><div className="hidden sm:block w-20"><Progress value={(p.studyHours/maxHours)*100} className="h-1.5" /></div></div></TableCell>
+   169→   768→          </TableRow>
+   170→   769→        })
+   171→   770→      }</TableBody>
+   172→   771→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   173→   772→  </div>
+   174→   773→}
+   175→   774→
+   176→   775→// ─── 7. Reviews Page ─────────────────────────────────────────────
+   177→   776→function ReviewsPage() {
+   178→   777→  const [search,setSearch]=useState(''), [addOpen,setAddOpen]=useState(false), [deleteReview,setDeleteReview]=useState<Review|null>(null)
+   179→   778→  const { data:reviews, loading, refresh } = useFetch<Review[]>(()=>api.adminReviews(search||undefined).then(r=>r.data||r.reviews||r), [search])
+   180→   779→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   181→   780→  const courseList=courses||[], reviewList=reviews||[], pagination=usePagination(reviewList,10)
+   182→   781→
+   183→   782→  const handleExport=()=>{exportCSV('reviews',['Author','Text','Rating','Course','Source','Status'],reviewList.map(r=>[r.authorName,r.text,String(r.rating),r.course?.title||'',r.source,r.status]));toast.success('CSV exported')}
+   184→   783→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateReview({authorName:fd.get('authorName'),text:fd.get('text'),rating:Number(fd.get('rating')),courseId:fd.get('courseId')||null});toast.success('Review created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   185→   784→  const handleStatusChange=async(id:string,status:string)=>{try{await api.adminUpdateReview(id,{status});toast.success(`Review ${status.toLowerCase()}`);refresh()}catch(e:any){toast.error(e.message)}}
+   186→   785→  const handleDelete=async()=>{if(!deleteReview)return;try{await api.adminDeleteReview(deleteReview.id);toast.success('Review deleted');setDeleteReview(null);refresh()}catch(e:any){toast.error(e.message)}}
+   187→   786→  const sourceBadge=(s:string)=>s==='ADMIN'?'bg-slate-100 text-slate-700 border-slate-200':'bg-amber-100 text-amber-700 border-amber-200'
+   188→   787→
+   189→   788→  return <div className="space-y-4">
+   190→   789→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   191→   790→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   192→   791→        <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search reviews..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   193→   792→        <Button variant="outline" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   194→   793→      </div>
+   195→   794→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Review</Button>
+   196→   795→    </div>
+   197→   796→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={7}/>:<StyledTable><div className="overflow-x-auto"><Table>
+   198→   797→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Author</TableHead><TableHead className="max-w-[200px]">Text</TableHead><TableHead>Rating</TableHead><TableHead className="hidden md:table-cell">Course</TableHead><TableHead>Source</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   199→   798→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No reviews found</TableCell></TableRow>
+   200→   799→        :pagination.paginated.map((r,i)=>(
+   201→   800→        <TableRow key={r.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   202→   801→          <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[200px] truncate">{r.text}</TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
+   203→   802→          <TableCell className="hidden md:table-cell">{r.course?.title||'—'}</TableCell>
+   204→   803→          <TableCell><Badge variant="outline" className={sourceBadge(r.source)}>{r.source}</Badge></TableCell>
+   205→   804→          <TableCell><Badge variant={r.status==='APPROVED'?'default':r.status==='REJECTED'?'destructive':'secondary'}>{r.status}</Badge></TableCell>
+   206→   805→          <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
+   207→   806→            {r.status==='PENDING'&&r.studentId&&<><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'APPROVED')} className="text-emerald-600 hover:text-emerald-700"><Check className="size-3.5" /> Approve</Button><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'REJECTED')} className="text-destructive hover:text-red-700"><X className="size-3.5" /> Reject</Button></>}
+   208→   807→            <Button variant="ghost" size="icon" onClick={()=>setDeleteReview(r)}><Trash2 className="size-4 text-destructive" /></Button>
+   209→   808→          </div></TableCell>
+   210→   809→        </TableRow>
+   211→   810→      ))}</TableBody>
+   212→   811→    </Table></div><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   213→   812→
+   214→   813→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+   215→   814→      <DialogHeader><DialogTitle>Add Review</DialogTitle></DialogHeader>
+   216→   815→      <form onSubmit={handleAdd} className="space-y-4">
+   217→   816→        <IconField icon={User} label="Author Name" name="authorName" required />
+   218→   817→        <div className="space-y-1.5"><Label>Review Text</Label><Textarea name="text" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   219→   818→        <div className="space-y-1.5"><Label>Rating</Label><Select name="rating" required><SelectTrigger className="w-full"><SelectValue placeholder="Select rating" /></SelectTrigger><SelectContent>{[1,2,3,4,5].map(r=><SelectItem key={r} value={String(r)}>{r} Star{r>1?'s':''}</SelectItem>)}</SelectContent></Select></div>
+   220→   819→        <div className="space-y-1.5"><Label>Course (Optional)</Label><Select name="courseId"><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   221→   820→        <DialogFooter><Button type="submit">Create Review</Button></DialogFooter>
+   222→   821→      </form>
+   223→   822→    </DialogContent></Dialog>
+   224→   823→
+   225→   824→    <AlertDialog open={!!deleteReview} onOpenChange={o=>!o&&setDeleteReview(null)}><AlertDialogContent>
+   226→   825→      <AlertDialogHeader><AlertDialogTitle>Delete Review</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this review?</AlertDialogDescription></AlertDialogHeader>
+   227→   826→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   228→   827→    </AlertDialogContent></AlertDialog>
+   229→   828→  </div>
+   230→   829→}
+   231→   830→
+   232→   831→// ─── 8. Approvals Page ───────────────────────────────────────────
+   233→   832→function ApprovalsPage() {
+   234→   833→  const [search,setSearch]=useState('')
+   235→   834→  const { data:approvals, loading, refresh:refreshApprovals } = useFetch<Approval[]>(()=>api.adminApprovals().then(r=>r.data||r.approvals||r.students||r), [])
+   236→   835→  const { data:settings, refresh:refreshSettings } = useFetch<any>(()=>api.adminGetSettings().then(r=>r.data||r), [])
+   237→   836→  const approvalEnabled=useMemo(()=>{if(settings){const v=settings.signup_approval||settings.signupApproval;return v==='true'||v===true}return false},[settings])
+   238→   837→
+   239→   838→  const handleToggle=async(enabled:boolean)=>{try{await api.adminToggleApproval(enabled);toast.success(`Signup approval ${enabled?'enabled':'disabled'}`);refreshSettings()}catch(e:any){toast.error(e.message)}}
+   240→   839→  const handleApprove=async(id:string)=>{try{await api.adminApproveStudent(id);toast.success('Student approved');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   241→   840→  const handleReject=async(id:string)=>{try{await api.adminRejectStudent(id);toast.success('Student rejected');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   242→   841→
+   243→   842→  const approvalList=approvals||[]
+   244→   843→  const filtered=search?approvalList.filter(a=>a.name?.toLowerCase().includes(search.toLowerCase())||a.email?.toLowerCase().includes(search.toLowerCase())||a.mobile?.includes(search)):approvalList
+   245→   844→  const pagination=usePagination(filtered,10)
+   246→   845→
+   247→   846→  return <div className="space-y-6">
+   248→   847→    <Card className="overflow-hidden relative">
+   249→   848→      <div className={`absolute inset-0 transition-colors duration-500 ${approvalEnabled?'bg-emerald-500/5':'bg-muted/30'}`} />
+   250→   849→      <CardContent className="p-5 relative">
+   251→   850→        <div className="flex items-center justify-between">
+   252→   851→          <div className="flex items-center gap-3">
+   253→   852→            <div className={`flex size-10 items-center justify-center rounded-lg ${approvalEnabled?'bg-emerald-500/15 text-emerald-600':'bg-muted text-muted-foreground'}`}><ShieldCheck className="size-5" /></div>
+   254→   853→            <div><h3 className="font-semibold">Signup Approval Required</h3><p className="text-sm text-muted-foreground">When enabled, new students must be approved before accessing the platform.</p></div>
+   255→   854→          </div>
+   256→   855→          <div className="flex items-center gap-3">
+   257→   856→            <span className={`text-sm font-medium ${approvalEnabled?'text-emerald-600':'text-muted-foreground'}`}>{approvalEnabled?'Enabled':'Disabled'}</span>
+   258→   857→            <Switch checked={approvalEnabled} onCheckedChange={handleToggle} className="data-[state=checked]:bg-emerald-500 scale-110" />
+   259→   858→          </div>
+   260→   859→        </div>
+   261→   860→      </CardContent>
+   262→   861→    </Card>
+   263→   862→    <div className="space-y-4">
+   264→   863→      <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search pending students..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   265→   864→      <Card><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:<StyledTable><Table>
+   266→   865→        <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead>Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   267→   866→        <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No pending approvals</TableCell></TableRow>
+   268→   867→          :pagination.paginated.map((a,i)=>(
+   269→   868→          <TableRow key={a.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   270→   869→            <TableCell className="font-medium"><div className="flex items-center gap-2"><XCircle className="size-4 text-amber-500 shrink-0" />{a.name}</div></TableCell>
+   271→   870→            <TableCell className="text-sm">{a.email}</TableCell><TableCell className="hidden md:table-cell">{a.mobile}</TableCell><TableCell>{a.course?.title||'—'}</TableCell>
+   272→   871→            <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
+   273→   872→              <Button size="sm" variant="default" className="bg-emerald-600 hover:bg-emerald-700 gap-1" onClick={()=>handleApprove(a.id)}><CheckCircle2 className="size-3.5" /> Accept</Button>
+   274→   873→              <Button size="sm" variant="destructive" className="gap-1" onClick={()=>handleReject(a.id)}><XCircle className="size-3.5" /> Reject</Button>
+   275→   874→            </div></TableCell>
+   276→   875→          </TableRow>
+   277→   876→        ))}</TableBody>
+   278→   877→      </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   279→   878→    </div>
+   280→   879→  </div>
+   281→   880→}
+   282→   881→
+   283→   882→// ─── 9. Discussions Page ─────────────────────────────────────────
+   284→   883→function DiscussionsPage() {
+   285→   884→  const [search,setSearch]=useState(''), [replyId,setReplyId]=useState<string|null>(null), [replyText,setReplyText]=useState(''), [deleteId,setDeleteId]=useState<string|null>(null)
+   286→   885→  const { data:discussions, loading, refresh } = useFetch<Discussion[]>(()=>api.adminDiscussions(search||undefined).then(r=>r.data||r.discussions||r), [search])
+   287→   886→  const discussionList=discussions||[], pagination=usePagination(discussionList,10)
+   288→   887→
+   289→   888→  const handleReply=async(id:string)=>{if(!replyText.trim())return;try{await api.adminReplyDiscussion(id,replyText);toast.success('Reply sent');setReplyId(null);setReplyText('');refresh()}catch(e:any){toast.error(e.message)}}
+   290→   889→  const handleDelete=async()=>{if(!deleteId)return;try{await api.adminDeleteDiscussion(deleteId);toast.success('Discussion deleted');setDeleteId(null);refresh()}catch(e:any){toast.error(e.message)}}
+   291→   890→
+   292→   891→  return <div className="space-y-4">
+   293→   892→    <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search discussions..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   294→   893→    {loading?<div className="space-y-4">{Array.from({length:3}).map((_,i)=><Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full animate-pulse" style={{animationDelay:`${i*100}ms`}} /></CardContent></Card>)}</div>
+   295→   894→     :!pagination.paginated.length?<Card><CardContent className="py-12 text-center text-muted-foreground">No discussions found</CardContent></Card>
+   296→   895→     :<><div className="space-y-4">{pagination.paginated.map((d,i)=>(
+   297→   896→        <Card key={d.id} className="overflow-hidden anim-fade-up" style={{animationDelay:`${i*40}ms`}}>
+   298→   897→          <CardContent className="p-4 space-y-3">
+   299→   898→            <div className="flex items-start justify-between">
+   300→   899→              <div><h3 className="font-semibold text-sm">{d.title}</h3><p className="text-xs text-muted-foreground">By {d.student?.name||'Unknown'} &middot; {d.student?.email||''} &middot; {new Date(d.createdAt).toLocaleDateString()}</p></div>
+   301→   900→              <Button variant="ghost" size="icon" onClick={()=>setDeleteId(d.id)}><Trash2 className="size-4 text-destructive" /></Button>
+   302→   901→            </div>
+   303→   902→            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{d.content}</p>
+   304→   903→            {d.adminReply&&<div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3 text-sm"><p className="text-xs font-medium text-emerald-600 mb-1">Admin Reply:</p><p className="whitespace-pre-wrap">{d.adminReply}</p></div>}
+   305→   904→            {replyId===d.id?<div className="space-y-2">
+   306→   905→              <Textarea placeholder="Type your reply..." value={replyText} onChange={e=>setReplyText(e.target.value)} rows={3} className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" />
+   307→   906→              <div className="flex gap-2"><Button size="sm" onClick={()=>handleReply(d.id)} disabled={!replyText.trim()}><Send className="size-3.5" /> Send Reply</Button><Button size="sm" variant="outline" onClick={()=>{setReplyId(null);setReplyText('')}}>Cancel</Button></div>
+   308→   907→            </div>:!d.adminReply?<Button size="sm" variant="outline" onClick={()=>{setReplyId(d.id);setReplyText('')}}><MessageCircle className="size-3.5" /> Reply</Button>:null}
+   309→   908→          </CardContent>
+   310→   909→        </Card>
+   311→   910→      ))}</div>
+   312→   911→      <Card><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></Card>
+   313→   912→    </>}
+   314→   913→
+   315→   914→    <AlertDialog open={!!deleteId} onOpenChange={o=>!o&&setDeleteId(null)}><AlertDialogContent>
+   316→   915→      <AlertDialogHeader><AlertDialogTitle>Delete Discussion</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this discussion? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+   317→   916→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   318→   917→    </AlertDialogContent></AlertDialog>
+   319→   918→  </div>
+   320→   919→}
+   321→   920→
+   322→   921→// ─── 10. Change Password Dialog ──────────────────────────────────
+   323→   922→function ChangePasswordDialog({ open, onOpenChange }: { open:boolean; onOpenChange:(open:boolean)=>void }) {
+   324→   923→  const [currentPassword,setCurrentPassword]=useState(''), [newPassword,setNewPassword]=useState(''), [confirmPassword,setConfirmPassword]=useState(''), [submitting,setSubmitting]=useState(false)
+   325→   924→
+   326→   925→  const handleSubmit=async(e:React.FormEvent)=>{
+   327→   926→    e.preventDefault()
+   328→   927→    if(newPassword!==confirmPassword){toast.error('New passwords do not match');return}
+   329→   928→    if(newPassword.length<6){toast.error('Password must be at least 6 characters');return}
+   330→   929→    setSubmitting(true)
+   331→   930→    try{await api.adminChangeOwnPassword(currentPassword,newPassword);toast.success('Password changed successfully');onOpenChange(false);setCurrentPassword('');setNewPassword('');setConfirmPassword('')}
+   332→   931→    catch(e:any){toast.error(e.message||'Failed to change password')}finally{setSubmitting(false)}
+   333→   932→  }
+   334→   933→
+   335→   934→  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
+   336→   935→    <DialogHeader><DialogTitle>Change Password</DialogTitle><DialogDescription>Update your admin account password</DialogDescription></DialogHeader>
+   337→   936→    <form onSubmit={handleSubmit} className="space-y-4">
+   338→   937→      <IconField icon={Lock} label="Current Password" type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} required />
+   339→   938→      <IconField icon={Lock} label="New Password" type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} required minLength={6} />
+   340→   939→      <IconField icon={Lock} label="Confirm New Password" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required minLength={6} />
+   341→   940→      <DialogFooter><Button type="submit" disabled={submitting}>{submitting&&<Loader2 className="size-4 animate-spin" />} Change Password</Button></DialogFooter>
+   342→   941→    </form>
+   343→   942→  </DialogContent></Dialog>
+   344→   943→}
+   345→   944→

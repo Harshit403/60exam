@@ -1,0 +1,510 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback, useRef } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Skeleton } from '@/components/ui/skeleton'
+     8→import { Progress } from '@/components/ui/progress'
+     9→import { ArrowLeft, Brain, CheckCircle2, XCircle, Trophy, Loader2, RefreshCw, Sparkles, Target, Award, BookOpen, Clock, AlertCircle, Lock } from 'lucide-react'
+    10→import { api } from '@/lib/api-client'
+    11→import { QuizListItem, QuizDetail, QuizResult } from '../types'
+    12→
+    13→const DIFFICULTY_CONFIG = {
+    14→  easy: { label: 'Easy', color: 'text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/40', dot: 'bg-emerald-500', timePerQ: 60 },
+    15→  medium: { label: 'Medium', color: 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40', dot: 'bg-amber-500', timePerQ: 90 },
+    16→  hard: { label: 'Hard', color: 'text-rose-700 bg-rose-100 dark:text-rose-300 dark:bg-rose-900/40', dot: 'bg-rose-500', timePerQ: 120 },
+    17→}
+    18→
+    19→const formatTime = (s: number) => {
+    20→  const m = Math.floor(s / 60)
+    21→  const sec = s % 60
+    22→  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    23→}
+    24→
+    25→export function QuizPage() {
+    26→  const [quizzes, setQuizzes] = useState<QuizListItem[]>([])
+    27→  const [loading, setLoading] = useState(true)
+    28→  const [activeQuiz, setActiveQuiz] = useState<QuizDetail | null>(null)
+    29→  const [currentQ, setCurrentQ] = useState(0)
+    30→  const [answers, setAnswers] = useState<number[]>([])
+    31→  const [submitting, setSubmitting] = useState(false)
+    32→  const [result, setResult] = useState<QuizResult | null>(null)
+    33→  const [timeLeft, setTimeLeft] = useState(0)
+    34→  const [totalTime, setTotalTime] = useState(0)
+    35→  const [timeExpired, setTimeExpired] = useState(false)
+    36→  const [lockError, setLockError] = useState<{ message: string; chapters: string[] } | null>(null)
+    37→  const timerRef = useRef<NodeJS.Timeout | null>(null)
+    38→
+    39→  const fetchQuizzes = useCallback(async () => {
+    40→    setLoading(true)
+    41→    try {
+    42→      const data = await api.studentQuizzes()
+    43→      setQuizzes(data.quizzes || [])
+    44→    } catch (err) { console.error('Quiz fetch error:', err) }
+    45→    finally { setLoading(false) }
+    46→  }, [])
+    47→
+    48→  useEffect(() => { fetchQuizzes() }, [fetchQuizzes])
+    49→
+    50→  // Timer effect
+    51→  useEffect(() => {
+    52→    if (!activeQuiz || result) return
+    53→    if (timeLeft <= 0) {
+    54→      if (timerRef.current) clearInterval(timerRef.current)
+    55→      if (!timeExpired) {
+    56→        setTimeExpired(true)
+    57→        // Auto-submit when time runs out
+    58→        handleSubmitOnTimeout()
+    59→      }
+    60→      return
+    61→    }
+    62→    timerRef.current = setInterval(() => {
+    63→      setTimeLeft(prev => prev - 1)
+    64→    }, 1000)
+    65→    return () => {
+    66→      if (timerRef.current) clearInterval(timerRef.current)
+    67→    }
+    68→  }, [activeQuiz, result, timeLeft, timeExpired])
+    69→
+    70→  const handleSubmitOnTimeout = async () => {
+    71→    if (!activeQuiz) return
+    72→    setSubmitting(true)
+    73→    try {
+    74→      const data = await api.studentSubmitQuiz(activeQuiz.quiz.id, answers)
+    75→      setResult(data.result)
+    76→    } catch (err) { console.error('Quiz auto-submit error:', err) }
+    77→    finally { setSubmitting(false) }
+    78→  }
+    79→
+    80→  const startQuiz = async (id: string) => {
+    81→    try {
+    82→      setSubmitting(true)
+    83→      setLockError(null)
+    84→      const data = await api.studentQuizDetail(id)
+    85→      if (data.quiz) {
+    86→        setActiveQuiz(data)
+    87→        setCurrentQ(0)
+    88→        setAnswers([])
+    89→        setResult(null)
+    90→        setTimeExpired(false)
+    91→        // Calculate total time based on difficulty
+    92→        const diff = data.quiz.difficulty as keyof typeof DIFFICULTY_CONFIG
+    93→        const perQ = DIFFICULTY_CONFIG[diff]?.timePerQ || 60
+    94→        const total = data.questions.length * perQ
+    95→        setTotalTime(total)
+    96→        setTimeLeft(total)
+    97→      }
+    98→    } catch (err: any) {
+    99→      console.error('Quiz start error:', err)
+   100→      // Check if this is a lock error (403)
+   101→      const errMsg = err?.message || String(err)
+   102→      if (errMsg.includes('locked') || errMsg.includes('Complete all linked chapters')) {
+   103→        setLockError({
+   104→          message: 'This quiz is locked. You must complete all linked chapters first.',
+   105→          chapters: [] // We don't have the specific chapters from the error
+   106→        })
+   107→      }
+   108→    }
+   109→    finally { setSubmitting(false) }
+   110→  }
+   111→
+   112→  const submitQuiz = async () => {
+   113→    if (!activeQuiz) return
+   114→    setSubmitting(true)
+   115→    try {
+   116→      if (timerRef.current) clearInterval(timerRef.current)
+   117→      const data = await api.studentSubmitQuiz(activeQuiz.quiz.id, answers)
+   118→      setResult(data.result)
+   119→    } catch (err) { console.error('Quiz submit error:', err) }
+   120→    finally { setSubmitting(false) }
+   121→  }
+   122→
+   123→  const exitQuiz = () => {
+   124→    if (timerRef.current) clearInterval(timerRef.current)
+   125→    setActiveQuiz(null)
+   126→    setResult(null)
+   127→    setCurrentQ(0)
+   128→    setAnswers([])
+   129→    setTimeLeft(0)
+   130→    setTotalTime(0)
+   131→    setTimeExpired(false)
+   132→    fetchQuizzes()
+   133→  }
+   134→
+   135→  // ─── Result View ───────────────────────────────────────────────────
+   136→  if (result) {
+   137→    const pct = result.percentage
+   138→    const isPass = result.passed
+   139→    return (
+   140→      <div className="space-y-6 max-w-3xl mx-auto">
+   141→        <div className="text-center space-y-4 py-6">
+   142→          <div className={`inline-flex items-center justify-center w-24 h-24 rounded-2xl score-reveal ${isPass ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-rose-100 dark:bg-rose-900/40'}`}>
+   143→            {isPass ? <Trophy className="w-12 h-12 text-emerald-600 dark:text-emerald-400" />
+   144→              : <Target className="w-12 h-12 text-rose-600 dark:text-rose-400" />}
+   145→          </div>
+   146→          <div className="slide-up" style={{ animationDelay: '0.2s' }}>
+   147→            <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
+   148→              {isPass ? 'Quiz Passed! 🎉' : 'Keep Practicing 💪'}
+   149→            </h2>
+   150→            <p className="text-slate-500 dark:text-slate-400 mt-1">
+   151→              You scored {result.score} out of {result.total}
+   152→            </p>
+   153→          </div>
+   154→          <div className="flex justify-center gap-4 pt-2 slide-up" style={{ animationDelay: '0.4s' }}>
+   155→            <div className="px-6 py-4 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 dark:from-slate-100 dark:to-slate-300 text-white dark:text-slate-900 min-w-[130px] shadow-lg">
+   156→              <p className="text-xs opacity-80">Score</p>
+   157→              <p className="text-3xl font-bold">{pct}%</p>
+   158→            </div>
+   159→            <div className="px-6 py-4 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-white min-w-[130px] shadow-lg">
+   160→              <p className="text-xs opacity-80">Points Earned</p>
+   161→              <p className="text-3xl font-bold">+{result.pointsEarned}</p>
+   162→            </div>
+   163→          </div>
+   164→        </div>
+   165→
+   166→        <div className="space-y-4">
+   167→          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+   168→            <BookOpen className="w-5 h-5 text-slate-500" /> Review Answers
+   169→          </h3>
+   170→          {result.questionResults.map((qr, i) => (
+   171→            <Card key={qr.questionId} className={`border-l-4 transition-all slide-up ${qr.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'}`} style={{ animationDelay: `${i * 0.05}s` }}>
+   172→              <CardHeader className="pb-2">
+   173→                <div className="flex items-start gap-2">
+   174→                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${qr.isCorrect ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-rose-100 dark:bg-rose-900/40'}`}>
+   175→                    {qr.isCorrect ? <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+   176→                      : <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
+   177→                  </div>
+   178→                  <CardTitle className="text-sm leading-snug">Q{i + 1}. {qr.questionText}</CardTitle>
+   179→                </div>
+   180→              </CardHeader>
+   181→              <CardContent className="pt-0 space-y-2">
+   182→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+   183→                  {qr.options.map((opt, oi) => {
+   184→                    const isCorrect = oi === qr.correctIdx
+   185→                    const isSelected = oi === qr.selectedIdx
+   186→                    return (
+   187→                      <div key={oi} className={`text-xs px-3 py-2 rounded-lg border ${
+   188→                        isCorrect ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 font-medium'
+   189→                          : isSelected ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300'
+   190→                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+   191→                      }`}>
+   192→                        {opt}
+   193→                        {isCorrect && <span className="ml-2">✓</span>}
+   194→                        {isSelected && !isCorrect && <span className="ml-2">✗</span>}
+   195→                      </div>
+   196→                    )
+   197→                  })}
+   198→                </div>
+   199→                {qr.explanation && (
+   200→                  <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+   201→                    <p className="text-xs text-slate-600 dark:text-slate-400"><span className="font-semibold">Explanation:</span> {qr.explanation}</p>
+   202→                  </div>
+   203→                )}
+   204→              </CardContent>
+   205→            </Card>
+   206→          ))}
+   207→        </div>
+   208→
+   209→          <div className="flex gap-3 justify-center pt-4">
+   210→            <Button onClick={exitQuiz} variant="outline" className="hover:-translate-y-0.5 transition-transform"><ArrowLeft className="w-4 h-4 mr-2" /> Back to Quizzes</Button>
+   211→          </div>
+   212→      </div>
+   213→    )
+   214→  }
+   215→
+   216→  // ─── Active Quiz (answering) ──────────────────────────────────────
+   217→  if (activeQuiz) {
+   218→    const total = activeQuiz.questions.length
+   219→    const q = activeQuiz.questions[currentQ]
+   220→    const progressPct = ((currentQ + 1) / total) * 100
+   221→    const selected = answers[currentQ]
+   222→    const timePct = totalTime > 0 ? (timeLeft / totalTime) * 100 : 0
+   223→    const isUrgent = timeLeft <= 30 && timeLeft > 0
+   224→    const isWarning = timeLeft <= 60 && timeLeft > 30
+   225→
+   226→    return (
+   227→      <div className="space-y-6 max-w-3xl mx-auto">
+   228→        <div className="flex items-center justify-between gap-3">
+   229→          <Button variant="ghost" size="sm" onClick={exitQuiz}><ArrowLeft className="w-4 h-4 mr-2" /> Exit</Button>
+   230→          <div className="flex items-center gap-3">
+   231→            {/* Animated Timer */}
+   232→            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono font-bold text-sm transition-all duration-500 ${
+   233→              isUrgent ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 animate-pulse shadow-sm shadow-rose-200 dark:shadow-rose-900'
+   234→              : isWarning ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shadow-sm shadow-amber-200 dark:shadow-amber-900'
+   235→              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+   236→            }`}>
+   237→              <Clock className={`w-4 h-4 transition-colors duration-500 ${isUrgent ? 'text-rose-500' : isWarning ? 'text-amber-500' : 'text-slate-500'}`} />
+   238→              {formatTime(timeLeft)}
+   239→            </div>
+   240→            {/* Progress Stepper */}
+   241→            <div className="hidden sm:flex items-center gap-1">
+   242→              {activeQuiz.questions.map((_, qi) => (
+   243→                <div key={qi} className={`w-2 h-2 rounded-full transition-all duration-200 ${
+   244→                  qi === currentQ ? 'w-6 bg-slate-800 dark:bg-slate-200 rounded-sm'
+   245→                  : answers[qi] !== undefined ? 'bg-emerald-500'
+   246→                  : 'bg-slate-300 dark:bg-slate-700'
+   247→                }`} />
+   248→              ))}
+   249→            </div>
+   250→            <div className="flex items-center gap-2 text-sm text-slate-500">
+   251→              <span className="font-medium text-slate-700 dark:text-slate-300">Q {currentQ + 1}</span>
+   252→              <span>/</span>
+   253→              <span>{total}</span>
+   254→            </div>
+   255→          </div>
+   256→        </div>
+   257→
+   258→        {/* Progress bar */}
+   259→        <div>
+   260→          <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+   261→            <span>Progress</span>
+   262→            <span>{Math.round(progressPct)}%</span>
+   263→          </div>
+   264→          <Progress value={progressPct} className="h-2" />
+   265→        </div>
+   266→
+   267→        {/* Time progress bar */}
+   268→        <div>
+   269→          <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+   270→            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Time Remaining</span>
+   271→            <span className={isUrgent ? 'text-rose-500 font-medium' : ''}>{formatTime(timeLeft)}</span>
+   272→          </div>
+   273→          <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+   274→            <div
+   275→              className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+   276→                isUrgent ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+   277→              }`}
+   278→              style={{ width: `${timePct}%` }}
+   279→            />
+   280→          </div>
+   281→        </div>
+   282→
+   283→        {timeExpired && (
+   284→          <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 flex items-center gap-2">
+   285→            <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+   286→            <p className="text-xs text-rose-700 dark:text-rose-300">Time's up! Your quiz is being submitted automatically.</p>
+   287→          </div>
+   288→        )}
+   289→
+   290→        <Card>
+   291→          <CardHeader>
+   292→            <div className="flex items-center gap-2 mb-2 flex-wrap">
+   293→              <Badge className={DIFFICULTY_CONFIG[activeQuiz.quiz.difficulty as keyof typeof DIFFICULTY_CONFIG]?.color}>
+   294→                {DIFFICULTY_CONFIG[activeQuiz.quiz.difficulty as keyof typeof DIFFICULTY_CONFIG]?.label}
+   295→              </Badge>
+   296→              <Badge variant="outline" className="text-amber-600 border-amber-300">
+   297→                <Trophy className="w-3 h-3 mr-1" /> {activeQuiz.quiz.points} pts
+   298→              </Badge>
+   299→              <Badge variant="outline" className="text-sky-600 border-sky-300">
+   300→                <Clock className="w-3 h-3 mr-1" /> {DIFFICULTY_CONFIG[activeQuiz.quiz.difficulty as keyof typeof DIFFICULTY_CONFIG]?.timePerQ || 60}s/Q
+   301→              </Badge>
+   302→            </div>
+   303→            <CardTitle className="text-lg leading-snug">{q.text}</CardTitle>
+   304→          </CardHeader>
+   305→          <CardContent className="space-y-2">
+   306→            {q.options.map((opt, idx) => {
+   307→              const isSelected = selected === idx
+   308→              return (
+   309→                <button key={idx} onClick={() => {
+   310→                  const next = [...answers]; next[currentQ] = idx; setAnswers(next)
+   311→                }}
+   312→                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-3 active:scale-[0.99] group ${
+   313→                    isSelected
+   314→                      ? 'border-slate-800 dark:border-slate-200 bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-slate-800/20 dark:ring-slate-200/20'
+   315→                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+   316→                  }`}>
+   317→                  <div className={`flex-shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-200 ${
+   318→                    isSelected
+   319→                      ? 'border-slate-800 dark:border-slate-200 bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 scale-110'
+   320→                      : 'border-slate-300 dark:border-slate-700 text-slate-500 group-hover:border-slate-400 dark:group-hover:border-slate-600'
+   321→                  }`}>
+   322→                    {isSelected ? '✓' : String.fromCharCode(65 + idx)}
+   323→                  </div>
+   324→                  <span className={`text-sm transition-colors ${isSelected ? 'text-slate-900 dark:text-slate-100 font-medium' : 'text-slate-700 dark:text-slate-300'}`}>{opt}</span>
+   325→                </button>
+   326→              )
+   327→            })}
+   328→          </CardContent>
+   329→        </Card>
+   330→
+   331→        <div className="flex justify-between gap-3">
+   332→          <Button variant="outline" onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0}>
+   333→            <ArrowLeft className="w-4 h-4 mr-2" /> Previous
+   334→          </Button>
+   335→          {currentQ < total - 1 ? (
+   336→            <Button onClick={() => setCurrentQ(currentQ + 1)} disabled={selected === undefined}
+   337→              className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+   338→              Next →
+   339→            </Button>
+   340→          ) : (
+   341→            <Button onClick={submitQuiz} disabled={submitting || selected === undefined}
+   342→              className="bg-emerald-600 hover:bg-emerald-700 text-white">
+   343→              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+   344→              Submit Quiz
+   345→            </Button>
+   346→          )}
+   347→        </div>
+   348→      </div>
+   349→    )
+   350→  }
+   351→
+   352→  // ─── Quiz List ──────────────────────────────────────────────────────
+   353→  return (
+   354→    <div className="space-y-6">
+   355→      <div className="flex items-center gap-3">
+   356→        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-sm">
+   357→          <Brain className="w-5 h-5 text-white" />
+   358→        </div>
+   359→        <div>
+   360→          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Daily Quizzes</h2>
+   361→          <p className="text-xs text-slate-500 dark:text-slate-400">Test your knowledge & earn points</p>
+   362→        </div>
+   363→      </div>
+   364→
+   365→      {/* Quiz Stats Banner - Enhanced */}
+   366→      <div className="grid grid-cols-3 gap-3">
+   367→        <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 relative overflow-hidden">
+   368→          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-200/30 dark:bg-amber-800/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-lg" />
+   369→          <Trophy className="w-5 h-5 text-amber-500 mb-1.5 relative" />
+   370→          <p className="text-xs text-slate-500 dark:text-slate-400">Available</p>
+   371→          <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{quizzes.length}</p>
+   372→        </div>
+   373→        <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 relative overflow-hidden">
+   374→          <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-200/30 dark:bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-lg" />
+   375→          <CheckCircle2 className="w-5 h-5 text-emerald-500 mb-1.5 relative" />
+   376→          <p className="text-xs text-slate-500 dark:text-slate-400">Attempted</p>
+   377→          <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{quizzes.filter(q => q.attemptsCount > 0).length}</p>
+   378→        </div>
+   379→        <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 relative overflow-hidden">
+   380→          <div className="absolute top-0 right-0 w-16 h-16 bg-purple-200/30 dark:bg-purple-800/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-lg" />
+   381→          <Sparkles className="w-5 h-5 text-purple-500 mb-1.5 relative" />
+   382→          <p className="text-xs text-slate-500 dark:text-slate-400">Total Points</p>
+   383→          <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{quizzes.reduce((s, q) => s + q.points, 0)}</p>
+   384→        </div>
+   385→      </div>
+   386→
+   387→      {/* Lock Error Alert */}
+   388→      {lockError && (
+   389→        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 flex items-start gap-3">
+   390→          <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+   391→          <div className="flex-1">
+   392→            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Quiz Locked</p>
+   393→            <p className="text-xs text-amber-600 dark:text-amber-400/80 mt-0.5">{lockError.message}</p>
+   394→            <Button variant="outline" size="sm" className="mt-2 text-xs border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400" onClick={() => setLockError(null)}>
+   395→              Dismiss
+   396→            </Button>
+   397→          </div>
+   398→        </div>
+   399→      )}
+   400→
+   401→      {loading ? (
+   402→        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
+   403→      ) : quizzes.length === 0 ? (
+   404→        <Card>
+   405→          <CardContent className="py-12 text-center">
+   406→            <Brain className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+   407→            <p className="text-slate-500 dark:text-slate-400">No quizzes available yet</p>
+   408→            <p className="text-sm text-slate-400 dark:text-slate-500">Check back later for new quizzes</p>
+   409→          </CardContent>
+   410→        </Card>
+   411→      ) : (
+   412→        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+   413→          {quizzes.map(quiz => {
+   414→            const diff = DIFFICULTY_CONFIG[quiz.difficulty as keyof typeof DIFFICULTY_CONFIG] || DIFFICULTY_CONFIG.medium
+   415→            const attempted = quiz.attemptsCount > 0
+   416→            const isLocked = (quiz as any).isLocked === true
+   417→            const lockedChapters = ((quiz as any).lockedChapters || []) as { id: string; name: string; completed: boolean }[]
+   418→            const incompleteChapters = lockedChapters.filter(c => !c.completed)
+   419→            return (
+   420→              <Card key={quiz.id} className={`card-hover overflow-hidden relative ${isLocked ? 'opacity-90' : ''}`}>
+   421→                {isLocked && (
+   422→                  <div className="absolute top-3 right-3 z-10">
+   423→                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+   424→                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+   425→                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Locked</span>
+   426→                    </div>
+   427→                  </div>
+   428→                )}
+   429→                <CardHeader className="pb-3">
+   430→                  <div className="flex items-start justify-between gap-2">
+   431→                    <div className="flex-1 min-w-0">
+   432→                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+   433→                        <span className={`inline-block w-2 h-2 rounded-full ${diff.dot}`} />
+   434→                        <Badge className={diff.color}>{diff.label}</Badge>
+   435→                        {attempted && !isLocked && (
+   436→                          <Badge variant="outline" className={quiz.lastAttemptPassed ? 'text-emerald-600 border-emerald-300' : 'text-rose-600 border-rose-300'}>
+   437→                            {quiz.lastAttemptPassed ? 'Passed' : 'Failed'}
+   438→                          </Badge>
+   439→                        )}
+   440→                        {isLocked && (
+   441→                          <Badge variant="outline" className="text-slate-500 border-slate-300 dark:border-slate-600">
+   442→                            🔒 Complete chapters to unlock
+   443→                          </Badge>
+   444→                        )}
+   445→                      </div>
+   446→                      <CardTitle className={`text-base leading-snug ${isLocked ? 'text-slate-500 dark:text-slate-400' : ''}`}>{quiz.title}</CardTitle>
+   447→                      {quiz.description && (
+   448→                        <CardDescription className="text-xs mt-1 line-clamp-2">{quiz.description}</CardDescription>
+   449→                      )}
+   450→                    </div>
+   451→                  </div>
+   452→                </CardHeader>
+   453→                <CardContent className="pt-0 space-y-3">
+   454→                  <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+   455→                    <span className="flex items-center gap-1"><BookOpen className="w-3 h-3" /> {quiz.totalQuestions} Qs</span>
+   456→                    <span className="flex items-center gap-1"><Award className="w-3 h-3" /> {quiz.points} pts</span>
+   457→                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {quiz.totalQuestions * (DIFFICULTY_CONFIG[quiz.difficulty as keyof typeof DIFFICULTY_CONFIG]?.timePerQ || 60)}s</span>
+   458→                    <span className="flex items-center gap-1"><Target className="w-3 h-3" /> {quiz.courseTitle}</span>
+   459→                  </div>
+   460→
+   461→                  {/* Show locked chapter requirements */}
+   462→                  {isLocked && incompleteChapters.length > 0 && (
+   463→                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50">
+   464→                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1">
+   465→                        <Lock className="w-3 h-3" /> Complete these chapters first:
+   466→                      </p>
+   467→                      <div className="space-y-1">
+   468→                        {incompleteChapters.map(ch => (
+   469→                          <div key={ch.id} className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400/80">
+   470→                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+   471→                            {ch.name}
+   472→                          </div>
+   473→                        ))}
+   474→                      </div>
+   475→                    </div>
+   476→                  )}
+   477→
+   478→                  {attempted && quiz.bestScore !== null && !isLocked && (
+   479→                    <div className="text-xs text-slate-600 dark:text-slate-400">
+   480→                      Best: <span className="font-semibold text-slate-800 dark:text-slate-200">{quiz.bestScore}/{quiz.totalQuestions}</span>
+   481→                      <span className="mx-2 text-slate-300 dark:text-slate-700">·</span>
+   482→                      Attempts: {quiz.attemptsCount}
+   483→                    </div>
+   484→                  )}
+   485→                  <Button
+   486→                    onClick={() => startQuiz(quiz.id)}
+   487→                    disabled={submitting || isLocked}
+   488→                    className={`w-full ${isLocked ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900'}`}
+   489→                    size="sm">
+   490→                    {isLocked ? (
+   491→                      <><Lock className="w-4 h-4 mr-2" /> Locked</>
+   492→                    ) : submitting ? (
+   493→                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   494→                    ) : attempted ? (
+   495→                      <RefreshCw className="w-4 h-4 mr-2" />
+   496→                    ) : (
+   497→                      <Brain className="w-4 h-4 mr-2" />
+   498→                    )}
+   499→                    {isLocked ? 'Complete Chapters First' : attempted ? 'Retry Quiz' : 'Start Quiz'}
+   500→                  </Button>
+   501→                </CardContent>
+   502→              </Card>
+   503→            )
+   504→          })}
+   505→        </div>
+   506→      )}
+   507→    </div>
+   508→  )
+   509→}
+   510→

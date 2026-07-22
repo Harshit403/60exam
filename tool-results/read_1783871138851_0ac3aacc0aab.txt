@@ -1,0 +1,502 @@
+   501→   501→   501→      <Card className="overflow-hidden">
+   502→   502→   502→        <div className="bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-800 dark:to-slate-600 p-6">
+   503→   503→   503→          <div className="flex items-start justify-between">
+   504→   504→   504→            <div className="flex items-center gap-4">
+   505→   505→   505→              <Avatar className="h-16 w-16 border-2 border-white/20">
+   506→   506→   506→                <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   507→   507→   507→                  {student.fullName.charAt(0).toUpperCase()}
+   508→   508→   508→                </AvatarFallback>
+   509→   509→   509→              </Avatar>
+   510→   510→   510→              <div>
+   511→   511→   511→                <div className="flex items-center gap-2">
+   512→   512→   512→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+   513→   513→   513→                  {student.verified && (
+   514→   514→   514→                    <TooltipProvider>
+   515→   515→   515→                      <Tooltip>
+   516→   516→   516→                        <TooltipTrigger>
+   517→   517→   517→                          <CheckCircle2 className="w-5 h-5 text-blue-400" />
+   518→   518→   518→                        </TooltipTrigger>
+   519→   519→   519→                        <TooltipContent>
+   520→   520→   520→                          <p>Verified - 7 Day Streak! 🔥</p>
+   521→   521→   521→                        </TooltipContent>
+   522→   522→   522→                      </Tooltip>
+   523→   523→   523→                    </TooltipProvider>
+   524→   524→   524→                  )}
+   525→   525→   525→                </div>
+   526→   526→   526→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   527→   527→   527→                <div className="flex items-center gap-4 mt-2">
+   528→   528→   528→                  <div className="flex items-center gap-1.5">
+   529→   529→   529→                    <Trophy className="w-4 h-4 text-amber-400" />
+   530→   530→   530→                    <span className="text-white font-semibold">{student.score}</span>
+   531→   531→   531→                    <span className="text-slate-400 text-xs">points</span>
+   532→   532→   532→                  </div>
+   533→   533→   533→                  <div className="flex items-center gap-1.5">
+   534→   534→   534→                    <Flame className="w-4 h-4 text-orange-400" />
+   535→   535→   535→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   536→   536→   536→                    <span className="text-slate-400 text-xs">day streak</span>
+   537→   537→   537→                  </div>
+   538→   538→   538→                </div>
+   539→   539→   539→              </div>
+   540→   540→   540→            </div>
+   541→   541→   541→            <div className="flex items-center gap-2">
+   542→   542→   542→              {/* Strike Button */}
+   543→   543→   543→              <TooltipProvider>
+   544→   544→   544→                <Tooltip>
+   545→   545→   545→                  <TooltipTrigger asChild>
+   546→   546→   546→                    <Button
+   547→   547→   547→                      size="icon"
+   548→   548→   548→                      variant="ghost"
+   549→   549→   549→                      className={`h-10 w-10 text-orange-400 hover:text-orange-300 hover:bg-white/10 ${strikeAnimating ? 'fire-animate' : ''}`}
+   550→   550→   550→                      onClick={handleStrike}
+   551→   551→   551→                      disabled={!canStrike || strikeLoading}
+   552→   552→   552→                    >
+   553→   553→   553→                      <Flame className="w-6 h-6" />
+   554→   554→   554→                    </Button>
+   555→   555→   555→                  </TooltipTrigger>
+   556→   556→   556→                  <TooltipContent>
+   557→   557→   557→                    {canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}
+   558→   558→   558→                  </TooltipContent>
+   559→   559→   559→                </Tooltip>
+   560→   560→   560→              </TooltipProvider>
+   561→   561→   561→
+   562→   562→   562→              {/* Settings - Reset */}
+   563→   563→   563→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   564→   564→   564→                <DialogTrigger asChild>
+   565→   565→   565→                  <Button size="icon" variant="ghost" className="h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10">
+   566→   566→   566→                    <Settings className="w-5 h-5" />
+   567→   567→   567→                  </Button>
+   568→   568→   568→                </DialogTrigger>
+   569→   569→   569→                <DialogContent>
+   570→   570→   570→                  <DialogHeader>
+   571→   571→   571→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   572→   572→   572→                    <DialogDescription>
+   573→   573→   573→                      This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.
+   574→   574→   574→                    </DialogDescription>
+   575→   575→   575→                  </DialogHeader>
+   576→   576→   576→                  <DialogFooter>
+   577→   577→   577→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   578→   578→   578→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   579→   579→   579→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+   580→   580→   580→                      Reset Stats
+   581→   581→   581→                    </Button>
+   582→   582→   582→                  </DialogFooter>
+   583→   583→   583→                </DialogContent>
+   584→   584→   584→              </Dialog>
+   585→   585→   585→            </div>
+   586→   586→   586→          </div>
+   587→   587→   587→        </div>
+   588→   588→   588→      </Card>
+   589→   589→   589→
+   590→   590→   590→      {/* Study Session Area */}
+   591→   591→   591→      <Card>
+   592→   592→   592→        <CardHeader className="pb-3">
+   593→   593→   593→          <CardTitle className="text-lg flex items-center gap-2">
+   594→   594→   594→            <BookOpen className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+   595→   595→   595→            Study Session
+   596→   596→   596→          </CardTitle>
+   597→   597→   597→          <CardDescription>Which chapter do you want to study today?</CardDescription>
+   598→   598→   598→        </CardHeader>
+   599→   599→   599→        <CardContent className="space-y-4">
+   600→   600→   600→          {!timerRunning && !timerCompleted ? (
+   601→   601→   601→            <>
+   602→   602→   602→              {/* Subject Select */}
+   603→   603→   603→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   604→   604→   604→                <div className="space-y-1.5">
+   605→   605→   605→                  <Label className="text-xs font-medium text-slate-500">Subject</Label>
+   606→   606→   606→                  <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   607→   607→   607→                    <SelectTrigger>
+   608→   608→   608→                      <SelectValue placeholder="Choose subject" />
+   609→   609→   609→                    </SelectTrigger>
+   610→   610→   610→                    <SelectContent>
+   611→   611→   611→                      {subjects.map(s => (
+   612→   612→   612→                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+   613→   613→   613→                      ))}
+   614→   614→   614→                    </SelectContent>
+   615→   615→   615→                  </Select>
+   616→   616→   616→                </div>
+   617→   617→   617→                <div className="space-y-1.5">
+   618→   618→   618→                  <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+   619→   619→   619→                  <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   620→   620→   620→                    <SelectTrigger>
+   621→   621→   621→                      <SelectValue placeholder="Choose chapter" />
+   622→   622→   622→                    </SelectTrigger>
+   623→   623→   623→                    <SelectContent>
+   624→   624→   624→                      {chapters.map(c => (
+   625→   625→   625→                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+   626→   626→   626→                      ))}
+   627→   627→   627→                    </SelectContent>
+   628→   628→   628→                  </Select>
+   629→   629→   629→                </div>
+   630→   630→   630→              </div>
+   631→   631→   631→
+   632→   632→   632→              {/* Timer Presets */}
+   633→   633→   633→              <div className="space-y-2">
+   634→   634→   634→                <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+   635→   635→   635→                <div className="flex flex-wrap gap-2">
+   636→   636→   636→                  {timerPresets.map(p => (
+   637→   637→   637→                    <Button
+   638→   638→   638→                      key={p.value}
+   639→   639→   639→                      variant={timerPreset === p.value ? 'default' : 'outline'}
+   640→   640→   640→                      size="sm"
+   641→   641→   641→                      className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+   642→   642→   642→                      onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}
+   643→   643→   643→                    >
+   644→   644→   644→                      {p.label}
+   645→   645→   645→                    </Button>
+   646→   646→   646→                  ))}
+   647→   647→   647→                  <div className="flex items-center gap-1.5">
+   648→   648→   648→                    <Input
+   649→   649→   649→                      type="number"
+   650→   650→   650→                      placeholder="Custom (min)"
+   651→   651→   651→                      className="w-28 h-8 text-sm"
+   652→   652→   652→                      value={customMinutes}
+   653→   653→   653→                      onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }}
+   654→   654→   654→                      min={1}
+   655→   655→   655→                    />
+   656→   656→   656→                    <span className="text-xs text-slate-400">min</span>
+   657→   657→   657→                  </div>
+   658→   658→   658→                </div>
+   659→   659→   659→              </div>
+   660→   660→   660→
+   661→   661→   661→              <Button
+   662→   662→   662→                onClick={startTimer}
+   663→   663→   663→                disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || timerPreset === -1 && !customMinutes}
+   664→   664→   664→                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+   665→   665→   665→              >
+   666→   666→   666→                <Play className="w-4 h-4 mr-2" />
+   667→   667→   667→                Start Session
+   668→   668→   668→              </Button>
+   669→   669→   669→            </>
+   670→   670→   670→          ) : timerCompleted ? (
+   671→   671→   671→            /* Completion Prompt */
+   672→   672→   672→            <div className="text-center py-6 space-y-4">
+   673→   673→   673→              <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+   674→   674→   674→                <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   675→   675→   675→              </div>
+   676→   676→   676→              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+   677→   677→   677→                Session Complete! 🎉
+   678→   678→   678→              </h3>
+   679→   679→   679→              <p className="text-slate-500 dark:text-slate-400">
+   680→   680→   680→                Have you completed this chapter?
+   681→   681→   681→              </p>
+   682→   682→   682→              <div className="flex items-center justify-center gap-3">
+   683→   683→   683→                <Button
+   684→   684→   684→                  onClick={() => handleTimerComplete(true)}
+   685→   685→   685→                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+   686→   686→   686→                >
+   687→   687→   687→                  <CheckCircle2 className="w-4 h-4 mr-2" />
+   688→   688→   688→                  Yes, Done!
+   689→   689→   689→                </Button>
+   690→   690→   690→                <Button variant="outline" onClick={() => handleTimerComplete(false)}>
+   691→   691→   691→                  Not Yet
+   692→   692→   692→                </Button>
+   693→   693→   693→              </div>
+   694→   694→   694→            </div>
+   695→   695→   695→          ) : (
+   696→   696→   696→            /* Timer Running */
+   697→   697→   697→            <div className="text-center py-8 space-y-6">
+   698→   698→   698→              <div>
+   699→   699→   699→                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+   700→   700→   700→                <p className="font-medium text-slate-900 dark:text-slate-100">
+   701→   701→   701→                  {chapters.find(c => c.id === selectedChapterId)?.name}
+   702→   702→   702→                </p>
+   703→   703→   703→              </div>
+   704→   704→   704→              {/* Big Timer Display */}
+   705→   705→   705→              <div className="relative inline-flex items-center justify-center">
+   706→   706→   706→                <div className="absolute inset-0 rounded-full bg-slate-900/5 dark:bg-slate-100/5 scale-125" />
+   707→   707→   707→                <div className="relative w-48 h-48 rounded-full border-4 border-slate-200 dark:border-slate-700 flex items-center justify-center">
+   708→   708→   708→                  <span className="text-5xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+   709→   709→   709→                    {formatTimer(timerSeconds)}
+   710→   710→   710→                  </span>
+   711→   711→   711→                </div>
+   712→   712→   712→              </div>
+   713→   713→   713→              {/* Progress bar */}
+   714→   714→   714→              <div className="max-w-xs mx-auto">
+   715→   715→   715→                <Progress
+   716→   716→   716→                  value={timerTotalSeconds > 0 ? ((timerTotalSeconds - timerSeconds) / timerTotalSeconds) * 100 : 0}
+   717→   717→   717→                  className="h-2"
+   718→   718→   718→                />
+   719→   719→   719→              </div>
+   720→   720→   720→              {/* Controls */}
+   721→   721→   721→              <div className="flex items-center justify-center gap-3">
+   722→   722→   722→                <Button
+   723→   723→   723→                  variant="outline"
+   724→   724→   724→                  size="icon"
+   725→   725→   725→                  onClick={pauseResumeTimer}
+   726→   726→   726→                  className="h-12 w-12"
+   727→   727→   727→                >
+   728→   728→   728→                  {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+   729→   729→   729→                </Button>
+   730→   730→   730→                <Button
+   731→   731→   731→                  variant="outline"
+   732→   732→   732→                  size="icon"
+   733→   733→   733→                  onClick={resetTimer}
+   734→   734→   734→                  className="h-12 w-12"
+   735→   735→   735→                >
+   736→   736→   736→                  <RotateCcw className="w-5 h-5" />
+   737→   737→   737→                </Button>
+   738→   738→   738→                <Button
+   739→   739→   739→                  variant="ghost"
+   740→   740→   740→                  onClick={chooseAnotherChapter}
+   741→   741→   741→                  className="text-sm text-slate-500"
+   742→   742→   742→                >
+   743→   743→   743→                  Choose Another
+   744→   744→   744→                </Button>
+   745→   745→   745→              </div>
+   746→   746→   746→            </div>
+   747→   747→   747→          )}
+   748→   748→   748→        </CardContent>
+   749→   749→   749→      </Card>
+   750→   750→   750→
+   751→   751→   751→      {/* Quick Stats */}
+   752→   752→   752→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   753→   753→   753→        <Card>
+   754→   754→   754→          <CardContent className="pt-4 pb-4">
+   755→   755→   755→            <div className="flex items-center gap-3">
+   756→   756→   756→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   757→   757→   757→                <BookOpen className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   758→   758→   758→              </div>
+   759→   759→   759→              <div>
+   760→   760→   760→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalSubjects}</p>
+   761→   761→   761→                <p className="text-xs text-slate-500">Subjects</p>
+   762→   762→   762→              </div>
+   763→   763→   763→            </div>
+   764→   764→   764→          </CardContent>
+   765→   765→   765→        </Card>
+   766→   766→   766→        <Card>
+   767→   767→   767→          <CardContent className="pt-4 pb-4">
+   768→   768→   768→            <div className="flex items-center gap-3">
+   769→   769→   769→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   770→   770→   770→                <ListChecks className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   771→   771→   771→              </div>
+   772→   772→   772→              <div>
+   773→   773→   773→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalChapters}</p>
+   774→   774→   774→                <p className="text-xs text-slate-500">Total Chapters</p>
+   775→   775→   775→              </div>
+   776→   776→   776→            </div>
+   777→   777→   777→          </CardContent>
+   778→   778→   778→        </Card>
+   779→   779→   779→        <Card>
+   780→   780→   780→          <CardContent className="pt-4 pb-4">
+   781→   781→   781→            <div className="flex items-center gap-3">
+   782→   782→   782→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   783→   783→   783→                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+   784→   784→   784→              </div>
+   785→   785→   785→              <div>
+   786→   786→   786→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.completedChapters}</p>
+   787→   787→   787→                <p className="text-xs text-slate-500">Completed</p>
+   788→   788→   788→              </div>
+   789→   789→   789→            </div>
+   790→   790→   790→          </CardContent>
+   791→   791→   791→        </Card>
+   792→   792→   792→        <Card>
+   793→   793→   793→          <CardContent className="pt-4 pb-4">
+   794→   794→   794→            <div className="flex items-center gap-3">
+   795→   795→   795→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   796→   796→   796→                <Clock className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   797→   797→   797→              </div>
+   798→   798→   798→              <div>
+   799→   799→   799→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   800→   800→   800→                <p className="text-xs text-slate-500">Today</p>
+   801→   801→   801→              </div>
+   802→   802→   802→            </div>
+   803→   803→   803→          </CardContent>
+   804→   804→   804→        </Card>
+   805→   805→   805→      </div>
+   806→   806→   806→
+   807→   807→   807→      {/* Achievements */}
+   808→   808→   808→      <Card>
+   809→   809→   809→        <CardHeader className="pb-3">
+   810→   810→   810→          <div className="flex items-center justify-between">
+   811→   811→   811→            <CardTitle className="text-lg flex items-center gap-2">
+   812→   812→   812→              <Trophy className="w-5 h-5 text-amber-500" />
+   813→   813→   813→              Achievements
+   814→   814→   814→            </CardTitle>
+   815→   815→   815→            <Badge variant="secondary">{unlockedCount}/{totalAchievements} Verified</Badge>
+   816→   816→   816→          </div>
+   817→   817→   817→        </CardHeader>
+   818→   818→   818→        <CardContent>
+   819→   819→   819→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+   820→   820→   820→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+   821→   821→   821→              <TooltipProvider key={a.id}>
+   822→   822→   822→                <Tooltip>
+   823→   823→   823→                  <TooltipTrigger asChild>
+   824→   824→   824→                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+   825→   825→   825→                      a.unlocked
+   826→   826→   826→                        ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+   827→   827→   827→                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-50'
+   828→   828→   828→                    }`}>
+   829→   829→   829→                      <span className="text-2xl">{a.icon || a.icon}</span>
+   830→   830→   830→                      <span className="text-[10px] font-medium text-center leading-tight text-slate-700 dark:text-slate-300">
+   831→   831→   831→                        {a.name}
+   832→   832→   832→                      </span>
+   833→   833→   833→                    </div>
+   834→   834→   834→                  </TooltipTrigger>
+   835→   835→   835→                  <TooltipContent>
+   836→   836→   836→                    <p className="font-semibold">{a.name}</p>
+   837→   837→   837→                    <p className="text-xs">{a.description}</p>
+   838→   838→   838→                    <p className="text-xs text-slate-400">{a.threshold} points needed</p>
+   839→   839→   839→                  </TooltipContent>
+   840→   840→   840→                </Tooltip>
+   841→   841→   841→              </TooltipProvider>
+   842→   842→   842→            ))}
+   843→   843→   843→          </div>
+   844→   844→   844→        </CardContent>
+   845→   845→   845→      </Card>
+   846→   846→   846→    </div>
+   847→   847→   847→  )
+   848→   848→   848→}
+   849→   849→   849→
+   850→   850→   850→// ═══════════════════════════════════════════════════════════════════════
+   851→   851→   851→// PAGE 2: TRACK STUDY
+   852→   852→   852→// ═══════════════════════════════════════════════════════════════════════
+   853→   853→   853→
+   854→   854→   854→function TrackStudyPage({ subjects }: { subjects: Subject[] }) {
+   855→   855→   855→  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+   856→   856→   856→  const [sessions, setSessions] = useState<StudySession[]>([])
+   857→   857→   857→  const [totalMin, setTotalMin] = useState(0)
+   858→   858→   858→  const [chartData, setChartData] = useState<{ date: string; minutes: number }[]>([])
+   859→   859→   859→  const [loading, setLoading] = useState(true)
+   860→   860→   860→
+   861→   861→   861→  // Fetch chart data (all sessions last 30 days)
+   862→   862→   862→  useEffect(() => {
+   863→   863→   863→    const fetchChart = async () => {
+   864→   864→   864→      try {
+   865→   865→   865→        const data = await api.studentStudyHistory()
+   866→   866→   866→        const sessions = data.sessions || []
+   867→   867→   867→        // Aggregate by date
+   868→   868→   868→        const dateMap: Record<string, number> = {}
+   869→   869→   869→        sessions.forEach((s: any) => {
+   870→   870→   870→          const dateKey = new Date(s.date).toISOString().split('T')[0]
+   871→   871→   871→          dateMap[dateKey] = (dateMap[dateKey] || 0) + s.durationMin
+   872→   872→   872→        })
+   873→   873→   873→        // Build last 14 days
+   874→   874→   874→        const chart: { date: string; minutes: number }[] = []
+   875→   875→   875→        for (let i = 13; i >= 0; i--) {
+   876→   876→   876→          const d = new Date()
+   877→   877→   877→          d.setDate(d.getDate() - i)
+   878→   878→   878→          const key = formatDate(d)
+   879→   879→   879→          chart.push({ date: key, minutes: dateMap[key] || 0 })
+   880→   880→   880→        }
+   881→   881→   881→        setChartData(chart)
+   882→   882→   882→      } catch (err) {
+   883→   883→   883→        console.error('Chart data error:', err)
+   884→   884→   884→      }
+   885→   885→   885→    }
+   886→   886→   886→    fetchChart()
+   887→   887→   887→  }, [])
+   888→   888→   888→
+   889→   889→   889→  // Fetch date-specific sessions
+   890→   890→   890→  useEffect(() => {
+   891→   891→   891→    const fetchSessions = async () => {
+   892→   892→   892→      setLoading(true)
+   893→   893→   893→      try {
+   894→   894→   894→        const dateStr = formatDate(selectedDate)
+   895→   895→   895→        const data = await api.studentStudyHistory(dateStr)
+   896→   896→   896→        setSessions(data.sessions || [])
+   897→   897→   897→        setTotalMin(data.totalMin || 0)
+   898→   898→   898→      } catch (err) {
+   899→   899→   899→        console.error('Sessions fetch error:', err)
+   900→   900→   900→      } finally {
+   901→   901→   901→        setLoading(false)
+   902→   902→   902→      }
+   903→   903→   903→    }
+   904→   904→   904→    fetchSessions()
+   905→   905→   905→  }, [selectedDate])
+   906→   906→   906→
+   907→   907→   907→  const maxChartMinutes = Math.max(...chartData.map(d => d.minutes), 1)
+   908→   908→   908→
+   909→   909→   909→  return (
+   910→   910→   910→    <div className="space-y-6">
+   911→   911→   911→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+   912→   912→   912→        <CalendarDays className="w-5 h-5" />
+   913→   913→   913→        Track Study
+   914→   914→   914→      </h2>
+   915→   915→   915→
+   916→   916→   916→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+   917→   917→   917→        {/* Calendar */}
+   918→   918→   918→        <Card>
+   919→   919→   919→          <CardContent className="pt-4 flex justify-center">
+   920→   920→   920→            <Calendar
+   921→   921→   921→              mode="single"
+   922→   922→   922→              selected={selectedDate}
+   923→   923→   923→              onSelect={(d) => d && setSelectedDate(d)}
+   924→   924→   924→              className="rounded-md"
+   925→   925→   925→            />
+   926→   926→   926→          </CardContent>
+   927→   927→   927→        </Card>
+   928→   928→   928→
+   929→   929→   929→        {/* Day Details */}
+   930→   930→   930→        <Card>
+   931→   931→   931→          <CardHeader className="pb-3">
+   932→   932→   932→            <div className="flex items-center justify-between">
+   933→   933→   933→              <CardTitle className="text-base">
+   934→   934→   934→                {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+   935→   935→   935→              </CardTitle>
+   936→   936→   936→              <Badge variant="secondary">{formatMinutes(totalMin)} studied</Badge>
+   937→   937→   937→            </div>
+   938→   938→   938→          </CardHeader>
+   939→   939→   939→          <CardContent>
+   940→   940→   940→            {loading ? (
+   941→   941→   941→              <div className="space-y-2">
+   942→   942→   942→                {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}
+   943→   943→   943→              </div>
+   944→   944→   944→            ) : sessions.length === 0 ? (
+   945→   945→   945→              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
+   946→   946→   946→                No study sessions on this day
+   947→   947→   947→              </p>
+   948→   948→   948→            ) : (
+   949→   949→   949→              <ScrollArea className="max-h-64">
+   950→   950→   950→                <div className="space-y-2">
+   951→   951→   951→                  {sessions.map(s => (
+   952→   952→   952→                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+   953→   953→   953→                      <div className="flex items-center gap-3">
+   954→   954→   954→                        <div className={`p-1.5 rounded-lg ${s.completed ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-200 dark:bg-slate-800'}`}>
+   955→   955→   955→                          {s.completed ? (
+   956→   956→   956→                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+   957→   957→   957→                          ) : (
+   958→   958→   958→                            <Clock className="w-4 h-4 text-slate-500" />
+   959→   959→   959→                          )}
+   960→   960→   960→                        </div>
+   961→   961→   961→                        <div>
+   962→   962→   962→                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+   963→   963→   963→                            {s.chapter?.name || 'General Study'}
+   964→   964→   964→                          </p>
+   965→   965→   965→                          <p className="text-xs text-slate-500">{s.chapter?.subject?.name || ''}</p>
+   966→   966→   966→                        </div>
+   967→   967→   967→                      </div>
+   968→   968→   968→                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+   969→   969→   969→                        {formatMinutes(s.durationMin)}
+   970→   970→   970→                      </span>
+   971→   971→   971→                    </div>
+   972→   972→   972→                  ))}
+   973→   973→   973→                </div>
+   974→   974→   974→              </ScrollArea>
+   975→   975→   975→            )}
+   976→   976→   976→          </CardContent>
+   977→   977→   977→        </Card>
+   978→   978→   978→      </div>
+   979→   979→   979→
+   980→   980→   980→      {/* Study Hours Chart */}
+   981→   981→   981→      <Card>
+   982→   982→   982→        <CardHeader className="pb-3">
+   983→   983→   983→          <CardTitle className="text-base flex items-center gap-2">
+   984→   984→   984→            <TrendingUp className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   985→   985→   985→            Last 14 Days
+   986→   986→   986→          </CardTitle>
+   987→   987→   987→        </CardHeader>
+   988→   988→   988→        <CardContent>
+   989→   989→   989→          <div className="flex items-end gap-1 h-40">
+   990→   990→   990→            {chartData.map((d, i) => {
+   991→   991→   991→              const height = d.minutes > 0 ? Math.max((d.minutes / maxChartMinutes) * 100, 4) : 2
+   992→   992→   992→              const isToday = d.date === formatDate(new Date())
+   993→   993→   993→              return (
+   994→   994→   994→                <TooltipProvider key={i}>
+   995→   995→   995→                  <Tooltip>
+   996→   996→   996→                    <TooltipTrigger asChild>
+   997→   997→   997→                      <div className="flex-1 flex flex-col items-center gap-1">
+   998→   998→   998→                        <div
+   999→   999→   999→                          className={`w-full rounded-t-sm transition-all ${
+  1000→  1000→  1000→                            isToday
+
+[showing lines 501-1000 of 1636; use offset=1001 with limit to continue reading]

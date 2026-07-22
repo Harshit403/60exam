@@ -1,0 +1,689 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Label } from '@/components/ui/label'
+     7→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     8→import { Badge } from '@/components/ui/badge'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    11→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    12→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    13→import {
+    14→  LayoutDashboard, CalendarDays, CalendarCheck, MessageCircle, ListChecks,
+    15→  UserCog, LogOut, Flame, Settings, CheckCircle2, Clock, Play, Pause, RotateCcw,
+    16→  ChevronRight, Trophy, BookOpen, Target, Loader2, Menu, Lock, Crown, Plus, Sparkles, Moon,
+    17→} from 'lucide-react'
+    18→import { api } from '@/lib/api-client'
+    19→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    20→
+    21→import { StudentPanelProps, Page, DashboardData } from './types'
+    22→import {
+    23→  CSS_ANIMATIONS, MOTIVATIONAL_QUOTES, SESSION_QUOTES, MOCK_LEADERBOARD,
+    24→  formatTimer, formatMinutes, CircularProgressRing, TimerCountdownRing, Confetti, LoadingSkeleton,
+    25→} from './utils'
+    26→import { TrackStudyPage, StudyPlannerPage, DiscussionPage, SyllabusPage, EditProfilePage } from './pages'
+    27→
+    28→// ═══════════════════════════════════════════════════════════════════════
+    29→// MAIN COMPONENT
+    30→// ═══════════════════════════════════════════════════════════════════════
+    31→
+    32→export default function StudentPanel({ onLogout }: StudentPanelProps) {
+    33→  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+    34→  const [sidebarOpen, setSidebarOpen] = useState(false)
+    35→  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+    36→  const [loading, setLoading] = useState(true)
+    37→
+    38→  const fetchDashboard = useCallback(async () => {
+    39→    try {
+    40→      setLoading(true)
+    41→      const data = await api.studentDashboard()
+    42→      setDashboardData(data as DashboardData)
+    43→    } catch (err) { console.error('Dashboard fetch error:', err) }
+    44→    finally { setLoading(false) }
+    45→  }, [])
+    46→
+    47→  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+    48→
+    49→  const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
+    50→    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    51→    { id: 'track', label: 'Track Study', icon: CalendarDays },
+    52→    { id: 'planner', label: 'Study Planner', icon: CalendarCheck },
+    53→    { id: 'discussion', label: 'Discussion', icon: MessageCircle },
+    54→    { id: 'syllabus', label: 'Syllabus', icon: ListChecks },
+    55→    { id: 'profile', label: 'Edit Profile', icon: UserCog },
+    56→  ]
+    57→
+    58→  const handleNavClick = (page: Page) => { setCurrentPage(page); setSidebarOpen(false) }
+    59→
+    60→  const SidebarContent = () => (
+    61→    <div className="flex flex-col h-full">
+    62→      <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+    63→        <div className="flex items-center gap-3">
+    64→          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-800 to-slate-950 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center flex-shrink-0 shadow-sm">
+    65→            <BookOpen className="w-5 h-5 text-white dark:text-slate-900" />
+    66→          </div>
+    67→          <div>
+    68→            <h2 className="font-bold text-sm text-slate-900 dark:text-slate-100">MISSION CS</h2>
+    69→            <p className="text-[10px] text-slate-500 dark:text-slate-400 tracking-wider">TEST SERIES</p>
+    70→          </div>
+    71→        </div>
+    72→      </div>
+    73→
+    74→      {dashboardData && (
+    75→        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+    76→          <div className="flex items-center gap-3">
+    77→            <div className="relative">
+    78→              <Avatar className="h-9 w-9">
+    79→                <AvatarFallback className="bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 text-slate-700 dark:text-slate-300 text-sm font-semibold">
+    80→                  {dashboardData.student.fullName.charAt(0).toUpperCase()}
+    81→                </AvatarFallback>
+    82→              </Avatar>
+    83→              {dashboardData.student.verified && (
+    84→                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center ring-2 ring-white dark:ring-slate-900">
+    85→                  <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+    86→                </div>
+    87→              )}
+    88→            </div>
+    89→            <div className="min-w-0 flex-1">
+    90→              <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{dashboardData.student.fullName}</p>
+    91→              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">Score: {dashboardData.student.score}</p>
+    92→            </div>
+    93→          </div>
+    94→        </div>
+    95→      )}
+    96→
+    97→      <nav className="flex-1 p-3 space-y-1">
+    98→        {navItems.map((item) => {
+    99→          const isActive = currentPage === item.id
+   100→          return (
+   101→            <button key={item.id} onClick={() => handleNavClick(item.id)}
+   102→              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative active:scale-[0.98] ${
+   103→                isActive ? 'text-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+   104→              }`}>
+   105→              {isActive && (
+   106→                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-slate-800 to-slate-950 dark:from-slate-200 dark:to-slate-100 shadow-sm nav-active-indicator" />
+   107→              )}
+   108→              <item.icon className="w-4 h-4 flex-shrink-0 relative z-10" />
+   109→              <span className="relative z-10">{item.label}</span>
+   110→            </button>
+   111→          )
+   112→        })}
+   113→      </nav>
+   114→
+   115→      <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
+   116→        <button onClick={() => {
+   117→          const t = document.documentElement.classList.contains('dark') ? 'light' : 'dark'
+   118→          document.documentElement.classList.toggle('dark', t === 'dark')
+   119→          localStorage.setItem('theme', t)
+   120→        }}
+   121→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+   122→          <Moon className="w-4 h-4 flex-shrink-0" /> <span id="theme-label">Dark Mode</span>
+   123→        </button>
+   124→        <button onClick={onLogout}
+   125→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+   126→          <LogOut className="w-4 h-4 flex-shrink-0" /> Logout
+   127→        </button>
+   128→      </div>
+   129→    </div>
+   130→  )
+   131→
+   132→  const renderPage = () => {
+   133→    if (loading) return <LoadingSkeleton />
+   134→    switch (currentPage) {
+   135→      case 'dashboard': return <DashboardPage data={dashboardData} onRefresh={fetchDashboard} />
+   136→      case 'track': return <TrackStudyPage subjects={dashboardData?.subjects || []} />
+   137→      case 'planner': return <StudyPlannerPage subjects={dashboardData?.subjects || []} />
+   138→      case 'discussion': return <DiscussionPage />
+   139→      case 'syllabus': return <SyllabusPage />
+   140→      case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />
+   141→    }
+   142→  }
+   143→
+   144→  return (
+   145→    <>
+   146→      <style>{CSS_ANIMATIONS}</style>
+   147→      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+   148→        {/* Desktop Sidebar */}
+   149→        <aside className="hidden md:flex w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col fixed inset-y-0 z-40">
+   150→          <SidebarContent />
+   151→        </aside>
+   152→
+   153→        {/* Mobile Sidebar Overlay */}
+   154→        {sidebarOpen && (
+   155→          <>
+   156→            <div className="fixed inset-0 z-50 md:hidden bg-black/50 fade-in"
+   157→              onClick={() => setSidebarOpen(false)} />
+   158→            <aside className="fixed left-0 top-0 bottom-0 w-64 z-50 md:hidden bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 sidebar-slide-in">
+   159→              <SidebarContent />
+   160→            </aside>
+   161→          </>
+   162→        )}
+   163→
+   164→        {/* Main Content */}
+   165→        <main className="flex-1 md:ml-64">
+   166→          <div className="md:hidden sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
+   167→            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+   168→              <Menu className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+   169→            </button>
+   170→            <h1 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+   171→              {navItems.find(n => n.id === currentPage)?.label || 'Dashboard'}
+   172→            </h1>
+   173→          </div>
+   174→
+   175→          <div className="p-4 md:p-6 max-w-5xl mx-auto">
+   176→            <div key={currentPage} className="page-transition">
+   177→              {renderPage()}
+   178→            </div>
+   179→          </div>
+   180→        </main>
+   181→      </div>
+   182→    </>
+   183→  )
+   184→}
+   185→
+   186→// ═══════════════════════════════════════════════════════════════════════
+   187→// PAGE 1: DASHBOARD (with timer logic)
+   188→// ═══════════════════════════════════════════════════════════════════════
+   189→
+   190→function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+   191→  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+   192→  const [selectedChapterId, setSelectedChapterId] = useState('')
+   193→  const [timerPreset, setTimerPreset] = useState(0)
+   194→  const [customMinutes, setCustomMinutes] = useState('')
+   195→  const [timerRunning, setTimerRunning] = useState(false)
+   196→  const [timerPaused, setTimerPaused] = useState(false)
+   197→  const [timerSeconds, setTimerSeconds] = useState(0)
+   198→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+   199→  const [timerCompleted, setTimerCompleted] = useState(false)
+   200→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+   201→  const [strikeLoading, setStrikeLoading] = useState(false)
+   202→  const [strikeFlash, setStrikeFlash] = useState(false)
+   203→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+   204→  const [resetLoading, setResetLoading] = useState(false)
+   205→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+   206→  const [achievementsData, setAchievementsData] = useState<any>(null)
+   207→  const [showConfetti, setShowConfetti] = useState(false)
+   208→  const [sessionQuote, setSessionQuote] = useState('')
+   209→  const [dailyGoalMin] = useState(120)
+   210→
+   211→  const dailyQuote = useMemo(() => MOTIVATIONAL_QUOTES[new Date().getDate() % MOTIVATIONAL_QUOTES.length], [])
+   212→  const student = data?.student
+   213→  const subjects = data?.subjects || []
+   214→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+   215→  const chapters = selectedSubject?.chapters || []
+   216→
+   217→  useEffect(() => {
+   218→    const fetchAchievements = async () => {
+   219→      try { setAchievementsData(await api.studentAchievements()) }
+   220→      catch (err) { console.error('Achievements fetch error:', err) }
+   221→    }
+   222→    fetchAchievements()
+   223→  }, [data?.student?.score])
+   224→
+   225→  // Timer logic
+   226→  useEffect(() => {
+   227→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+   228→      timerInterval.current = setInterval(() => {
+   229→        setTimerSeconds(prev => {
+   230→          if (prev <= 1) {
+   231→            setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
+   232→            if (timerInterval.current) clearInterval(timerInterval.current)
+   233→            return 0
+   234→          }
+   235→          return prev - 1
+   236→        })
+   237→      }, 1000)
+   238→    }
+   239→    return () => { if (timerInterval.current) clearInterval(timerInterval.current) }
+   240→  }, [timerRunning, timerPaused, timerSeconds])
+   241→
+   242→  const startTimer = () => {
+   243→    let minutes = timerPreset
+   244→    if (timerPreset === -1) minutes = parseInt(customMinutes) || 0
+   245→    if (minutes <= 0 || !selectedChapterId) return
+   246→    setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
+   247→    setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
+   248→    setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+   249→  }
+   250→
+   251→  const resetTimer = () => {
+   252→    setTimerRunning(false); setTimerPaused(false); setTimerSeconds(0)
+   253→    setTimerTotalSeconds(0); setTimerCompleted(false); setSessionQuote('')
+   254→    if (timerInterval.current) clearInterval(timerInterval.current)
+   255→  }
+   256→
+   257→  const handleTimerComplete = async (completed: boolean) => {
+   258→    const durationMin = Math.round(timerTotalSeconds / 60)
+   259→    try {
+   260→      await api.studentStartSession({ chapterId: selectedChapterId, durationMin, completed })
+   261→      if (completed) await api.studentMarkChapter(selectedChapterId, true)
+   262→    } catch (err) { console.error('Session save error:', err) }
+   263→    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh()
+   264→  }
+   265→
+   266→  const handleStrike = async () => {
+   267→    setStrikeLoading(true); setStrikeAnimating(true); setStrikeFlash(true)
+   268→    try {
+   269→      await api.studentSendStrike()
+   270→      setTimeout(() => { setStrikeAnimating(false); setStrikeFlash(false) }, 800)
+   271→      onRefresh()
+   272→    } catch {
+   273→      setStrikeAnimating(false); setStrikeFlash(false)
+   274→    } finally { setStrikeLoading(false) }
+   275→  }
+   276→
+   277→  const handleResetStats = async () => {
+   278→    setResetLoading(true)
+   279→    try { await api.studentResetStats(); setResetDialogOpen(false); onRefresh() }
+   280→    catch (err) { console.error('Reset error:', err) }
+   281→    finally { setResetLoading(false) }
+   282→  }
+   283→
+   284→  if (!data || !student) return <LoadingSkeleton />
+   285→
+   286→  const canStrike = !(student as any).lastStrikeAt ||
+   287→    new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
+   288→
+   289→  const timerPresets = [
+   290→    { label: '30m', value: 30 }, { label: '45m', value: 45 },
+   291→    { label: '1h', value: 60 }, { label: '1.5h', value: 90 }, { label: '2h', value: 120 },
+   292→  ]
+   293→
+   294→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   295→  const totalAchievements = achievementsData?.totalAchievements || 12
+   296→  const dailyGoalProgress = Math.min((data.todayStudyMin / dailyGoalMin) * 100, 100)
+   297→  const dailyGoalReached = data.todayStudyMin >= dailyGoalMin
+   298→  const scoreProgress = Math.min((student.score / 1000) * 100, 100)
+   299→
+   300→  return (
+   301→    <div className="space-y-6">
+   302→      <Confetti active={showConfetti} />
+   303→      {strikeFlash && <div className="fixed inset-0 bg-orange-400/20 dark:bg-orange-500/10 strike-flash pointer-events-none z-[999]" />}
+   304→
+   305→      {/* Daily Quote */}
+   306→      <div className="rounded-xl bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 dark:from-slate-700 dark:via-slate-600 dark:to-slate-800 p-4 shadow-lg fade-in">
+   307→        <div className="flex items-center gap-3">
+   308→          <Sparkles className="w-5 h-5 text-amber-400 flex-shrink-0" />
+   309→          <div className="min-w-0 flex-1">
+   310→            <p className="text-white text-sm font-medium italic">&ldquo;{dailyQuote.text}&rdquo;</p>
+   311→            <p className="text-slate-400 text-xs mt-0.5">— {dailyQuote.author}</p>
+   312→          </div>
+   313→        </div>
+   314→      </div>
+   315→
+   316→      {/* Profile Card */}
+   317→      <Card className="overflow-hidden">
+   318→        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-6 relative">
+   319→          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+   320→          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/3 rounded-full translate-y-1/3 -translate-x-1/4" />
+   321→          <div className="relative flex items-start justify-between">
+   322→            <div className="flex items-center gap-5">
+   323→              <CircularProgressRing size={80} strokeWidth={5} progress={scoreProgress} color="#f59e0b" trackColor="rgba(255,255,255,0.15)">
+   324→                <Avatar className="h-14 w-14 border-2 border-white/20">
+   325→                  <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   326→                    {student.fullName.charAt(0).toUpperCase()}
+   327→                  </AvatarFallback>
+   328→                </Avatar>
+   329→              </CircularProgressRing>
+   330→              <div>
+   331→                <div className="flex items-center gap-2">
+   332→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+   333→                  {student.verified && (
+   334→                    <TooltipProvider><Tooltip>
+   335→                      <TooltipTrigger><div className="verified-glow rounded-full p-0.5"><CheckCircle2 className="w-5 h-5 text-blue-400" /></div></TooltipTrigger>
+   336→                      <TooltipContent><p>Verified - 7 Day Streak! 🔥</p></TooltipContent>
+   337→                    </Tooltip></TooltipProvider>
+   338→                  )}
+   339→                </div>
+   340→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   341→                <div className="flex items-center gap-4 mt-2">
+   342→                  <div className="flex items-center gap-1.5">
+   343→                    <Trophy className="w-4 h-4 text-amber-400" />
+   344→                    <span className="text-white font-semibold">{student.score}</span>
+   345→                    <span className="text-slate-400 text-xs">points</span>
+   346→                  </div>
+   347→                  <div className="flex items-center gap-1.5">
+   348→                    <Flame className="w-4 h-4 text-orange-400" />
+   349→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   350→                    <span className="text-slate-400 text-xs">day streak</span>
+   351→                  </div>
+   352→                </div>
+   353→              </div>
+   354→            </div>
+   355→            <div className="flex items-center gap-2">
+   356→              <TooltipProvider><Tooltip>
+   357→                <TooltipTrigger asChild>
+   358→                  <Button size="icon" variant="ghost"
+   359→                    className={`h-11 w-11 text-orange-400 hover:text-orange-300 hover:bg-white/10 relative ${strikeAnimating ? 'fire-animate' : ''}`}
+   360→                    onClick={handleStrike} disabled={!canStrike || strikeLoading}>
+   361→                    <Flame className="w-6 h-6" />
+   362→                    {strikeAnimating && (
+   363→                      <>
+   364→                        <div className="flame-particle bg-orange-500" style={{ top: '-8px', left: '6px' }} />
+   365→                        <div className="flame-particle bg-red-500" style={{ top: '-12px', left: '14px', animationDelay: '0.1s' }} />
+   366→                        <div className="flame-particle bg-amber-500" style={{ top: '-6px', left: '22px', animationDelay: '0.2s' }} />
+   367→                        <div className="flame-particle bg-yellow-400" style={{ top: '-14px', left: '10px', animationDelay: '0.15s' }} />
+   368→                        <div className="flame-particle bg-orange-400" style={{ top: '-10px', left: '18px', animationDelay: '0.25s' }} />
+   369→                      </>
+   370→                    )}
+   371→                  </Button>
+   372→                </TooltipTrigger>
+   373→                <TooltipContent>{canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}</TooltipContent>
+   374→              </Tooltip></TooltipProvider>
+   375→
+   376→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   377→                <DialogTrigger asChild>
+   378→                  <Button size="icon" variant="ghost" className="h-11 w-11 text-slate-400 hover:text-white hover:bg-white/10">
+   379→                    <Settings className="w-5 h-5" />
+   380→                  </Button>
+   381→                </DialogTrigger>
+   382→                <DialogContent>
+   383→                  <DialogHeader>
+   384→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   385→                    <DialogDescription>This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.</DialogDescription>
+   386→                  </DialogHeader>
+   387→                  <DialogFooter>
+   388→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   389→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   390→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Reset Stats
+   391→                    </Button>
+   392→                  </DialogFooter>
+   393→                </DialogContent>
+   394→              </Dialog>
+   395→            </div>
+   396→          </div>
+   397→        </div>
+   398→      </Card>
+   399→
+   400→      {/* Quick Actions */}
+   401→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   402→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-amber-500" onClick={() => {
+   403→          for (const s of subjects) {
+   404→            if (s.chapters.length > 0) { setSelectedSubjectId(s.id); setSelectedChapterId(s.chapters[0].id); break }
+   405→          }
+   406→        }}>
+   407→          <CardContent className="pt-4 pb-4">
+   408→            <div className="flex items-center gap-3">
+   409→              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+   410→                <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+   411→              </div>
+   412→              <div>
+   413→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resume Last Chapter</p>
+   414→                <p className="text-xs text-slate-500">Continue where you left off</p>
+   415→              </div>
+   416→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   417→            </div>
+   418→          </CardContent>
+   419→        </Card>
+   420→
+   421→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-orange-500" onClick={handleStrike}>
+   422→          <CardContent className="pt-4 pb-4">
+   423→            <div className="flex items-center gap-3">
+   424→              <div className="p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+   425→                <Flame className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+   426→              </div>
+   427→              <div>
+   428→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue Streak</p>
+   429→                <p className="text-xs text-slate-500">{canStrike ? 'Send your daily strike!' : 'Already struck today ✓'}</p>
+   430→              </div>
+   431→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   432→            </div>
+   433→          </CardContent>
+   434→        </Card>
+   435→
+   436→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-emerald-500">
+   437→          <CardContent className="pt-4 pb-4">
+   438→            <div className="flex items-center gap-3">
+   439→              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+   440→                <Target className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   441→              </div>
+   442→              <div>
+   443→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">View Study Plan</p>
+   444→                <p className="text-xs text-slate-500">Check today's schedule</p>
+   445→              </div>
+   446→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   447→            </div>
+   448→          </CardContent>
+   449→        </Card>
+   450→      </div>
+   451→
+   452→      {/* Study Session + Daily Goal */}
+   453→      <div className="grid md:grid-cols-[1fr_280px] gap-6">
+   454→        <Card>
+   455→          <CardHeader className="pb-3">
+   456→            <CardTitle className="text-lg flex items-center gap-2">
+   457→              <BookOpen className="w-5 h-5 text-slate-600 dark:text-slate-400" /> Study Session
+   458→            </CardTitle>
+   459→            <CardDescription>Which chapter do you want to study today?</CardDescription>
+   460→          </CardHeader>
+   461→          <CardContent className="space-y-4">
+   462→            {sessionQuote && timerRunning && (
+   463→              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800 grow-in">
+   464→                <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium text-center">{sessionQuote}</p>
+   465→              </div>
+   466→            )}
+   467→
+   468→            {!timerRunning && !timerCompleted ? (
+   469→              <>
+   470→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   471→                  <div className="space-y-1.5">
+   472→                    <Label className="text-xs font-medium text-slate-500">Subject</Label>
+   473→                    <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   474→                      <SelectTrigger><SelectValue placeholder="Choose subject" /></SelectTrigger>
+   475→                      <SelectContent>{subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+   476→                    </Select>
+   477→                  </div>
+   478→                  <div className="space-y-1.5">
+   479→                    <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+   480→                    <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   481→                      <SelectTrigger><SelectValue placeholder="Choose chapter" /></SelectTrigger>
+   482→                      <SelectContent>{chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+   483→                    </Select>
+   484→                  </div>
+   485→                </div>
+   486→
+   487→                <div className="space-y-2">
+   488→                  <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+   489→                  <div className="flex flex-wrap gap-2">
+   490→                    {timerPresets.map(p => (
+   491→                      <Button key={p.value} variant={timerPreset === p.value ? 'default' : 'outline'} size="sm"
+   492→                        className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+   493→                        onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}>
+   494→                        {p.label}
+   495→                      </Button>
+   496→                    ))}
+   497→                    <div className="flex items-center gap-1.5">
+   498→                      <Input type="number" placeholder="Custom (min)" className="w-28 h-8 text-sm"
+   499→                        value={customMinutes} onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }} min={1} />
+   500→                      <span className="text-xs text-slate-400">min</span>
+   501→                    </div>
+   502→                  </div>
+   503→                </div>
+   504→
+   505→                <Button onClick={startTimer}
+   506→                  disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || (timerPreset === -1 && !customMinutes)}
+   507→                  className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200">
+   508→                  <Play className="w-4 h-4 mr-2" /> Start Session
+   509→                </Button>
+   510→              </>
+   511→            ) : timerCompleted ? (
+   512→              <div className="text-center py-6 space-y-4">
+   513→                <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center celebration-burst">
+   514→                  <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   515→                </div>
+   516→                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Session Complete! 🎉</h3>
+   517→                <p className="text-slate-500 dark:text-slate-400">Have you completed this chapter?</p>
+   518→                <div className="flex items-center justify-center gap-3">
+   519→                  <Button onClick={() => handleTimerComplete(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+   520→                    <CheckCircle2 className="w-4 h-4 mr-2" /> Yes, Done!
+   521→                  </Button>
+   522→                  <Button variant="outline" onClick={() => handleTimerComplete(false)}>Not Yet</Button>
+   523→                </div>
+   524→              </div>
+   525→            ) : (
+   526→              <div className="text-center py-6 space-y-4">
+   527→                <div>
+   528→                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+   529→                  <p className="font-medium text-slate-900 dark:text-slate-100">{chapters.find(c => c.id === selectedChapterId)?.name}</p>
+   530→                </div>
+   531→                <div className="relative inline-flex items-center justify-center">
+   532→                  <TimerCountdownRing size={200} strokeWidth={8} totalSeconds={timerTotalSeconds} remainingSeconds={timerSeconds} />
+   533→                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+   534→                    <span className="text-4xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">{formatTimer(timerSeconds)}</span>
+   535→                    <span className="text-xs text-slate-400 mt-1">{timerPaused ? 'PAUSED' : 'remaining'}</span>
+   536→                  </div>
+   537→                </div>
+   538→                <div className="flex items-center justify-center gap-3">
+   539→                  <Button variant="outline" size="icon" onClick={() => setTimerPaused(prev => !prev)} className="h-12 w-12 rounded-full">
+   540→                    {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+   541→                  </Button>
+   542→                  <Button variant="outline" size="icon" onClick={resetTimer} className="h-12 w-12 rounded-full">
+   543→                    <RotateCcw className="w-5 h-5" />
+   544→                  </Button>
+   545→                </div>
+   546→                <Button variant="ghost" onClick={() => { resetTimer(); setSelectedChapterId('') }} className="text-sm text-slate-500">
+   547→                  Choose Another
+   548→                </Button>
+   549→              </div>
+   550→            )}
+   551→          </CardContent>
+   552→        </Card>
+   553→
+   554→        {/* Right Column */}
+   555→        <div className="space-y-6">
+   556→          <Card>
+   557→            <CardHeader className="pb-3">
+   558→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   559→                <Target className="w-4 h-4 text-emerald-500" /> Daily Goal
+   560→              </CardTitle>
+   561→            </CardHeader>
+   562→            <CardContent className="flex flex-col items-center">
+   563→              <CircularProgressRing size={100} strokeWidth={8} progress={dailyGoalProgress}
+   564→                color={dailyGoalReached ? '#10b981' : '#f59e0b'} trackColor="rgba(100,116,139,0.2)">
+   565→                <div className="text-center">
+   566→                  <p className="text-lg font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   567→                  <p className="text-[10px] text-slate-400">of {formatMinutes(dailyGoalMin)}</p>
+   568→                </div>
+   569→              </CircularProgressRing>
+   570→              <div className="mt-3 text-center">
+   571→                {dailyGoalReached ? (
+   572→                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+   573→                    <CheckCircle2 className="w-3.5 h-3.5" /> Goal Reached!
+   574→                  </p>
+   575→                ) : (
+   576→                  <p className="text-xs text-slate-500">{formatMinutes(dailyGoalMin - data.todayStudyMin)} more to go</p>
+   577→                )}
+   578→              </div>
+   579→            </CardContent>
+   580→          </Card>
+   581→
+   582→          <Card>
+   583→            <CardHeader className="pb-3">
+   584→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   585→                <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+   586→              </CardTitle>
+   587→            </CardHeader>
+   588→            <CardContent>
+   589→              <div className="space-y-2">
+   590→                {MOCK_LEADERBOARD.map((entry) => (
+   591→                  <div key={entry.rank} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+   592→                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+   593→                      entry.rank === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+   594→                      entry.rank === 2 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
+   595→                      entry.rank === 3 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+   596→                      'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-500'
+   597→                    }`}>
+   598→                      {entry.rank === 1 ? <Crown className="w-3.5 h-3.5" /> : entry.rank}
+   599→                    </div>
+   600→                    <div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">{entry.name}</p></div>
+   601→                    <div className="flex items-center gap-1.5 flex-shrink-0">
+   602→                      <Flame className="w-3 h-3 text-orange-400" /><span className="text-[10px] text-slate-500">{entry.streak}</span>
+   603→                    </div>
+   604→                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">{entry.score}</span>
+   605→                  </div>
+   606→                ))}
+   607→              </div>
+   608→            </CardContent>
+   609→          </Card>
+   610→        </div>
+   611→      </div>
+   612→
+   613→      {/* Quick Stats */}
+   614→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   615→        {[
+   616→          { icon: BookOpen, value: data.totalSubjects, label: 'Subjects', from: 'from-blue-50', to: 'to-blue-100', darkFrom: 'dark:from-blue-900/20', darkTo: 'dark:to-blue-800/20', iconColor: 'text-blue-600 dark:text-blue-400' },
+   617→          { icon: ListChecks, value: data.totalChapters, label: 'Total Chapters', from: 'from-purple-50', to: 'to-purple-100', darkFrom: 'dark:from-purple-900/20', darkTo: 'dark:to-purple-800/20', iconColor: 'text-purple-600 dark:text-purple-400' },
+   618→          { icon: CheckCircle2, value: data.completedChapters, label: 'Completed', from: 'from-emerald-50', to: 'to-emerald-100', darkFrom: 'dark:from-emerald-900/20', darkTo: 'dark:to-emerald-800/20', iconColor: 'text-emerald-600 dark:text-emerald-400' },
+   619→          { icon: Clock, value: formatMinutes(data.todayStudyMin), label: 'Today', from: 'from-amber-50', to: 'to-amber-100', darkFrom: 'dark:from-amber-900/20', darkTo: 'dark:to-amber-800/20', iconColor: 'text-amber-600 dark:text-amber-400' },
+   620→        ].map((stat, i) => (
+   621→          <Card key={i} className="card-hover">
+   622→            <CardContent className="pt-4 pb-4">
+   623→              <div className="flex items-center gap-3">
+   624→                <div className={`p-2 rounded-lg bg-gradient-to-br ${stat.from} ${stat.to} ${stat.darkFrom} ${stat.darkTo}`}>
+   625→                  <stat.icon className={`w-4 h-4 ${stat.iconColor}`} />
+   626→                </div>
+   627→                <div>
+   628→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stat.value}</p>
+   629→                  <p className="text-xs text-slate-500">{stat.label}</p>
+   630→                </div>
+   631→              </div>
+   632→            </CardContent>
+   633→          </Card>
+   634→        ))}
+   635→      </div>
+   636→
+   637→      {/* Achievements */}
+   638→      <Card>
+   639→        <CardHeader className="pb-3">
+   640→          <div className="flex items-center justify-between">
+   641→            <CardTitle className="text-lg flex items-center gap-2">
+   642→              <Trophy className="w-5 h-5 text-amber-500" /> Achievements
+   643→            </CardTitle>
+   644→            <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+   645→              {unlockedCount}/{totalAchievements} Unlocked
+   646→            </Badge>
+   647→          </div>
+   648→        </CardHeader>
+   649→        <CardContent>
+   650→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+   651→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+   652→              <TooltipProvider key={a.id}>
+   653→                <Tooltip>
+   654→                  <TooltipTrigger asChild>
+   655→                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
+   656→                      a.unlocked
+   657→                        ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+   658→                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+   659→                    }`}
+   660→                      style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
+   661→                      {a.unlocked ? (
+   662→                        <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+   663→                      ) : (
+   664→                        <div className="relative">
+   665→                          <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+   666→                          <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
+   667→                        </div>
+   668→                      )}
+   669→                      <span className={`text-[10px] font-medium text-center leading-tight ${
+   670→                        a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+   671→                      }`}>{a.name}</span>
+   672→                    </div>
+   673→                  </TooltipTrigger>
+   674→                  <TooltipContent>
+   675→                    <p className="font-semibold">{a.name}</p>
+   676→                    <p className="text-xs">{a.description}</p>
+   677→                    <p className="text-xs text-slate-400 mt-1">{a.threshold} points needed</p>
+   678→                    {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+   679→                  </TooltipContent>
+   680→                </Tooltip>
+   681→              </TooltipProvider>
+   682→            ))}
+   683→          </div>
+   684→        </CardContent>
+   685→      </Card>
+   686→    </div>
+   687→  )
+   688→}
+   689→

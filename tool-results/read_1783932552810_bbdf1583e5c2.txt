@@ -1,0 +1,1402 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Input } from '@/components/ui/input'
+     8→import { Textarea } from '@/components/ui/textarea'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import { Separator } from '@/components/ui/separator'
+    11→import { Skeleton } from '@/components/ui/skeleton'
+    12→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    13→import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+    14→import { ThemeToggle } from '@/components/theme-toggle'
+    15→import {
+    16→  BookOpen, Trophy, Clock, Users, Star, ChevronRight, GraduationCap,
+    17→  Target, CheckCircle2, ArrowRight, Download, ExternalLink, MessageCircle,
+    18→  Shield, Award, TrendingUp, FileText, Menu, X, Send, Zap, BarChart3,
+    19→  BookMarked, Calculator, Briefcase, Gavel, Heart, Instagram, Youtube,
+    20→  Linkedin, Phone, Mail, MapPin, ChevronUp, CircleDot, XIcon, CheckIcon,
+    21→  Crown, Medal, Flame,
+    22→} from 'lucide-react'
+    23→import { api } from '@/lib/api-client'
+    24→
+    25→const SITE_URL = 'https://missioncstestseries.com'
+    26→
+    27→interface LandingPageProps {
+    28→  onNavigate: (view: string) => void
+    29→  isLoggedIn: boolean
+    30→  userRole: 'admin' | 'student' | null
+    31→}
+    32→
+    33→interface Review {
+    34→  id: string
+    35→  authorName: string
+    36→  text: string
+    37→  rating: number
+    38→  course?: { title: string } | null
+    39→  courseId?: string | null
+    40→  createdAt: string
+    41→}
+    42→
+    43→interface Stats {
+    44→  totalStudents: number
+    45→  totalCourses: number
+    46→  totalSubjects: number
+    47→  totalChapters: number
+    48→  communitySize: string
+    49→  topRanks: string
+    50→  evaluationHours: string
+    51→}
+    52→
+    53→interface CourseData {
+    54→  id: string
+    55→  title: string
+    56→  slug: string
+    57→  subjects: { name: string; chapters: { name: string }[] }[]
+    58→  _count: { students: number }
+    59→}
+    60→
+    61→// Animated counter hook using IntersectionObserver (no framer-motion)
+    62→function useAnimatedCounter(end: number, duration: number = 2000) {
+    63→  const [count, setCount] = useState(0)
+    64→  const [hasStarted, setHasStarted] = useState(false)
+    65→  const ref = useRef<HTMLSpanElement>(null)
+    66→
+    67→  useEffect(() => {
+    68→    const el = ref.current
+    69→    if (!el) return
+    70→    const observer = new IntersectionObserver(
+    71→      ([entry]) => { if (entry.isIntersecting && !hasStarted) setHasStarted(true) },
+    72→      { threshold: 0.3 }
+    73→    )
+    74→    observer.observe(el)
+    75→    return () => observer.disconnect()
+    76→  }, [hasStarted])
+    77→
+    78→  useEffect(() => {
+    79→    if (!hasStarted) return
+    80→    let startTime: number | null = null
+    81→    const step = (timestamp: number) => {
+    82→      if (!startTime) startTime = timestamp
+    83→      const progress = Math.min((timestamp - startTime) / duration, 1)
+    84→      setCount(Math.floor(progress * end))
+    85→      if (progress < 1) requestAnimationFrame(step)
+    86→      else setCount(end)
+    87→    }
+    88→    requestAnimationFrame(step)
+    89→  }, [end, duration, hasStarted])
+    90→
+    91→  return { count, ref }
+    92→}
+    93→
+    94→// Fade-in on scroll hook using IntersectionObserver
+    95→function useFadeIn() {
+    96→  const ref = useRef<HTMLDivElement>(null)
+    97→  const [visible, setVisible] = useState(false)
+    98→
+    99→  useEffect(() => {
+   100→    const el = ref.current
+   101→    if (!el) return
+   102→    const observer = new IntersectionObserver(
+   103→      ([entry]) => { if (entry.isIntersecting) setVisible(true) },
+   104→      { threshold: 0.1 }
+   105→    )
+   106→    observer.observe(el)
+   107→    return () => observer.disconnect()
+   108→  }, [])
+   109→
+   110→  return { ref, visible }
+   111→}
+   112→
+   113→export default function LandingPage({ onNavigate, isLoggedIn, userRole }: LandingPageProps) {
+   114→  const [reviews, setReviews] = useState<Review[]>([])
+   115→  const [stats, setStats] = useState<Stats | null>(null)
+   116→  const [courses, setCourses] = useState<CourseData[]>([])
+   117→  const [loading, setLoading] = useState(true)
+   118→  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+   119→  const [reviewForm, setReviewForm] = useState({ text: '', rating: '5', courseId: '' })
+   120→  const [submittingReview, setSubmittingReview] = useState(false)
+   121→  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+   122→  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+   123→  const [showScrollTop, setShowScrollTop] = useState(false)
+   124→  const [activeCarouselIndex, setActiveCarouselIndex] = useState(0)
+   125→  const [leaderboard, setLeaderboard] = useState<any[]>([])
+   126→  const [leaderboardLoading, setLeaderboardLoading] = useState(true)
+   127→
+   128→  const coursesRef = useRef<HTMLElement>(null)
+   129→  const reviewsRef = useRef<HTMLElement>(null)
+   130→  const discussionRef = useRef<HTMLElement>(null)
+   131→
+   132→  useEffect(() => {
+   133→    async function fetchData() {
+   134→      try {
+   135→        const [reviewsData, statsData, coursesData, leaderboardData] = await Promise.all([
+   136→          api.publicReviews(), api.publicStats(), api.publicCourses(),
+   137→          api.publicLeaderboard().catch(() => ({ leaderboard: [] })),
+   138→        ])
+   139→        setReviews(reviewsData.reviews || [])
+   140→        setStats(statsData)
+   141→        setCourses(coursesData.courses || [])
+   142→        setLeaderboard(leaderboardData.leaderboard || [])
+   143→        setLeaderboardLoading(false)
+   144→      } catch (err) {
+   145→        console.error('Failed to fetch landing data:', err)
+   146→      } finally {
+   147→        setLoading(false)
+   148→      }
+   149→    }
+   150→    fetchData()
+   151→  }, [])
+   152→
+   153→  useEffect(() => {
+   154→    const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e) }
+   155→    window.addEventListener('beforeinstallprompt', handler)
+   156→    return () => window.removeEventListener('beforeinstallprompt', handler)
+   157→  }, [])
+   158→
+   159→  useEffect(() => {
+   160→    const onScroll = () => setShowScrollTop(window.scrollY > 400)
+   161→    window.addEventListener('scroll', onScroll, { passive: true })
+   162→    return () => window.removeEventListener('scroll', onScroll)
+   163→  }, [])
+   164→
+   165→  useEffect(() => {
+   166→    if (reviews.length <= 3) return
+   167→    const interval = setInterval(() => {
+   168→      setActiveCarouselIndex((prev) => (prev + 1) % reviews.length)
+   169→    }, 4000)
+   170→    return () => clearInterval(interval)
+   171→  }, [reviews.length])
+   172→
+   173→  const handleInstallApp = () => {
+   174→    if (deferredPrompt) {
+   175→      deferredPrompt.prompt()
+   176→      deferredPrompt.userChoice.then(() => setDeferredPrompt(null))
+   177→    }
+   178→  }
+   179→
+   180→  const scrollToSection = (ref: React.RefObject<HTMLElement | null>) => {
+   181→    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+   182→    setMobileMenuOpen(false)
+   183→  }
+   184→
+   185→  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
+   186→
+   187→  const handleSubmitReview = async () => {
+   188→    if (!isLoggedIn || userRole !== 'student' || !reviewForm.text.trim()) return
+   189→    setSubmittingReview(true)
+   190→    try {
+   191→      await api.studentSubmitReview({
+   192→        text: reviewForm.text, rating: parseInt(reviewForm.rating),
+   193→        courseId: reviewForm.courseId || undefined,
+   194→      })
+   195→      setReviewSubmitted(true)
+   196→      setReviewForm({ text: '', rating: '5', courseId: '' })
+   197→      setTimeout(() => setReviewSubmitted(false), 4000)
+   198→    } catch (err) {
+   199→      console.error('Failed to submit review:', err)
+   200→    } finally {
+   201→      setSubmittingReview(false)
+   202→    }
+   203→  }
+   204→
+   205→  const navLinks = [
+   206→    { label: 'Courses', ref: coursesRef },
+   207→    { label: 'Reviews', ref: reviewsRef },
+   208→    { label: 'Discussion', ref: discussionRef },
+   209→  ]
+   210→
+   211→  const marqueeReviews = reviews.length > 0 ? reviews : [
+   212→    { id: '1', authorName: 'Priya Sharma', text: 'Mission CS Test Series helped me secure AIR 12 in CS Executive. The evaluation quality is unmatched!', rating: 5, course: { title: 'CS Executive' }, createdAt: '' },
+   213→    { id: '2', authorName: 'Rahul Verma', text: 'Best test series for CSEET preparation. Detailed feedback on every answer helped me improve tremendously.', rating: 5, course: { title: 'CSEET' }, createdAt: '' },
+   214→    { id: '3', authorName: 'Anjali Gupta', text: 'The 24-hour evaluation turnaround is real! I always got my checked papers on time with constructive feedback.', rating: 5, course: { title: 'CS Professional' }, createdAt: '' },
+   215→    { id: '4', authorName: 'Vikram Singh', text: 'I cleared all three levels with Mission CS. Their structured approach to answer writing is exceptional.', rating: 5, course: { title: 'CS Executive' }, createdAt: '' },
+   216→    { id: '5', authorName: 'Neha Agarwal', text: 'The mock tests are very close to actual ICSI exam pattern. Highly recommended for every CS aspirant!', rating: 5, course: { title: 'CSEET' }, createdAt: '' },
+   217→    { id: '6', authorName: 'Karan Patel', text: 'Faculty feedback changed my writing style completely. Now I know exactly how to present answers in exams.', rating: 5, course: { title: 'CS Professional' }, createdAt: '' },
+   218→  ]
+   219→
+   220→  const communityCounter = useAnimatedCounter(20, 2000)
+   221→  const ranksCounter = useAnimatedCounter(8, 1500)
+   222→  const hoursCounter = useAnimatedCounter(24, 1200)
+   223→  const studentsCounter = useAnimatedCounter(20000, 2500)
+   224→
+   225→  const courseTabs = [
+   226→    {
+   227→      value: 'cseet', label: 'CSEET', icon: <BookOpen className="h-4 w-4" />, badge: 'CSEET',
+   228→      title: 'CSEET Test Series',
+   229→      description: 'The Company Secretary Executive Entrance Test (CSEET) is the gateway to the Company Secretary course. Our CSEET test series is meticulously designed to help you clear this entrance examination with confidence and a strong foundation.',
+   230→      features: [
+   231→        'Business Communication — Master professional correspondence, letter writing, and presentation skills',
+   232→        'Legal Aptitude & Logical Reasoning — Build strong analytical thinking and legal interpretation abilities',
+   233→        'Economic & Business Environment — Understand macroeconomics, financial markets, and business dynamics',
+   234→        'Current Affairs — Stay updated with the latest national and international developments',
+   235→      ],
+   236→      seoText: 'The CSEET examination tests your foundational understanding of business, law, and communication. Unlike traditional examinations, CSEET evaluates your analytical skills through objective-type questions and viva-voce components. Mission CS CSEET Test Series prepares you for both components with equal rigor. Our mock tests replicate the actual CSEET pattern, including the computer-based test format and the presentation and communication skills assessment. Each test is followed by comprehensive performance analysis that helps you identify your strengths and areas needing improvement.',
+   237→      examPattern: [
+   238→        { subject: 'Business Communication', marks: '50 Marks' },
+   239→        { subject: 'Legal Aptitude & Logical Reasoning', marks: '50 Marks' },
+   240→        { subject: 'Economic & Business Environment', marks: '50 Marks' },
+   241→        { subject: 'Current Affairs', marks: '20 Marks' },
+   242→        { subject: 'Presentation & Communication', marks: '30 Marks' },
+   243→        { subject: 'Total', marks: '200 Marks', bold: true },
+   244→      ],
+   245→      seriesFeatures: [
+   246→        '10+ Full-length mock tests per session', 'Subject-wise practice tests for targeted preparation',
+   247→        'Viva-voce practice sessions with feedback', 'Current affairs weekly updates and tests',
+   248→        'Detailed performance analytics and improvement tips',
+   249→      ],
+   250→      ctaText: 'Start CSEET Preparation',
+   251→    },
+   252→    {
+   253→      value: 'executive', label: 'CS Executive', icon: <Briefcase className="h-4 w-4" />, badge: 'CS Executive',
+   254→      title: 'CS Executive Test Series',
+   255→      description: 'The CS Executive programme is the second level of the Company Secretary course, consisting of seven papers that test your knowledge of corporate law, accounting, securities regulation, and strategic management. Our Executive test series is designed to help you master each paper with focused preparation.',
+   256→      features: [
+   257→        'Company Law & Practice — In-depth coverage of Companies Act 2013, rules, and landmark case laws',
+   258→        'Jurisprudence & General Laws — Constitutional law, administrative law, and interpretation of statutes',
+   259→        'Corporate & Management Accounting — From balance sheets to ratio analysis and cost accounting',
+   260→        'Securities Law & Capital Markets — SEBI regulations, stock exchange operations, and investor protection',
+   261→      ],
+   262→      seoText: 'The CS Executive examination demands a thorough understanding of legal provisions combined with the ability to present answers in a structured, logical manner. Unlike CSEET, the Executive level features descriptive questions where your answer-writing skills play a crucial role. Mission CS Executive Test Series trains you specifically for this challenge. Our mock tests are designed to replicate the exact ICSI examination pattern, including the three-hour time constraint and the marking scheme. Each evaluated paper comes with comprehensive feedback highlighting the legal provisions you cited correctly, the case laws you could have referenced, and the structural improvements your answers need.',
+   263→      examPattern: [
+   264→        { subject: 'Jurisprudence, Interpretation & General Laws', marks: '100 Marks' },
+   265→        { subject: 'Company Law', marks: '100 Marks' },
+   266→        { subject: 'Setting Up of Business Entities', marks: '100 Marks' },
+   267→        { subject: 'Corporate & Management Accounting', marks: '100 Marks' },
+   268→        { subject: 'Securities Law & Capital Markets', marks: '100 Marks' },
+   269→        { subject: 'Economic, Business & Commercial Laws', marks: '100 Marks' },
+   270→        { subject: 'Financial & Strategic Management', marks: '100 Marks' },
+   271→        { subject: 'Total (7 Papers)', marks: '700 Marks', bold: true },
+   272→      ],
+   273→      seriesFeatures: [
+   274→        'Paper-wise mock tests with ICSI pattern alignment', 'Descriptive answer evaluation with line-by-line feedback',
+   275→        'Model answers with case law references', 'Chapter-wise tests for granular preparation',
+   276→        'Comparative performance analysis with toppers',
+   277→      ],
+   278→      ctaText: 'Start Executive Preparation',
+   279→    },
+   280→    {
+   281→      value: 'professional', label: 'CS Professional', icon: <Gavel className="h-4 w-4" />, badge: 'CS Professional',
+   282→      title: 'CS Professional Test Series',
+   283→      description: 'The CS Professional programme is the final and most challenging level of the Company Secretary course. With nine papers covering advanced corporate law, governance, and practice, our Professional test series provides the rigorous preparation needed to clear this decisive examination.',
+   284→      features: [
+   285→        'Governance, Risk Management & Compliances — Master board dynamics, risk frameworks, and compliance management',
+   286→        'Advanced Company Law & Practice — Deep dive into corporate restructuring, insolvency, and cross-border mergers',
+   287→        'Secretarial Audit & Due Diligence — Learn the art of comprehensive audit and compliance verification',
+   288→        'Corporate Funding & Listings — Understand IPO processes, debt instruments, and listing obligations',
+   289→      ],
+   290→      seoText: 'The CS Professional examination tests your ability to handle complex, multi-faceted legal scenarios that a practicing Company Secretary encounters daily. Questions often require you to analyze a situation from multiple legal angles — combining provisions from the Companies Act, SEBI regulations, FEMA, and other statutes — and present a comprehensive, well-reasoned answer. Mission CS Professional Test Series is specifically designed to develop this multi-dimensional analytical thinking.',
+   291→      examPattern: [
+   292→        { subject: 'Governance, Risk Management & Compliances', marks: '100 Marks' },
+   293→        { subject: 'Advanced Company Law & Practice', marks: '100 Marks' },
+   294→        { subject: 'Secretarial Audit & Due Diligence', marks: '100 Marks' },
+   295→        { subject: 'Corporate Funding & Listings', marks: '100 Marks' },
+   296→        { subject: 'Multi-Disciplinary Case Studies', marks: '100 Marks' },
+   297→        { subject: 'Elective Paper (Choose 1)', marks: '100 Marks' },
+   298→        { subject: 'Total (9 Papers)', marks: '900 Marks', bold: true },
+   299→      ],
+   300→      seriesFeatures: [
+   301→        'Advanced scenario-based questions with multi-law coverage', 'Case study practice with professional evaluation',
+   302→        'Rank-oriented feedback with improvement strategies', 'Multi-disciplinary case study workshops',
+   303→        'Elective paper specialized tests',
+   304→      ],
+   305→      ctaText: 'Start Professional Preparation',
+   306→    },
+   307→  ]
+   308→
+   309→  const faqItems = [
+   310→    { question: 'What is CSEET and who is eligible to appear for it?', answer: 'CSEET (Company Secretary Executive Entrance Test) is the entrance examination for the Company Secretary course conducted by ICSI. Candidates who have passed or are appearing in 10+2 (any stream) are eligible. It is held four times a year — January, May, July, and November — in computer-based mode.' },
+   311→    { question: 'How is the CS Executive examination structured?', answer: 'CS Executive consists of 7 papers divided into two modules. Module 1 includes Jurisprudence, Interpretation & General Laws; Company Law; and Setting Up of Business Entities & Closure. Module 2 includes Corporate & Management Accounting; Securities Law & Capital Markets; Economic, Business & Commercial Laws; and Financial & Strategic Management. Each paper carries 100 marks, totaling 700 marks. The qualifying marks are 40% in each paper and 50% aggregate per module.' },
+   312→    { question: 'What are the subjects in CS Professional programme?', answer: 'CS Professional has 9 papers across 3 modules. Module 1: Governance, Risk Management & Compliances; Advanced Company Law & Practice; and Secretarial Audit, Due Diligence & Compliance Management. Module 2: Corporate Funding & Listings; Corporate Restructuring, Insolvency & Liquidation; and Resolution of Corporate Disputes. Module 3: Multi-Disciplinary Case Studies plus two elective papers from 5 options.' },
+   313→    { question: 'How does Mission CS Test Series help in CS exam preparation?', answer: 'Mission CS provides ICSI-pattern aligned mock tests, expert faculty evaluation within 24 working hours, detailed feedback with model answers, performance analytics to track progress, and a community of 20,000+ aspirants. Our test series simulates real exam conditions and trains you specifically in answer-writing skills that ICSI examiners look for.' },
+   314→    { question: 'What makes Mission CS evaluation different from other test series?', answer: 'Our evaluation is conducted by qualified Company Secretaries and experienced educators, not automated systems. Each answer receives line-by-line annotations highlighting correct legal provisions, missed case laws, structural improvements, and alternative approaches. We provide model answers demonstrating ideal content and presentation.' },
+   315→    { question: 'Can I attempt the CS Executive exam without clearing CSEET?', answer: 'No, clearing CSEET is mandatory to register for CS Executive. However, certain categories are exempt — candidates who have passed CA Final or CMA Final can directly register. Additionally, those with a post-graduate degree in any discipline (other than Fine Arts) are also exempt.' },
+   316→    { question: 'How many times can I attempt CS Executive and Professional exams?', answer: 'There is no limit on attempts. However, your registration is valid for 5 years for both Executive and Professional, which can be renewed. Each registration period allows you to appear for multiple exam sessions held in June and December each year.' },
+   317→    { question: 'What is the passing criteria for CS examinations?', answer: 'For CSEET, you need 40% in each paper and 50% aggregate overall. For CS Executive and Professional, the qualifying marks are 40% in each individual paper and 50% aggregate in each module. Papers you have already cleared are credited for subsequent attempts.' },
+   318→    { question: 'Does Mission CS offer chapter-wise tests or only full mock tests?', answer: 'Mission CS offers both! Our test series includes chapter-wise tests for granular preparation, subject-wise tests for focused practice, and full-length mock tests that replicate the complete exam experience. This layered approach ensures comprehensive syllabus coverage.' },
+   319→    { question: 'How do I enroll in Mission CS Test Series?', answer: 'Enrolling is simple — create a free account, choose your course (CSEET, CS Executive, or CS Professional), and start attempting tests immediately. Visit missioncstestseries.com for additional enrollment options and the complete test schedule.' },
+   320→  ]
+   321→
+   322→  const comparisonFeatures = [
+   323→    { feature: 'Expert Faculty Evaluation', missionCS: true, others: false },
+   324→    { feature: '24-Hour Evaluation Turnaround', missionCS: true, others: false },
+   325→    { feature: 'Line-by-Line Answer Feedback', missionCS: true, others: false },
+   326→    { feature: 'Model Answers with Case Laws', missionCS: true, others: false },
+   327→    { feature: 'ICSI Pattern-Aligned Tests', missionCS: true, others: 'partial' as const },
+   328→    { feature: 'Performance Analytics Dashboard', missionCS: true, others: 'partial' as const },
+   329→    { feature: 'Chapter-wise + Full Mock Tests', missionCS: true, others: 'partial' as const },
+   330→    { feature: 'Community of 20,000+ Aspirants', missionCS: true, others: false },
+   331→    { feature: 'Viva-Voce Practice (CSEET)', missionCS: true, others: false },
+   332→    { feature: 'Multi-Disciplinary Case Studies', missionCS: true, others: false },
+   333→    { feature: 'Affordable Pricing', missionCS: true, others: 'partial' as const },
+   334→    { feature: 'Proven AIR Results (AIR 8 & 9)', missionCS: true, others: false },
+   335→  ]
+   336→
+   337→  const howItWorksSteps = [
+   338→    { step: 1, icon: <BookMarked className="h-6 w-6" />, title: 'Choose Your Course', desc: 'Select from CSEET, CS Executive, or CS Professional test series based on your current level.' },
+   339→    { step: 2, icon: <FileText className="h-6 w-6" />, title: 'Take Mock Tests', desc: 'Attempt professionally designed mock tests that mirror the actual ICSI examination pattern.' },
+   340→    { step: 3, icon: <BarChart3 className="h-6 w-6" />, title: 'Get Expert Feedback', desc: 'Receive detailed, personalized evaluations from experienced CS faculty within 24 working hours.' },
+   341→    { step: 4, icon: <TrendingUp className="h-6 w-6" />, title: 'Improve & Succeed', desc: 'Apply feedback, track progress, and systematically improve your answer writing skills to clear exams.' },
+   342→  ]
+   343→
+   344→  const whyChooseFeatures = [
+   345→    { icon: <Shield className="h-6 w-6" />, title: 'ICSI-Aligned Curriculum', desc: 'Every test paper is meticulously aligned with the latest ICSI syllabus and examination pattern. We update our question bank regularly to reflect changes in laws, regulations, and examination trends.' },
+   346→    { icon: <Award className="h-6 w-6" />, title: 'Expert Faculty Evaluation', desc: 'Our evaluation team comprises qualified Company Secretaries and experienced educators who understand exactly what ICSI examiners look for. Each answer is evaluated for content accuracy, presentation style, and legal reasoning.' },
+   347→    { icon: <Zap className="h-6 w-6" />, title: '24-Hour Evaluation Turnaround', desc: 'We pride ourselves on the fastest evaluation turnaround in the industry. Receive your evaluated papers within 24 working hours, complete with detailed annotations, suggestions, and model answers.' },
+   348→    { icon: <Target className="h-6 w-6" />, title: 'Performance Analytics & Tracking', desc: 'Our advanced tracking system monitors your progress across subjects, chapters, and test attempts. Identify weak areas, track improvement trends, and optimize your preparation strategy.' },
+   349→    { icon: <Users className="h-6 w-6" />, title: 'Community of 20,000+ Aspirants', desc: 'Join a thriving community of CS aspirants across India. Engage in discussions, share strategies, and learn from peers who are on the same journey. Our forums are actively moderated by faculty.' },
+   350→    { icon: <Trophy className="h-6 w-6" />, title: 'Proven Track Record of Results', desc: 'Our students consistently achieve top ranks in CS examinations. With AIR 8 and AIR 9 achieved recently, Mission CS has established itself as the most result-oriented test series platform.' },
+   351→  ]
+   352→
+   353→  const getCarouselSlice = useCallback((startIndex: number) => {
+   354→    const visible = []
+   355→    for (let i = 0; i < 3; i++) {
+   356→      const idx = (startIndex + i) % reviews.length
+   357→      visible.push({ ...reviews[idx], key: `carousel-${idx}-${i}` })
+   358→    }
+   359→    return visible
+   360→  }, [reviews])
+   361→
+   362→  const carouselReviews = reviews.length > 3 ? getCarouselSlice(activeCarouselIndex) : reviews
+   363→
+   364→  // Fade-in wrapper component
+   365→  const FadeIn = ({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) => {
+   366→    const { ref, visible } = useFadeIn()
+   367→    return (
+   368→      <div
+   369→        ref={ref}
+   370→        className={`${className} transition-all duration-500 ease-out ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}`}
+   371→        style={{ transitionDelay: `${delay}ms` }}
+   372→      >
+   373→        {children}
+   374→      </div>
+   375→    )
+   376→  }
+   377→
+   378→  // ---------------------------------------------------------------------------
+   379→  // JSON-LD structured data: 3 Courses, FAQPage, and a Service carrying an
+   380→  // AggregateRating plus Review items. Built from the page's own static
+   381→  // content and the live reviews (with a deterministic fallback) so the
+   382→  // markup is always populated and never causes hydration mismatches.
+   383→  // JSON-LD structured data is rendered server-side in layout.tsx for better SEO
+   384→  // and to reduce client-side bundle size.
+   385→
+   386→  return (
+   387→    <div className="min-h-screen flex flex-col bg-background">
+   388→      {/* ============ HEADER ============ */}
+   389→      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+   390→        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+   391→          <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+   392→            <GraduationCap className="h-7 w-7 text-foreground" />
+   393→            <span className="font-bold text-lg tracking-tight text-foreground">MISSION CS</span>
+   394→            <Badge variant="secondary" className="hidden sm:inline-flex text-[10px] px-1.5">Test Series</Badge>
+   395→          </div>
+   396→          <nav className="hidden lg:flex items-center gap-1">
+   397→            {navLinks.map((link) => (
+   398→              <button key={link.label} onClick={() => scrollToSection(link.ref)}
+   399→                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted">
+   400→                {link.label}
+   401→              </button>
+   402→            ))}
+   403→          </nav>
+   404→          <div className="flex items-center gap-2">
+   405→            {deferredPrompt && (
+   406→              <Button variant="outline" size="sm" onClick={handleInstallApp} className="hidden sm:flex">
+   407→                <Download className="h-4 w-4 mr-1" />Install App
+   408→              </Button>
+   409→            )}
+   410→            {isLoggedIn ? (
+   411→              <Button size="sm" onClick={() => onNavigate(userRole === 'admin' ? 'admin' : 'student')}>
+   412→                Dashboard<ChevronRight className="h-4 w-4 ml-1" />
+   413→              </Button>
+   414→            ) : (
+   415→              <>
+   416→                <ThemeToggle />
+   417→                <Button variant="ghost" size="sm" onClick={() => onNavigate('student-login')} className="hidden sm:flex">Login</Button>
+   418→                <Button size="sm" onClick={() => onNavigate('student-signup')}>Sign Up Free</Button>
+   419→              </>
+   420→            )}
+   421→            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+   422→              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+   423→            </Button>
+   424→          </div>
+   425→        </div>
+   426→
+   427→        {/* Mobile Nav - CSS transition instead of AnimatePresence */}
+   428→        <div className={`lg:hidden border-t bg-background overflow-hidden transition-all duration-200 ease-out ${mobileMenuOpen ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+   429→          <div className="px-4 py-3 space-y-1">
+   430→            {navLinks.map((link) => (
+   431→              <button key={link.label} onClick={() => scrollToSection(link.ref)}
+   432→                className="block w-full text-left px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md">
+   433→                {link.label}
+   434→              </button>
+   435→            ))}
+   436→            {deferredPrompt && (
+   437→              <button onClick={handleInstallApp}
+   438→                className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md">
+   439→                <Download className="h-4 w-4" />Install App
+   440→              </button>
+   441→            )}
+   442→            {!isLoggedIn && (
+   443→              <button onClick={() => { onNavigate('student-login'); setMobileMenuOpen(false) }}
+   444→                className="block w-full text-left px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md sm:hidden">
+   445→                Login
+   446→              </button>
+   447→            )}
+   448→          </div>
+   449→        </div>
+   450→      </header>
+   451→
+   452→      <main className="flex-1">
+   453→        {/* ============ HERO SECTION ============ */}
+   454→        <section className="relative overflow-hidden">
+   455→          <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/60 via-background to-amber-50/40 dark:from-emerald-950/20 dark:via-background dark:to-amber-950/10 pointer-events-none" />
+   456→          <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+   457→            backgroundImage: 'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
+   458→            backgroundSize: '40px 40px',
+   459→          }} />
+   460→
+   461→          {/* Floating decorative elements - CSS animation */}
+   462→          <div className="absolute top-20 left-[10%] w-16 h-16 rounded-full bg-emerald-200/20 dark:bg-emerald-800/10 blur-xl pointer-events-none animate-float-slow" />
+   463→          <div className="absolute top-32 right-[15%] w-20 h-20 rounded-full bg-amber-200/20 dark:bg-amber-800/10 blur-xl pointer-events-none animate-float-medium" />
+   464→          <div className="absolute bottom-32 left-[20%] w-12 h-12 rounded-full bg-rose-200/20 dark:bg-rose-800/10 blur-xl pointer-events-none animate-float-fast" />
+   465→
+   466→          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 lg:py-28">
+   467→            <div className="text-center max-w-4xl mx-auto animate-fade-in-up" style={{ animationDelay: '0ms' }}>
+   468→              <Badge variant="secondary" className="mb-4 text-xs font-medium">
+   469→                <Star className="h-3 w-3 mr-1 fill-amber-500 text-amber-500" />
+   470→                Trusted by 20,000+ CS Aspirants Across India
+   471→              </Badge>
+   472→            </div>
+   473→            <h1 className="text-center text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight max-w-4xl mx-auto animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+   474→              Crack CS Exams with<br />
+   475→              <span className="bg-gradient-to-r from-foreground via-emerald-700 to-amber-600 dark:via-emerald-400 dark:to-amber-400 bg-clip-text text-transparent">
+   476→                India&apos;s Most Trusted
+   477→              </span><br />
+   478→              Test Series Platform
+   479→            </h1>
+   480→            <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed text-center animate-fade-in-up" style={{ animationDelay: '200ms' }}>
+   481→              Comprehensive test series for CSEET, CS Executive, and CS Professional with expert evaluation, detailed feedback, and proven results. Your journey to becoming a Company Secretary starts here.
+   482→            </p>
+   483→            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+   484→              <Button size="lg" onClick={() => onNavigate('student-signup')} className="text-base px-8">
+   485→                Start Preparing<ArrowRight className="h-4 w-4 ml-2" />
+   486→              </Button>
+   487→              <Button size="lg" variant="outline" onClick={() => scrollToSection(reviewsRef)} className="text-base px-8">
+   488→                View Reviews<Star className="h-4 w-4 ml-2" />
+   489→              </Button>
+   490→            </div>
+   491→
+   492→            {/* Floating stats under hero CTA */}
+   493→            <div className="mt-12 flex flex-wrap justify-center gap-6 sm:gap-10 animate-fade-in-up" style={{ animationDelay: '500ms' }}>
+   494→              {[
+   495→                { icon: <Users className="h-5 w-5" />, label: '20K+ Students', color: 'text-emerald-600' },
+   496→                { icon: <Trophy className="h-5 w-5" />, label: 'AIR 8 & 9', color: 'text-amber-600' },
+   497→                { icon: <Clock className="h-5 w-5" />, label: '24hr Evaluation', color: 'text-rose-600' },
+   498→              ].map((item, idx) => (
+   499→                <div key={item.label} className="flex items-center gap-2 text-sm font-medium text-muted-foreground animate-float-item" style={{ animationDelay: `${idx * 500}ms` }}>
+   500→                  <span className={item.color}>{item.icon}</span>{item.label}
+   501→                </div>
+   502→              ))}
+   503→            </div>
+   504→          </div>
+   505→
+   506→          {/* Scrolling Marquee of Reviews */}
+   507→          <div className="relative border-y bg-muted/30 py-4 overflow-hidden">
+   508→            <div className="flex animate-marquee whitespace-nowrap">
+   509→              {[...marqueeReviews, ...marqueeReviews].map((review, idx) => (
+   510→                <div key={`${review.id}-${idx}`} className="inline-flex items-center gap-3 mx-6 shrink-0">
+   511→                  <div className="flex items-center gap-1">
+   512→                    {[...Array(review.rating)].map((_, i) => (
+   513→                      <Star key={i} className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+   514→                    ))}
+   515→                  </div>
+   516→                  <p className="text-sm text-muted-foreground max-w-xs truncate">&ldquo;{review.text}&rdquo;</p>
+   517→                  <span className="text-sm font-medium text-foreground">— {review.authorName}</span>
+   518→                  {review.course && <Badge variant="outline" className="text-[10px] shrink-0">{review.course.title}</Badge>}
+   519→                </div>
+   520→              ))}
+   521→            </div>
+   522→          </div>
+   523→
+   524→          {/* Review Submission Form for Students */}
+   525→          {isLoggedIn && userRole === 'student' && (
+   526→            <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+   527→              <Card>
+   528→                <CardHeader>
+   529→                  <CardTitle className="text-lg flex items-center gap-2">
+   530→                    <MessageCircle className="h-5 w-5" />Share Your Experience
+   531→                  </CardTitle>
+   532→                </CardHeader>
+   533→                <CardContent className="space-y-4">
+   534→                  {reviewSubmitted ? (
+   535→                    <div className="flex items-center gap-2 p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
+   536→                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+   537→                      <p className="text-sm text-emerald-700 dark:text-emerald-400">Thank you! Your review has been submitted and is pending admin approval.</p>
+   538→                    </div>
+   539→                  ) : (
+   540→                    <>
+   541→                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   542→                        <div>
+   543→                          <label className="text-sm font-medium mb-1.5 block">Rating</label>
+   544→                          <Select value={reviewForm.rating} onValueChange={(v) => setReviewForm({ ...reviewForm, rating: v })}>
+   545→                            <SelectTrigger><SelectValue /></SelectTrigger>
+   546→                            <SelectContent>
+   547→                              <SelectItem value="5">5 Stars - Excellent</SelectItem>
+   548→                              <SelectItem value="4">4 Stars - Very Good</SelectItem>
+   549→                              <SelectItem value="3">3 Stars - Good</SelectItem>
+   550→                              <SelectItem value="2">2 Stars - Fair</SelectItem>
+   551→                              <SelectItem value="1">1 Star - Poor</SelectItem>
+   552→                            </SelectContent>
+   553→                          </Select>
+   554→                        </div>
+   555→                        <div>
+   556→                          <label className="text-sm font-medium mb-1.5 block">Course (Optional)</label>
+   557→                          <Select value={reviewForm.courseId} onValueChange={(v) => setReviewForm({ ...reviewForm, courseId: v })}>
+   558→                            <SelectTrigger><SelectValue placeholder="Select a course" /></SelectTrigger>
+   559→                            <SelectContent>
+   560→                              {courses.map((c) => (<SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>))}
+   561→                            </SelectContent>
+   562→                          </Select>
+   563→                        </div>
+   564→                      </div>
+   565→                      <div>
+   566→                        <label className="text-sm font-medium mb-1.5 block">Your Review</label>
+   567→                        <Textarea value={reviewForm.text} onChange={(e) => setReviewForm({ ...reviewForm, text: e.target.value })}
+   568→                          placeholder="Share your experience with Mission CS Test Series..." rows={3} />
+   569→                      </div>
+   570→                      <Button onClick={handleSubmitReview} disabled={submittingReview || !reviewForm.text.trim()}>
+   571→                        <Send className="h-4 w-4 mr-2" />{submittingReview ? 'Submitting...' : 'Submit Review'}
+   572→                      </Button>
+   573→                    </>
+   574→                  )}
+   575→                </CardContent>
+   576→              </Card>
+   577→            </div>
+   578→          )}
+   579→        </section>
+   580→
+   581→        {/* ============ FEATURE CARD ============ */}
+   582→        <section className="py-16 sm:py-20 bg-muted/30">
+   583→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   584→            <div className="text-center mb-12">
+   585→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Your Complete CS Test Series Platform</h2>
+   586→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   587→                Mission CS Test Series is designed specifically for Company Secretary aspirants who demand excellence. Our platform provides structured mock tests, expert evaluations, and a community that drives results.
+   588→              </p>
+   589→            </div>
+   590→            <Card className="max-w-3xl mx-auto">
+   591→              <CardHeader className="text-center pb-2">
+   592→                <div className="mx-auto w-16 h-16 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+   593→                  <BookOpen className="h-8 w-8 text-foreground" />
+   594→                </div>
+   595→                <CardTitle className="text-2xl">CS Test Series</CardTitle>
+   596→              </CardHeader>
+   597→              <CardContent className="text-center space-y-6">
+   598→                <p className="text-muted-foreground leading-relaxed">
+   599→                  Join thousands of successful Company Secretary professionals who started their journey with Mission CS. Our meticulously crafted test series covers every aspect of the ICSI curriculum — from CSEET to CS Professional. Each test is evaluated by experienced faculty members who understand the ICSI examination pattern inside out, providing you with actionable feedback that transforms your preparation strategy.
+   600→                </p>
+   601→                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+   602→                  <Button size="lg" asChild>
+   603→                    <a href="https://missioncstestseries.com" target="_blank" rel="noopener noreferrer">
+   604→                      Enroll Now<ExternalLink className="h-4 w-4 ml-2" />
+   605→                    </a>
+   606→                  </Button>
+   607→                  <Button size="lg" variant="outline" asChild>
+   608→                    <a href="https://missioncstestseries.com/cstestseriesschedule" target="_blank" rel="noopener noreferrer">
+   609→                      <Download className="h-4 w-4 mr-2" />Download Schedule
+   610→                    </a>
+   611→                  </Button>
+   612→                </div>
+   613→              </CardContent>
+   614→            </Card>
+   615→          </div>
+   616→        </section>
+   617→
+   618→        {/* ============ STATS SECTION ============ */}
+   619→        <section className="py-16 sm:py-20">
+   620→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   621→            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
+   622→              {[
+   623→                { icon: <Users className="h-7 w-7 text-emerald-600" />, counter: communityCounter, suffix: 'k+', label: 'Students Community', sublabel: 'Across all CS levels', bgClass: 'bg-emerald-100 dark:bg-emerald-950/30', gradientFrom: 'from-emerald-500/20' },
+   624→                { icon: <Trophy className="h-7 w-7 text-amber-600" />, counter: ranksCounter, suffix: '', label: 'All India Ranks', sublabel: 'Recently Achieved', bgClass: 'bg-amber-100 dark:bg-amber-950/30', gradientFrom: 'from-amber-500/20', prefix: 'AIR ' },
+   625→                { icon: <Clock className="h-7 w-7 text-rose-600" />, counter: hoursCounter, suffix: '', label: 'Working Hours Evaluation', sublabel: 'Fastest in the industry', bgClass: 'bg-rose-100 dark:bg-rose-950/30', gradientFrom: 'from-rose-500/20' },
+   626→              ].map((stat) => (
+   627→                <div key={stat.label} className="transition-transform hover:scale-[1.03] duration-200">
+   628→                  <Card className="text-center border-0 bg-gradient-to-b relative overflow-hidden group cursor-default">
+   629→                    <div className={`absolute inset-0 rounded-xl bg-gradient-to-br ${stat.gradientFrom} to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
+   630→                    <div className="absolute inset-[1px] rounded-xl bg-background" />
+   631→                    <CardContent className="relative pt-8 pb-8">
+   632→                      <div className={`mx-auto w-14 h-14 rounded-full ${stat.bgClass} flex items-center justify-center mb-4`}>{stat.icon}</div>
+   633→                      <p className="text-4xl font-bold text-foreground">
+   634→                        {'prefix' in stat && stat.prefix ? stat.prefix : ''}
+   635→                        <span ref={stat.counter.ref}>{stat.counter.count}</span>{stat.suffix}
+   636→                      </p>
+   637→                      <p className="mt-2 text-muted-foreground font-medium">{stat.label}</p>
+   638→                      <p className="mt-1 text-sm text-muted-foreground">{stat.sublabel}</p>
+   639→                    </CardContent>
+   640→                  </Card>
+   641→                </div>
+   642→              ))}
+   643→            </div>
+   644→          </div>
+   645→        </section>
+   646→
+   647→        {/* ============ HOW IT WORKS ============ */}
+   648→        <section className="py-16 sm:py-20 bg-muted/30">
+   649→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   650→            <div className="text-center mb-12">
+   651→              <Badge variant="secondary" className="mb-3">Simple Process</Badge>
+   652→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">How It Works</h2>
+   653→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   654→                Getting started with Mission CS Test Series is straightforward. Follow these simple steps and begin your transformation today.
+   655→              </p>
+   656→            </div>
+   657→            <div className="relative">
+   658→              <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-300/40 dark:via-emerald-700/40 to-transparent -translate-y-1/2 z-0" />
+   659→              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
+   660→                {howItWorksSteps.map((item, idx) => (
+   661→                  <FadeIn key={item.step} delay={idx * 150}>
+   662→                    <Card className="relative overflow-hidden h-full group hover:shadow-lg transition-shadow duration-300">
+   663→                      <CardContent className="pt-8 pb-6">
+   664→                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-amber-500 flex items-center justify-center mb-4 text-white font-bold text-sm shadow-lg">{item.step}</div>
+   665→                        <div className="w-12 h-12 rounded-lg bg-foreground/5 flex items-center justify-center mb-4 text-foreground">{item.icon}</div>
+   666→                        <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
+   667→                        <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+   668→                        {idx < 3 && (
+   669→                          <div className="sm:hidden flex justify-center mt-4">
+   670→                            <ArrowRight className="h-5 w-5 text-muted-foreground/40 rotate-90" />
+   671→                          </div>
+   672→                        )}
+   673→                      </CardContent>
+   674→                    </Card>
+   675→                  </FadeIn>
+   676→                ))}
+   677→              </div>
+   678→            </div>
+   679→          </div>
+   680→        </section>
+   681→
+   682→        {/* ============ WHY CHOOSE MISSION CS ============ */}
+   683→        <section className="py-16 sm:py-20">
+   684→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   685→            <div className="text-center mb-12">
+   686→              <Badge variant="secondary" className="mb-3">Our Advantages</Badge>
+   687→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Why Choose Mission CS?</h2>
+   688→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   689→                Mission CS is not just another test series — it is a complete preparation ecosystem designed to transform CS aspirants into qualified Company Secretaries.
+   690→              </p>
+   691→            </div>
+   692→            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+   693→              {whyChooseFeatures.map((feature, idx) => (
+   694→                <FadeIn key={feature.title} delay={idx * 100}>
+   695→                  <Card className="group hover:shadow-lg transition-all duration-300 h-full bg-white/60 dark:bg-white/5 backdrop-blur-sm border-white/20 dark:border-white/10 hover:-translate-y-1.5">
+   696→                    <CardContent className="pt-8 pb-6">
+   697→                      <div className="w-12 h-12 rounded-lg bg-foreground/5 flex items-center justify-center mb-4 text-foreground group-hover:bg-foreground group-hover:text-foreground transition-colors duration-300">
+   698→                        {feature.icon}
+   699→                      </div>
+   700→                      <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+   701→                      <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
+   702→                    </CardContent>
+   703→                  </Card>
+   704→                </FadeIn>
+   705→              ))}
+   706→            </div>
+   707→
+   708→            {/* Additional SEO Content */}
+   709→            <div className="mt-16 max-w-4xl mx-auto prose prose-slate">
+   710→              <h3 className="text-2xl font-bold mb-4">The Mission CS Methodology: A Comprehensive Approach to CS Exam Preparation</h3>
+   711→              <p className="text-muted-foreground leading-relaxed mb-4">
+   712→                Preparing for the Company Secretary examinations conducted by the Institute of Company Secretaries of India (ICSI) requires more than just reading textbooks. It demands a strategic approach that combines conceptual understanding with practical answer-writing skills. Mission CS Test Series bridges this critical gap by providing a structured testing framework that simulates real examination conditions.
+   713→              </p>
+   714→              <p className="text-muted-foreground leading-relaxed mb-4">
+   715→                Our methodology is built on three pillars: Test, Evaluate, and Improve. When you take a Mission CS mock test, you are not merely answering questions — you are training your mind to think like a Company Secretary. Our questions are designed to test not just your knowledge of the Companies Act, 2013, or the SEBI regulations, but your ability to apply legal principles to practical scenarios.
+   716→              </p>
+   717→              <p className="text-muted-foreground leading-relaxed mb-4">
+   718→                The evaluation process at Mission CS goes far beyond simple right-or-wrong marking. Our faculty annotates every significant point in your answer, highlights what you missed, suggests alternative approaches, and provides model answers that demonstrate the ideal structure and content. This depth of feedback is what transforms average preparation into exceptional performance.
+   719→              </p>
+   720→              <p className="text-muted-foreground leading-relaxed">
+   721→                Furthermore, our platform integrates progress tracking, study planning tools, and a discussion community that collectively create an ecosystem where consistent improvement is not just encouraged — it is inevitable. Whether you are attempting CSEET for the first time or fighting for a rank in CS Professional, Mission CS adapts to your needs and pushes you toward excellence.
+   722→              </p>
+   723→            </div>
+   724→          </div>
+   725→        </section>
+   726→
+   727→        {/* ============ COURSE TABS SECTION ============ */}
+   728→        <section ref={coursesRef} className="py-16 sm:py-20 bg-muted/30 scroll-mt-16">
+   729→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   730→            <div className="text-center mb-12">
+   731→              <Badge variant="secondary" className="mb-3">Test Series</Badge>
+   732→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Our CS Test Series</h2>
+   733→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   734→                Comprehensive, structured test series for every level of the Company Secretary course — from entrance to professional.
+   735→              </p>
+   736→            </div>
+   737→            <Tabs defaultValue="cseet" className="w-full">
+   738→              <div className="flex justify-center mb-8">
+   739→                <TabsList className="bg-background shadow-sm border h-auto p-1">
+   740→                  {courseTabs.map((tab) => (
+   741→                    <TabsTrigger key={tab.value} value={tab.value}
+   742→                      className="px-4 sm:px-6 py-2.5 text-sm font-medium data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-50 data-[state=active]:to-amber-50 dark:data-[state=active]:from-emerald-950/30 dark:data-[state=active]:to-amber-950/30">
+   743→                      {tab.icon}<span className="ml-1.5 hidden sm:inline">{tab.label}</span>
+   744→                    </TabsTrigger>
+   745→                  ))}
+   746→                </TabsList>
+   747→              </div>
+   748→              {courseTabs.map((tab) => (
+   749→                <TabsContent key={tab.value} value={tab.value}>
+   750→                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+   751→                    <div>
+   752→                      <Badge className="mb-4">{tab.badge}</Badge>
+   753→                      <h3 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">{tab.title}</h3>
+   754→                      <p className="text-lg text-muted-foreground mb-6 leading-relaxed">{tab.description}</p>
+   755→                      <div className="space-y-3 mb-6">
+   756→                        {tab.features.map((item) => (
+   757→                          <div key={item} className="flex items-start gap-2">
+   758→                            <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
+   759→                            <p className="text-sm text-muted-foreground">{item}</p>
+   760→                          </div>
+   761→                        ))}
+   762→                      </div>
+   763→                      <p className="text-sm text-muted-foreground leading-relaxed mb-6">{tab.seoText}</p>
+   764→                      <Button onClick={() => onNavigate('student-signup')}>
+   765→                        {tab.ctaText}<ArrowRight className="h-4 w-4 ml-2" />
+   766→                      </Button>
+   767→                    </div>
+   768→                    <div className="space-y-4">
+   769→                      <Card className="backdrop-blur-sm bg-white/70 dark:bg-white/5 border-white/20 dark:border-white/10">
+   770→                        <CardHeader className="pb-3"><CardTitle className="text-base">Exam Pattern</CardTitle></CardHeader>
+   771→                        <CardContent>
+   772→                          <div className="space-y-2 text-sm text-muted-foreground">
+   773→                            {tab.examPattern.map((row) => (
+   774→                              <div key={row.subject} className={`flex justify-between py-1.5 ${row.bold ? 'font-semibold' : 'border-b border-border/50'}`}>
+   775→                                <span className={row.bold ? 'text-foreground' : ''}>{row.subject}</span>
+   776→                                <span className="font-medium text-foreground">{row.marks}</span>
+   777→                              </div>
+   778→                            ))}
+   779→                          </div>
+   780→                        </CardContent>
+   781→                      </Card>
+   782→                      <Card className="backdrop-blur-sm bg-white/70 dark:bg-white/5 border-white/20 dark:border-white/10">
+   783→                        <CardHeader className="pb-3"><CardTitle className="text-base">What Our Series Covers</CardTitle></CardHeader>
+   784→                        <CardContent>
+   785→                          <div className="space-y-2 text-sm text-muted-foreground">
+   786→                            {tab.seriesFeatures.map((feature) => (
+   787→                              <div key={feature} className="flex items-start gap-2">
+   788→                                <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" /><span>{feature}</span>
+   789→                              </div>
+   790→                            ))}
+   791→                          </div>
+   792→                        </CardContent>
+   793→                      </Card>
+   794→                    </div>
+   795→                  </div>
+   796→                </TabsContent>
+   797→              ))}
+   798→            </Tabs>
+   799→          </div>
+   800→        </section>
+   801→
+   802→        {/* ============ COMPARISON TABLE ============ */}
+   803→        <section className="py-16 sm:py-20">
+   804→          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+   805→            <div className="text-center mb-12">
+   806→              <Badge variant="secondary" className="mb-3">Why Us</Badge>
+   807→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Mission CS vs Others</h2>
+   808→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   809→                See how Mission CS Test Series stands apart from the competition with features that truly make a difference.
+   810→              </p>
+   811→            </div>
+   812→            <Card className="overflow-hidden">
+   813→              <div className="overflow-x-auto">
+   814→                <table className="w-full text-sm">
+   815→                  <thead>
+   816→                    <tr className="border-b bg-muted/50">
+   817→                      <th className="text-left py-4 px-4 sm:px-6 font-semibold text-foreground">Feature</th>
+   818→                      <th className="text-center py-4 px-3 sm:px-6 font-semibold">
+   819→                        <span className="bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent font-bold">Mission CS</span>
+   820→                      </th>
+   821→                      <th className="text-center py-4 px-3 sm:px-6 font-semibold text-muted-foreground">Others</th>
+   822→                    </tr>
+   823→                  </thead>
+   824→                  <tbody>
+   825→                    {comparisonFeatures.map((row, idx) => (
+   826→                      <tr key={row.feature} className={`border-b last:border-b-0 ${idx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
+   827→                        <td className="py-3.5 px-4 sm:px-6 text-foreground font-medium">{row.feature}</td>
+   828→                        <td className="py-3.5 px-3 sm:px-6 text-center">
+   829→                          {row.missionCS ? (
+   830→                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/30">
+   831→                              <CheckIcon className="h-4 w-4 text-emerald-600" />
+   832→                            </span>
+   833→                          ) : (
+   834→                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-100 dark:bg-red-950/30">
+   835→                              <XIcon className="h-4 w-4 text-red-500" />
+   836→                            </span>
+   837→                          )}
+   838→                        </td>
+   839→                        <td className="py-3.5 px-3 sm:px-6 text-center">
+   840→                          {row.others === true ? (
+   841→                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/30">
+   842→                              <CheckIcon className="h-4 w-4 text-emerald-600" />
+   843→                            </span>
+   844→                          ) : row.others === 'partial' ? (
+   845→                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-950/30">
+   846→                              <CircleDot className="h-4 w-4 text-amber-500" />
+   847→                            </span>
+   848→                          ) : (
+   849→                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-100 dark:bg-red-950/30">
+   850→                              <XIcon className="h-4 w-4 text-red-500" />
+   851→                            </span>
+   852→                          )}
+   853→                        </td>
+   854→                      </tr>
+   855→                    ))}
+   856→                  </tbody>
+   857→                </table>
+   858→              </div>
+   859→            </Card>
+   860→          </div>
+   861→        </section>
+   862→
+   863→        {/* ============ REVIEWS ============ */}
+   864→        <section ref={reviewsRef} className="py-16 sm:py-20 bg-muted/30 scroll-mt-16">
+   865→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   866→            <div className="text-center mb-12">
+   867→              <Badge variant="secondary" className="mb-3">Student Success Stories</Badge>
+   868→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Proven Results, Real Success</h2>
+   869→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   870→                Don&apos;t take our word for it — hear from students who have transformed their CS exam preparation with Mission CS Test Series.
+   871→              </p>
+   872→            </div>
+   873→
+   874→            {loading ? (
+   875→              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+   876→                {[1, 2, 3].map((i) => (
+   877→                  <Card key={i}><CardContent className="pt-6">
+   878→                    <Skeleton className="h-4 w-24 mb-3" /><Skeleton className="h-4 w-full mb-2" />
+   879→                    <Skeleton className="h-4 w-3/4 mb-2" /><Skeleton className="h-4 w-1/2" />
+   880→                  </CardContent></Card>
+   881→                ))}
+   882→              </div>
+   883→            ) : reviews.length > 3 ? (
+   884→              <div className="relative">
+   885→                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+   886→                  {carouselReviews.map((review, idx) => (
+   887→                    <div key={review.key} className="animate-fade-in" style={{ animationDelay: `${idx * 100}ms` }}>
+   888→                      <Card className="h-full hover:shadow-lg transition-all duration-300 backdrop-blur-sm bg-white/70 dark:bg-white/5 border-white/20 dark:border-white/10 group">
+   889→                        <CardContent className="pt-6">
+   890→                          <div className="flex items-center gap-0.5 mb-3">
+   891→                            {[...Array(5)].map((_, i) => (
+   892→                              <Star key={i} className={`h-4 w-4 transition-colors ${i < review.rating ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground/20'}`} />
+   893→                            ))}
+   894→                          </div>
+   895→                          <p className="text-sm text-muted-foreground leading-relaxed mb-4">&ldquo;{review.text}&rdquo;</p>
+   896→                          <div className="flex items-center justify-between">
+   897→                            <div className="flex items-center gap-2">
+   898→                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-amber-400 flex items-center justify-center">
+   899→                                <span className="text-xs font-bold text-white">{review.authorName.charAt(0)}</span>
+   900→                              </div>
+   901→                              <span className="text-sm font-medium text-foreground">{review.authorName}</span>
+   902→                            </div>
+   903→                            {review.course && <Badge variant="outline" className="text-[10px]">{review.course.title}</Badge>}
+   904→                          </div>
+   905→                        </CardContent>
+   906→                      </Card>
+   907→                    </div>
+   908→                  ))}
+   909→                </div>
+   910→                <div className="flex justify-center gap-2 mt-8">
+   911→                  {reviews.map((_, idx) => (
+   912→                    <button key={idx} onClick={() => setActiveCarouselIndex(idx)}
+   913→                      className={`w-2 h-2 rounded-full transition-all duration-300 ${idx === activeCarouselIndex ? 'w-6 bg-emerald-500' : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'}`}
+   914→                      aria-label={`Go to review ${idx + 1}`} />
+   915→                  ))}
+   916→                </div>
+   917→              </div>
+   918→            ) : reviews.length > 0 ? (
+   919→              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+   920→                {reviews.map((review) => (
+   921→                  <Card key={review.id} className="hover:shadow-lg transition-all duration-300 backdrop-blur-sm bg-white/70 dark:bg-white/5 border-white/20 dark:border-white/10">
+   922→                    <CardContent className="pt-6">
+   923→                      <div className="flex items-center gap-0.5 mb-3">
+   924→                        {[...Array(5)].map((_, i) => (
+   925→                          <Star key={i} className={`h-4 w-4 ${i < review.rating ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground/20'}`} />
+   926→                        ))}
+   927→                      </div>
+   928→                      <p className="text-sm text-muted-foreground leading-relaxed mb-4">&ldquo;{review.text}&rdquo;</p>
+   929→                      <div className="flex items-center justify-between">
+   930→                        <div className="flex items-center gap-2">
+   931→                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-amber-400 flex items-center justify-center">
+   932→                            <span className="text-xs font-bold text-white">{review.authorName.charAt(0)}</span>
+   933→                          </div>
+   934→                          <span className="text-sm font-medium text-foreground">{review.authorName}</span>
+   935→                        </div>
+   936→                        {review.course && <Badge variant="outline" className="text-[10px]">{review.course.title}</Badge>}
+   937→                      </div>
+   938→                    </CardContent>
+   939→                  </Card>
+   940→                ))}
+   941→              </div>
+   942→            ) : (
+   943→              <div className="text-center py-12">
+   944→                <MessageCircle className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+   945→                <p className="text-muted-foreground">No reviews yet. Be the first to share your experience!</p>
+   946→              </div>
+   947→            )}
+   948→          </div>
+   949→        </section>
+   950→
+   951→        {/* ============ DISCUSSION ============ */}
+   952→        <section ref={discussionRef} className="py-16 sm:py-20 scroll-mt-16">
+   953→          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+   954→            <Badge variant="secondary" className="mb-3">Community</Badge>
+   955→            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Join the Discussion</h2>
+   956→            <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
+   957→              Have questions about CS exams, preparation strategies, or specific topics? Our community discussion forum connects you with fellow aspirants and experienced faculty members who can guide your journey.
+   958→            </p>
+   959→            <Card className="max-w-md mx-auto backdrop-blur-sm bg-white/70 dark:bg-white/5 border-white/20 dark:border-white/10">
+   960→              <CardContent className="pt-8 pb-6 text-center">
+   961→                <MessageCircle className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+   962→                <h3 className="text-lg font-semibold mb-2">Discussion Forum</h3>
+   963→                <p className="text-sm text-muted-foreground mb-4">
+   964→                  Sign in as a student to ask questions, share insights, and get expert replies from our faculty team.
+   965→                </p>
+   966→                <Button onClick={() => onNavigate(isLoggedIn && userRole === 'student' ? 'student' : 'student-login')}>
+   967→                  {isLoggedIn && userRole === 'student' ? 'Go to Discussions' : 'Sign In to Discuss'}
+   968→                  <ArrowRight className="h-4 w-4 ml-2" />
+   969→                </Button>
+   970→              </CardContent>
+   971→            </Card>
+   972→          </div>
+   973→        </section>
+   974→
+   975→        {/* ============ LEADERBOARD ============ */}
+   976→        <section className="py-16 sm:py-20 bg-muted/30 relative overflow-hidden">
+   977→          {/* Decorative background elements */}
+   978→          <div className="absolute top-0 left-0 w-64 h-64 bg-amber-100/20 dark:bg-amber-900/10 rounded-full blur-3xl pointer-events-none" />
+   979→          <div className="absolute bottom-0 right-0 w-80 h-80 bg-emerald-100/20 dark:bg-emerald-900/10 rounded-full blur-3xl pointer-events-none" />
+   980→
+   981→          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+   982→            <div className="text-center mb-10">
+   983→              <Badge variant="secondary" className="mb-3"><Trophy className="h-3 w-3 mr-1" /> Leaderboard</Badge>
+   984→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Top Performers This Month</h2>
+   985→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+   986→                Celebrating our highest-scoring students who consistently show dedication and progress in their CS exam preparation journey.
+   987→              </p>
+   988→            </div>
+   989→
+   990→            {/* Loading skeleton */}
+   991→            {leaderboardLoading ? (
+   992→              <div className="space-y-6">
+   993→                {/* Podium skeleton */}
+   994→                <div className="grid grid-cols-3 gap-3 mb-6 max-w-3xl mx-auto">
+   995→                  <div className="pt-6"><Skeleton className="h-36 rounded-2xl" /></div>
+   996→                  <div className="order-first"><Skeleton className="h-44 rounded-2xl" /></div>
+   997→                  <div className="order-last pt-6"><Skeleton className="h-36 rounded-2xl" /></div>
+   998→                </div>
+   999→                {/* List skeleton */}
+  1000→                <Card>
+  1001→                  <CardContent className="p-0 overflow-hidden">
+  1002→                    <div className="divide-y divide-border">
+  1003→                      {[1,2,3,4,5,6,7].map(i => (
+  1004→                        <div key={i} className="flex items-center gap-4 p-4">
+  1005→                          <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+  1006→                          <div className="flex-1 space-y-2">
+  1007→                            <Skeleton className="h-4 w-32" />
+  1008→                            <Skeleton className="h-3 w-48" />
+  1009→                          </div>
+  1010→                          <Skeleton className="h-5 w-16" />
+  1011→                        </div>
+  1012→                      ))}
+  1013→                    </div>
+  1014→                  </CardContent>
+  1015→                </Card>
+  1016→              </div>
+  1017→            ) : leaderboard.length === 0 ? (
+  1018→              <Card className="max-w-md mx-auto">
+  1019→                <CardContent className="py-12 text-center">
+  1020→                  <Trophy className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+  1021→                  <p className="text-muted-foreground">Leaderboard updates soon</p>
+  1022→                  <p className="text-sm text-muted-foreground/70 mt-1">Be the first to appear here by signing up and scoring points!</p>
+  1023→                </CardContent>
+  1024→              </Card>
+  1025→            ) : (
+  1026→              <div className="space-y-6">
+  1027→                {/* Podium for top 3 */}
+  1028→                {leaderboard.length >= 3 && (
+  1029→                  <div className="grid grid-cols-3 gap-3 sm:gap-5 max-w-3xl mx-auto items-end">
+  1030→                    {/* 2nd place - Silver */}
+  1031→                    <div className="order-1 animate-leaderboard-in" style={{ animationDelay: '200ms' }}>
+  1032→                      <div className="rounded-2xl bg-gradient-to-b from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800 p-5 text-center shadow-lg relative ring-2 ring-slate-300/50 dark:ring-slate-600/50">
+  1033→                        <Medal className="h-5 w-5 mx-auto text-slate-500 dark:text-slate-300 mb-1.5" />
+  1034→                        <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-slate-300 to-slate-500 dark:from-slate-500 dark:to-slate-700 text-white flex items-center justify-center font-bold text-xl mb-2 shadow-md ring-2 ring-white/20">2</div>
+  1035→                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{leaderboard[1].name}</p>
+  1036→                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{leaderboard[1].score} pts</p>
+  1037→                        {leaderboard[1].currentStreak > 0 && (
+  1038→                          <div className="flex items-center justify-center gap-1 mt-1">
+  1039→                            <Flame className="h-3 w-3 text-orange-500" />
+  1040→                            <span className="text-[10px] font-medium text-orange-600 dark:text-orange-400">{leaderboard[1].currentStreak}d</span>
+  1041→                          </div>
+  1042→                        )}
+  1043→                      </div>
+  1044→                    </div>
+  1045→                    {/* 1st place - Gold */}
+  1046→                    <div className="order-first animate-leaderboard-in" style={{ animationDelay: '0ms' }}>
+  1047→                      <div className="rounded-2xl bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 p-6 text-center shadow-xl ring-4 ring-amber-300/30 relative">
+  1048→                        <Crown className="h-7 w-7 mx-auto text-white mb-1.5 drop-shadow" />
+  1049→                        <div className="w-16 h-16 mx-auto rounded-full bg-white/30 backdrop-blur-sm text-white flex items-center justify-center font-bold text-2xl mb-2 shadow-lg ring-2 ring-white/30">1</div>
+  1050→                        <p className="text-sm font-bold text-white truncate">{leaderboard[0].name}</p>
+  1051→                        <p className="text-xs text-white/90 mt-0.5">{leaderboard[0].score} pts</p>
+  1052→                        {leaderboard[0].currentStreak > 0 && (
+  1053→                          <div className="flex items-center justify-center gap-1 mt-1">
+  1054→                            <Flame className="h-3 w-3 text-white/90" />
+  1055→                            <span className="text-[10px] font-medium text-white/90">{leaderboard[0].currentStreak}d</span>
+  1056→                          </div>
+  1057→                        )}
+  1058→                      </div>
+  1059→                    </div>
+  1060→                    {/* 3rd place - Bronze */}
+  1061→                    <div className="order-last animate-leaderboard-in" style={{ animationDelay: '400ms' }}>
+  1062→                      <div className="rounded-2xl bg-gradient-to-b from-orange-200 to-orange-400 dark:from-orange-800 dark:to-orange-900 p-5 text-center shadow-lg relative ring-2 ring-orange-300/50 dark:ring-orange-700/50">
+  1063→                        <Award className="h-5 w-5 mx-auto text-orange-700 dark:text-orange-300 mb-1.5" />
+  1064→                        <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-orange-400 to-orange-600 dark:from-orange-700 dark:to-orange-900 text-white flex items-center justify-center font-bold text-xl mb-2 shadow-md ring-2 ring-white/20">3</div>
+  1065→                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{leaderboard[2].name}</p>
+  1066→                        <p className="text-xs text-slate-700 dark:text-slate-300 mt-0.5">{leaderboard[2].score} pts</p>
+  1067→                        {leaderboard[2].currentStreak > 0 && (
+  1068→                          <div className="flex items-center justify-center gap-1 mt-1">
+  1069→                            <Flame className="h-3 w-3 text-orange-500" />
+  1070→                            <span className="text-[10px] font-medium text-orange-600 dark:text-orange-400">{leaderboard[2].currentStreak}d</span>
+  1071→                          </div>
+  1072→                        )}
+  1073→                      </div>
+  1074→                    </div>
+  1075→                  </div>
+  1076→                )}
+  1077→
+  1078→                {/* Full list (ranks 4-10, or 1-10 if < 3 entries) */}
+  1079→                <Card className="shadow-md animate-leaderboard-in" style={{ animationDelay: '500ms' }}>
+  1080→                  <CardContent className="p-0 overflow-hidden">
+  1081→                    <div className="divide-y divide-border">
+  1082→                      {leaderboard.slice(0, 10).map((entry, idx) => {
+  1083→                        const rank = entry.rank || idx + 1
+  1084→                        const isTop3 = rank <= 3
+  1085→                        // Medal styling per rank
+  1086→                        const rankStyles: Record<number, { bg: string; text: string; ring: string; icon?: React.ReactNode }> = {
+  1087→                          1: { bg: 'bg-gradient-to-br from-amber-300 to-amber-500', text: 'text-white', ring: 'ring-2 ring-amber-300/40', icon: <Crown className="h-3.5 w-3.5" /> },
+  1088→                          2: { bg: 'bg-gradient-to-br from-slate-300 to-slate-500 dark:from-slate-500 dark:to-slate-700', text: 'text-white', ring: 'ring-2 ring-slate-300/40 dark:ring-slate-500/40', icon: <Medal className="h-3.5 w-3.5" /> },
+  1089→                          3: { bg: 'bg-gradient-to-br from-orange-300 to-orange-500 dark:from-orange-700 dark:to-orange-900', text: 'text-white', ring: 'ring-2 ring-orange-300/40 dark:ring-orange-700/40', icon: <Award className="h-3.5 w-3.5" /> },
+  1090→                        }
+  1091→                        const style = rankStyles[rank] || { bg: 'bg-muted', text: 'text-muted-foreground', ring: '' }
+  1092→
+  1093→                        return (
+  1094→                          <div
+  1095→                            key={entry.id || idx}
+  1096→                            className={`flex items-center gap-4 p-4 hover:bg-muted/50 transition-all duration-200 ${isTop3 ? 'bg-muted/30' : ''}`}
+  1097→                          >
+  1098→                            <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ${style.bg} ${style.text} ${style.ring}`}>
+  1099→                              {style.icon || rank}
+  1100→                            </div>
+  1101→                            <div className="flex-1 min-w-0">
+  1102→                              <div className="flex items-center gap-1.5">
+  1103→                                <p className="text-sm font-medium truncate">{entry.name}</p>
+  1104→                                {entry.verified && (
+  1105→                                  <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+  1106→                                )}
+  1107→                              </div>
+  1108→                              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+  1109→                                <span>{entry.courseTitle || 'General'}</span>
+  1110→                                {entry.currentStreak > 0 && (
+  1111→                                  <>
+  1112→                                    <span className="text-border">·</span>
+  1113→                                    <Flame className="h-3 w-3 text-orange-500" />
+  1114→                                    <span className="text-orange-600 dark:text-orange-400">{entry.currentStreak}d streak</span>
+  1115→                                  </>
+  1116→                                )}
+  1117→                              </p>
+  1118→                            </div>
+  1119→                            <div className="flex items-center gap-1.5 text-sm font-bold text-foreground flex-shrink-0">
+  1120→                              <Trophy className="h-3.5 w-3.5 text-amber-500" />
+  1121→                              {entry.score}
+  1122→                            </div>
+  1123→                          </div>
+  1124→                        )
+  1125→                      })}
+  1126→                    </div>
+  1127→                  </CardContent>
+  1128→                </Card>
+  1129→
+  1130→                {/* View Full Leaderboard link */}
+  1131→                <div className="text-center animate-leaderboard-in" style={{ animationDelay: '700ms' }}>
+  1132→                  <Button
+  1133→                    variant="outline"
+  1134→                    className="gap-2 text-sm"
+  1135→                    onClick={() => {
+  1136→                      const el = document.getElementById('leaderboard-section')
+  1137→                      if (el) el.scrollIntoView({ behavior: 'smooth' })
+  1138→                      onNavigate(isLoggedIn && userRole === 'student' ? 'student' : 'student-login')
+  1139→                    }}
+  1140→                  >
+  1141→                    <BarChart3 className="h-4 w-4" />
+  1142→                    View Full Leaderboard
+  1143→                    <ChevronRight className="h-4 w-4" />
+  1144→                  </Button>
+  1145→                </div>
+  1146→              </div>
+  1147→            )}
+  1148→          </div>
+  1149→        </section>
+  1150→
+  1151→        {/* ============ COMPLETE GUIDE ============ */}
+  1152→        <section className="py-16 sm:py-20 bg-muted/30">
+  1153→          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+  1154→            <div className="text-center mb-10">
+  1155→              <Badge variant="secondary" className="mb-3">Complete Guide</Badge>
+  1156→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Complete Guide to CS Examination</h2>
+  1157→            </div>
+  1158→            <div className="space-y-6 text-muted-foreground">
+  1159→              <div>
+  1160→                <h3 className="text-xl font-semibold text-foreground mb-3 flex items-center gap-2">
+  1161→                  <BookOpen className="h-5 w-5" />Understanding the CS Course Structure
+  1162→                </h3>
+  1163→                <p className="leading-relaxed">
+  1164→                  The Company Secretary course, administered by the Institute of Company Secretaries of India (ICSI), is one of the most prestigious professional qualifications in India. The programme is structured in three progressive stages: CSEET (entrance), CS Executive (intermediate), and CS Professional (final). Each level builds upon the knowledge gained in the previous stage, creating a comprehensive understanding of corporate governance, company law, and business management.
+  1165→                </p>
+  1166→              </div>
+  1167→              <div>
+  1168→                <h3 className="text-xl font-semibold text-foreground mb-3 flex items-center gap-2">
+  1169→                  <Calculator className="h-5 w-5" />Exam Pattern & Eligibility
+  1170→                </h3>
+  1171→                <p className="leading-relaxed">
+  1172→                  CSEET is conducted four times a year (January, May, July, and November) in computer-based mode. Candidates who have passed or are appearing in 10+2 (any stream) are eligible. CS Executive and Professional examinations are held twice yearly (June and December) in descriptive pen-and-paper format. The qualifying marks are 40% in each paper and 50% aggregate across all papers in a module.
+  1173→                </p>
+  1174→              </div>
+  1175→              <div>
+  1176→                <h3 className="text-xl font-semibold text-foreground mb-3 flex items-center gap-2">
+  1177→                  <Target className="h-5 w-5" />Preparation Strategy & Tips
+  1178→                </h3>
+  1179→                <p className="leading-relaxed">
+  1180→                  Successful CS exam preparation requires a three-pronged approach: conceptual clarity through thorough reading of ICSI study material, regular practice through mock tests and past papers, and continuous improvement through expert feedback. Most importantly, practice answer writing — the ability to structure and present your knowledge effectively is often the difference between clearing and not clearing the examination.
+  1181→                </p>
+  1182→              </div>
+  1183→            </div>
+  1184→          </div>
+  1185→        </section>
+  1186→
+  1187→        {/* ============ FAQ ACCORDION ============ */}
+  1188→        <section className="py-16 sm:py-20">
+  1189→          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+  1190→            <div className="text-center mb-12">
+  1191→              <Badge variant="secondary" className="mb-3">FAQ</Badge>
+  1192→              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Frequently Asked Questions</h2>
+  1193→              <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+  1194→                Got questions about CS exams or our test series? Find answers to the most commonly asked questions below.
+  1195→              </p>
+  1196→            </div>
+  1197→            <Accordion type="single" collapsible className="w-full">
+  1198→              {faqItems.map((item, idx) => (
+  1199→                <AccordionItem key={idx} value={`faq-${idx}`}>
+  1200→                  <AccordionTrigger className="text-left text-sm sm:text-base font-medium hover:no-underline">{item.question}</AccordionTrigger>
+  1201→                  <AccordionContent className="text-sm text-muted-foreground leading-relaxed">{item.answer}</AccordionContent>
+  1202→                </AccordionItem>
+  1203→              ))}
+  1204→            </Accordion>
+  1205→          </div>
+  1206→        </section>
+  1207→
+  1208→        {/* ============ FINAL CTA ============ */}
+  1209→        <section className="relative py-16 sm:py-24 overflow-hidden">
+  1210→          <div className="absolute inset-0 bg-gradient-to-r from-emerald-900 via-foreground to-amber-900" />
+  1211→          <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_30%,rgba(255,255,255,0.05)_50%,transparent_70%)] bg-[length:200%_100%] animate-shimmer" />
+  1212→          <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+  1213→            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-4">Ready to Ace Your CS Exams?</h2>
+  1214→            <p className="text-lg text-white/70 mb-8 max-w-2xl mx-auto">
+  1215→              Join 20,000+ successful CS aspirants who have transformed their preparation with Mission CS Test Series. Your journey from aspirant to Company Secretary starts with a single step.
+  1216→            </p>
+  1217→            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+  1218→              <div className="animate-pulse-cta">
+  1219→                <Button size="lg" variant="secondary" onClick={() => onNavigate('student-signup')} className="text-base px-8 shadow-xl">
+  1220→                  Start Free Today<ArrowRight className="h-4 w-4 ml-2" />
+  1221→                </Button>
+  1222→              </div>
+  1223→              <Button size="lg" variant="outline" asChild className="text-base px-8 border-white/30 text-white hover:bg-white/10">
+  1224→                <a href="https://missioncstestseries.com" target="_blank" rel="noopener noreferrer">
+  1225→                  Visit Mission CS<ExternalLink className="h-4 w-4 ml-2" />
+  1226→                </a>
+  1227→              </Button>
+  1228→            </div>
+  1229→          </div>
+  1230→        </section>
+  1231→      </main>
+  1232→
+  1233→      {/* ============ FOOTER ============ */}
+  1234→      <footer className="mt-auto relative">
+  1235→        <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
+  1236→        <div className="bg-muted/30">
+  1237→          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+  1238→            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+  1239→              <div>
+  1240→                <div className="flex items-center gap-2 mb-4">
+  1241→                  <GraduationCap className="h-6 w-6 text-foreground" />
+  1242→                  <span className="font-bold text-lg text-foreground">MISSION CS</span>
+  1243→                </div>
+  1244→                <p className="text-sm text-muted-foreground leading-relaxed">
+  1245→                  India&apos;s most trusted CS test series platform. Helping Company Secretary aspirants achieve their dreams through structured testing and expert evaluation since 2018.
+  1246→                </p>
+  1247→              </div>
+  1248→              <div>
+  1249→                <h4 className="font-semibold text-foreground mb-4">Test Series</h4>
+  1250→                <ul className="space-y-2 text-sm text-muted-foreground">
+  1251→                  <li><button onClick={() => { setActiveCarouselIndex(0); scrollToSection(coursesRef) }} className="hover:text-foreground transition-colors">CSEET Test Series</button></li>
+  1252→                  <li><button onClick={() => scrollToSection(coursesRef)} className="hover:text-foreground transition-colors">CS Executive Test Series</button></li>
+  1253→                  <li><button onClick={() => scrollToSection(coursesRef)} className="hover:text-foreground transition-colors">CS Professional Test Series</button></li>
+  1254→                </ul>
+  1255→              </div>
+  1256→              <div>
+  1257→                <h4 className="font-semibold text-foreground mb-4">Resources</h4>
+  1258→                <ul className="space-y-2 text-sm text-muted-foreground">
+  1259→                  <li><a href="https://missioncstestseries.com/cstestseriesschedule" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors flex items-center gap-1"><Download className="h-3 w-3" />Download Schedule</a></li>
+  1260→                  <li><button onClick={() => scrollToSection(reviewsRef)} className="hover:text-foreground transition-colors">Student Reviews</button></li>
+  1261→                  <li><button onClick={() => scrollToSection(discussionRef)} className="hover:text-foreground transition-colors">Discussion Forum</button></li>
+  1262→                  <li><a href="https://missioncstestseries.com" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors flex items-center gap-1"><ExternalLink className="h-3 w-3" />Official Website</a></li>
+  1263→                </ul>
+  1264→              </div>
+  1265→              <div>
+  1266→                <h4 className="font-semibold text-foreground mb-4">Connect With Us</h4>
+  1267→                <ul className="space-y-2 text-sm text-muted-foreground">
+  1268→                  <li className="flex items-center gap-2"><Mail className="h-4 w-4 shrink-0" /><span>support@missioncstestseries.com</span></li>
+  1269→                  <li className="flex items-center gap-2"><Phone className="h-4 w-4 shrink-0" /><span>+91 98765 43210</span></li>
+  1270→                </ul>
+  1271→                <div className="flex items-center gap-3 mt-4">
+  1272→                  {[
+  1273→                    { icon: <Instagram className="h-4 w-4" />, label: 'Instagram' },
+  1274→                    { icon: <Youtube className="h-4 w-4" />, label: 'YouTube' },
+  1275→                    { icon: <Linkedin className="h-4 w-4" />, label: 'LinkedIn' },
+  1276→                  ].map((social) => (
+  1277→                    <a key={social.label} href="#" aria-label={social.label}
+  1278→                      className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center hover:bg-emerald-100 dark:hover:bg-emerald-950/30 transition-all duration-300 hover:scale-110 hover:-translate-y-0.5 active:scale-95">
+  1279→                      <span className="text-foreground">{social.icon}</span>
+  1280→                    </a>
+  1281→                  ))}
+  1282→                </div>
+  1283→              </div>
+  1284→            </div>
+  1285→            <Separator className="mb-6" />
+  1286→            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+  1287→              <p className="text-sm text-muted-foreground">&copy; {new Date().getFullYear()} Mission CS Test Series. All rights reserved.</p>
+  1288→              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+  1289→                <span>Privacy Policy</span><span>Terms of Service</span><span>Refund Policy</span>
+  1290→                <button onClick={() => onNavigate('admin-login')} className="hover:text-foreground transition-colors">Admin</button>
+  1291→              </div>
+  1292→            </div>
+  1293→          </div>
+  1294→        </div>
+  1295→      </footer>
+  1296→
+  1297→      {/* ============ SCROLL TO TOP BUTTON ============ */}
+  1298→      <button
+  1299→        onClick={scrollToTop}
+  1300→        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-foreground text-background shadow-lg flex items-center justify-center hover:shadow-xl transition-all duration-300 ${showScrollTop ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-75 pointer-events-none'}`}
+  1301→        aria-label="Scroll to top"
+  1302→      >
+  1303→        <ChevronUp className="h-5 w-5" />
+  1304→      </button>
+  1305→
+  1306→      {/* ============ CSS ANIMATIONS ============ */}
+  1307→      <style jsx global>{`
+  1308→        @keyframes marquee {
+  1309→          0% { transform: translateX(0); }
+  1310→          100% { transform: translateX(-50%); }
+  1311→        }
+  1312→        .animate-marquee {
+  1313→          animation: marquee 40s linear infinite;
+  1314→        }
+  1315→        .animate-marquee:hover {
+  1316→          animation-play-state: paused;
+  1317→        }
+  1318→
+  1319→        @keyframes fade-in-up {
+  1320→          from { opacity: 0; transform: translateY(20px); }
+  1321→          to { opacity: 1; transform: translateY(0); }
+  1322→        }
+  1323→        .animate-fade-in-up {
+  1324→          animation: fade-in-up 0.6s ease-out both;
+  1325→        }
+  1326→
+  1327→        @keyframes fade-in {
+  1328→          from { opacity: 0; }
+  1329→          to { opacity: 1; }
+  1330→        }
+  1331→        .animate-fade-in {
+  1332→          animation: fade-in 0.4s ease-out both;
+  1333→        }
+  1334→
+  1335→        @keyframes float-slow {
+  1336→          0%, 100% { transform: translateY(0) rotate(0deg); }
+  1337→          50% { transform: translateY(-12px) rotate(5deg); }
+  1338→        }
+  1339→        .animate-float-slow {
+  1340→          animation: float-slow 6s ease-in-out infinite;
+  1341→        }
+  1342→
+  1343→        @keyframes float-medium {
+  1344→          0%, 100% { transform: translateY(0) rotate(0deg); }
+  1345→          50% { transform: translateY(10px) rotate(-5deg); }
+  1346→        }
+  1347→        .animate-float-medium {
+  1348→          animation: float-medium 5s ease-in-out infinite;
+  1349→          animation-delay: 1s;
+  1350→        }
+  1351→
+  1352→        @keyframes float-fast {
+  1353→          0%, 100% { transform: translateY(0); }
+  1354→          50% { transform: translateY(-8px); }
+  1355→        }
+  1356→        .animate-float-fast {
+  1357→          animation: float-fast 7s ease-in-out infinite;
+  1358→          animation-delay: 2s;
+  1359→        }
+  1360→
+  1361→        @keyframes float-item {
+  1362→          0%, 100% { transform: translateY(0); }
+  1363→          50% { transform: translateY(-4px); }
+  1364→        }
+  1365→        .animate-float-item {
+  1366→          animation: float-item 3s ease-in-out infinite;
+  1367→        }
+  1368→
+  1369→        @keyframes shimmer {
+  1370→          0% { background-position: 0% 50%; }
+  1371→          50% { background-position: 100% 50%; }
+  1372→          100% { background-position: 0% 50%; }
+  1373→        }
+  1374→        .animate-shimmer {
+  1375→          animation: shimmer 8s ease-in-out infinite;
+  1376→        }
+  1377→
+  1378→        @keyframes pulse-cta {
+  1379→          0%, 100% { transform: scale(1); }
+  1380→          50% { transform: scale(1.04); }
+  1381→        }
+  1382→        .animate-pulse-cta {
+  1383→          animation: pulse-cta 2s ease-in-out infinite;
+  1384→        }
+  1385→
+  1386→        @keyframes leaderboard-in {
+  1387→          from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  1388→          to { opacity: 1; transform: translateY(0) scale(1); }
+  1389→        }
+  1390→        .animate-leaderboard-in {
+  1391→          animation: leaderboard-in 0.5s ease-out both;
+  1392→        }
+  1393→
+  1394→        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  1395→        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  1396→        .custom-scrollbar::-webkit-scrollbar-thumb { background: oklch(0.8 0 0); border-radius: 3px; }
+  1397→        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: oklch(0.7 0 0); }
+  1398→      `}</style>
+  1399→    </div>
+  1400→  )
+  1401→}
+  1402→

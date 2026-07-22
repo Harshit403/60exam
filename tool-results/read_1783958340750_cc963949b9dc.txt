@@ -1,0 +1,811 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Label } from '@/components/ui/label'
+     7→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     8→import { Badge } from '@/components/ui/badge'
+     9→import { Skeleton } from '@/components/ui/skeleton'
+    10→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    11→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    12→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    13→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    14→import {
+    15→  Flame, Settings, CheckCircle2, Clock, Play, Pause, RotateCcw,
+    16→  ChevronRight, Trophy, BookOpen, Target, Loader2, Lock, Crown, Sparkles, ListChecks, StickyNote,
+    17→  CalendarCheck, ArrowRight,
+    18→} from 'lucide-react'
+    19→import { api } from '@/lib/api-client'
+    20→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    21→
+    22→import { DashboardData } from '../types'
+    23→import {
+    24→  MOTIVATIONAL_QUOTES, SESSION_QUOTES, MOCK_LEADERBOARD,
+    25→  formatTimer, formatMinutes, CircularProgressRing, TimerCountdownRing, Confetti, LoadingSkeleton,
+    26→} from '../utils'
+    27→
+    28→// ─── Timer Persistence Helpers ─────────────────────────────────────────
+    29→const TIMER_STORAGE_KEY = 'mission-cs-pomodoro-state'
+    30→
+    31→interface TimerPersistState {
+    32→  selectedSubjectId: string
+    33→  selectedChapterId: string
+    34→  timerSeconds: number
+    35→  timerTotalSeconds: number
+    36→  timerRunning: boolean
+    37→  timerPaused: boolean
+    38→  timestamp: number // when the state was saved
+    39→  sessionQuote: string
+    40→}
+    41→
+    42→function saveTimerState(state: TimerPersistState) {
+    43→  try { localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state)) } catch {}
+    44→}
+    45→
+    46→function loadTimerState(): TimerPersistState | null {
+    47→  try {
+    48→    const raw = localStorage.getItem(TIMER_STORAGE_KEY)
+    49→    if (!raw) return null
+    50→    const state = JSON.parse(raw) as TimerPersistState
+    51→    // If timer was running, calculate elapsed time since last save
+    52→    if (state.timerRunning && !state.timerPaused) {
+    53→      const elapsed = Math.floor((Date.now() - state.timestamp) / 1000)
+    54→      state.timerSeconds = Math.max(0, state.timerSeconds - elapsed)
+    55→      if (state.timerSeconds <= 0) {
+    56→        state.timerRunning = false
+    57→        state.timerPaused = false
+    58→      }
+    59→    }
+    60→    return state
+    61→  } catch { return null }
+    62→}
+    63→
+    64→function clearTimerState() {
+    65→  try { localStorage.removeItem(TIMER_STORAGE_KEY) } catch {}
+    66→}
+    67→
+    68→// ═══════════════════════════════════════════════════════════════════════
+    69→// DASHBOARD PAGE (Redesigned)
+    70→// ═══════════════════════════════════════════════════════════════════════
+    71→
+    72→export function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+    73→  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+    74→  const [selectedChapterId, setSelectedChapterId] = useState('')
+    75→  const [timerPreset, setTimerPreset] = useState(0)
+    76→  const [customMinutes, setCustomMinutes] = useState('')
+    77→  const [timerRunning, setTimerRunning] = useState(false)
+    78→  const [timerPaused, setTimerPaused] = useState(false)
+    79→  const [timerSeconds, setTimerSeconds] = useState(0)
+    80→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+    81→  const [timerCompleted, setTimerCompleted] = useState(false)
+    82→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+    83→  const [strikeLoading, setStrikeLoading] = useState(false)
+    84→  const [strikeFlash, setStrikeFlash] = useState(false)
+    85→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+    86→  const [resetLoading, setResetLoading] = useState(false)
+    87→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+    88→  const [achievementsData, setAchievementsData] = useState<any>(null)
+    89→  const [showConfetti, setShowConfetti] = useState(false)
+    90→  const [sessionQuote, setSessionQuote] = useState('')
+    91→  const [dailyGoalMin] = useState(120)
+    92→  const [sessionNotes, setSessionNotes] = useState('')
+    93→  const [leaderboardData, setLeaderboardData] = useState<any[]>([])
+    94→  const [leaderboardLoading, setLeaderboardLoading] = useState(true)
+    95→  const [lastStudySession, setLastStudySession] = useState<any>(null)
+    96→
+    97→  const dailyQuote = useMemo(() => MOTIVATIONAL_QUOTES[new Date().getDate() % MOTIVATIONAL_QUOTES.length], [])
+    98→  const student = data?.student
+    99→  const subjects = data?.subjects || []
+   100→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+   101→  const chapters = selectedSubject?.chapters || []
+   102→
+   103→  // ─── Restore timer from localStorage on mount ────────────────────────
+   104→  useEffect(() => {
+   105→    const saved = loadTimerState()
+   106→    if (saved && saved.timerSeconds > 0) {
+   107→      setSelectedSubjectId(saved.selectedSubjectId)
+   108→      setSelectedChapterId(saved.selectedChapterId)
+   109→      setTimerSeconds(saved.timerSeconds)
+   110→      setTimerTotalSeconds(saved.timerTotalSeconds)
+   111→      setTimerRunning(saved.timerRunning)
+   112→      setTimerPaused(saved.timerPaused)
+   113→      setSessionQuote(saved.sessionQuote)
+   114→    }
+   115→  }, [])
+   116→
+   117→  // ─── Save timer state to localStorage on change ──────────────────────
+   118→  useEffect(() => {
+   119→    if (timerRunning || timerPaused) {
+   120→      saveTimerState({
+   121→        selectedSubjectId,
+   122→        selectedChapterId,
+   123→        timerSeconds,
+   124→        timerTotalSeconds,
+   125→        timerRunning,
+   126→        timerPaused,
+   127→        timestamp: Date.now(),
+   128→        sessionQuote,
+   129→      })
+   130→    } else if (timerSeconds === 0 && timerTotalSeconds === 0) {
+   131→      clearTimerState()
+   132→    }
+   133→  }, [timerRunning, timerPaused, timerSeconds, timerTotalSeconds, selectedSubjectId, selectedChapterId, sessionQuote])
+   134→
+   135→  // ─── Fetch data ──────────────────────────────────────────────────────
+   136→  useEffect(() => {
+   137→    const fetchLeaderboard = async () => {
+   138→      try {
+   139→        setLeaderboardLoading(true)
+   140→        const data = await api.publicLeaderboard()
+   141→        setLeaderboardData(data.leaderboard || [])
+   142→      } catch (err) { console.error('Leaderboard fetch error:', err) }
+   143→      finally { setLeaderboardLoading(false) }
+   144→    }
+   145→    fetchLeaderboard()
+   146→  }, [])
+   147→
+   148→  useEffect(() => {
+   149→    const fetchAchievements = async () => {
+   150→      try { setAchievementsData(await api.studentAchievements()) }
+   151→      catch (err) { console.error('Achievements fetch error:', err) }
+   152→    }
+   153→    fetchAchievements()
+   154→  }, [data?.student?.score])
+   155→
+   156→  useEffect(() => {
+   157→    const fetchLastSession = async () => {
+   158→      try {
+   159→        const data = await api.studentStudyHistory()
+   160→        const sessions = data.sessions || []
+   161→        if (sessions.length > 0) {
+   162→          const last = sessions[0]
+   163→          setLastStudySession(last)
+   164→        }
+   165→      } catch (err) { console.error('Last session fetch error:', err) }
+   166→    }
+   167→    fetchLastSession()
+   168→  }, [data])
+   169→
+   170→  // ─── Timer logic ─────────────────────────────────────────────────────
+   171→  useEffect(() => {
+   172→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+   173→      timerInterval.current = setInterval(() => {
+   174→        setTimerSeconds(prev => {
+   175→          if (prev <= 1) {
+   176→            setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
+   177→            clearTimerState()
+   178→            if (timerInterval.current) clearInterval(timerInterval.current)
+   179→            return 0
+   180→          }
+   181→          return prev - 1
+   182→        })
+   183→      }, 1000)
+   184→    }
+   185→    return () => { if (timerInterval.current) clearInterval(timerInterval.current) }
+   186→  }, [timerRunning, timerPaused, timerSeconds])
+   187→
+   188→  const startTimer = () => {
+   189→    let minutes = timerPreset
+   190→    if (timerPreset === -1) minutes = parseInt(customMinutes) || 0
+   191→    if (minutes <= 0 || !selectedChapterId) return
+   192→    setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
+   193→    setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
+   194→    setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+   195→  }
+   196→
+   197→  const resetTimer = () => {
+   198→    setTimerRunning(false); setTimerPaused(false); setTimerSeconds(0)
+   199→    setTimerTotalSeconds(0); setTimerCompleted(false); setSessionQuote('')
+   200→    clearTimerState()
+   201→    if (timerInterval.current) clearInterval(timerInterval.current)
+   202→  }
+   203→
+   204→  const handleTimerComplete = async (completed: boolean) => {
+   205→    const durationMin = Math.round(timerTotalSeconds / 60)
+   206→    try {
+   207→      await api.studentStartSession({ chapterId: selectedChapterId, durationMin, completed, notes: sessionNotes.trim() || undefined })
+   208→      if (completed) await api.studentMarkChapter(selectedChapterId, true)
+   209→    } catch (err) { console.error('Session save error:', err) }
+   210→    setSessionNotes('')
+   211→    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh()
+   212→  }
+   213→
+   214→  const handleStrike = async () => {
+   215→    setStrikeLoading(true); setStrikeAnimating(true); setStrikeFlash(true)
+   216→    try {
+   217→      await api.studentSendStrike()
+   218→      setTimeout(() => { setStrikeAnimating(false); setStrikeFlash(false) }, 800)
+   219→      onRefresh()
+   220→    } catch {
+   221→      setStrikeAnimating(false); setStrikeFlash(false)
+   222→    } finally { setStrikeLoading(false) }
+   223→  }
+   224→
+   225→  const handleResetStats = async () => {
+   226→    setResetLoading(true)
+   227→    try { await api.studentResetStats(); setResetDialogOpen(false); onRefresh() }
+   228→    catch (err) { console.error('Reset error:', err) }
+   229→    finally { setResetLoading(false) }
+   230→  }
+   231→
+   232→  const handleResumeLastChapter = () => {
+   233→    if (lastStudySession?.chapter?.subject?.id) {
+   234→      setSelectedSubjectId(lastStudySession.chapter.subject.id)
+   235→    }
+   236→    if (lastStudySession?.chapter?.id) {
+   237→      setSelectedChapterId(lastStudySession.chapter.id)
+   238→    }
+   239→    // Scroll to study session card
+   240→    document.getElementById('study-session-card')?.scrollIntoView({ behavior: 'smooth' })
+   241→  }
+   242→
+   243→  if (!data || !student || !student.fullName) return <LoadingSkeleton />
+   244→
+   245→  const canStrike = !(student as any).lastStrikeAt ||
+   246→    new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
+   247→
+   248→  const timerPresets = [
+   249→    { label: '25m', value: 25, desc: 'Pomodoro' },
+   250→    { label: '30m', value: 30, desc: 'Short' },
+   251→    { label: '45m', value: 45, desc: 'Medium' },
+   252→    { label: '1h', value: 60, desc: 'Long' },
+   253→    { label: '1.5h', value: 90, desc: 'Extended' },
+   254→    { label: '2h', value: 120, desc: 'Marathon' },
+   255→  ]
+   256→
+   257→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   258→  const totalAchievements = achievementsData?.totalAchievements || 12
+   259→  const dailyGoalProgress = Math.min((data.todayStudyMin / dailyGoalMin) * 100, 100)
+   260→  const dailyGoalReached = data.todayStudyMin >= dailyGoalMin
+   261→  const scoreProgress = Math.min((student.score / 1000) * 100, 100)
+   262→
+   263→  // Timer progress for circular ring
+   264→  const timerProgress = timerTotalSeconds > 0 ? (timerSeconds / timerTotalSeconds) * 100 : 0
+   265→
+   266→  return (
+   267→    <div className="space-y-6">
+   268→      <Confetti active={showConfetti} />
+   269→      {strikeFlash && <div className="fixed inset-0 bg-orange-400/20 dark:bg-orange-500/10 strike-flash pointer-events-none z-[999]" />}
+   270→
+   271→      {/* ═══════════════════════════════════════════════════════════════════
+   272→          0. TOP HEADER BAR — Course Name, Points, Streak, Quote
+   273→      ═══════════════════════════════════════════════════════════════════ */}
+   274→      <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-5 shadow-lg relative overflow-hidden">
+   275→        <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+   276→        <div className="absolute bottom-0 left-0 w-24 h-24 bg-amber-400/5 rounded-full translate-y-1/3 -translate-x-1/4" />
+   277→        <div className="relative">
+   278→          {/* Top Row: Course Name + Stats */}
+   279→          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+   280→            <div className="flex items-center gap-3">
+   281→              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-md">
+   282→                <BookOpen className="w-5 h-5 text-white" />
+   283→              </div>
+   284→              <div>
+   285→                <h2 className="text-lg font-bold text-white leading-tight">{student.course?.title || 'CS Executive Test Series'}</h2>
+   286→                <p className="text-[10px] text-slate-400 tracking-wider uppercase">MISSION CS TEST SERIES</p>
+   287→              </div>
+   288→            </div>
+   289→            <div className="flex items-center gap-3 sm:gap-4">
+   290→              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2.5 sm:px-3 py-1.5">
+   291→                <Trophy className="w-4 h-4 text-amber-400" />
+   292→                <span className="text-white font-bold text-sm">{student.score}</span>
+   293→                <span className="text-slate-400 text-xs hidden sm:inline">points</span>
+   294→              </div>
+   295→              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2.5 sm:px-3 py-1.5">
+   296→                <Flame className="w-4 h-4 text-orange-400" />
+   297→                <span className="text-white font-bold text-sm">{student.currentStreak}</span>
+   298→                <span className="text-slate-400 text-xs hidden sm:inline">day streak</span>
+   299→              </div>
+   300→            </div>
+   301→          </div>
+   302→          {/* Quote Row */}
+   303→          <div className="flex items-start gap-3 pt-3 border-t border-white/10">
+   304→            <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+   305→            <div>
+   306→              <p className="text-white/80 text-sm italic leading-relaxed">&ldquo;{dailyQuote.text}&rdquo;</p>
+   307→              <p className="text-amber-300/60 text-xs mt-1">— {dailyQuote.author}</p>
+   308→            </div>
+   309→          </div>
+   310→        </div>
+   311→      </div>
+   312→
+   313→      {/* ═══════════════════════════════════════════════════════════════════
+   314→          1. STUDY SESSION CARD (Pomodoro Timer) — TOP PRIORITY
+   315→      ═══════════════════════════════════════════════════════════════════ */}
+   316→      <Card id="study-session-card" className="overflow-hidden border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/20">
+   317→        <CardHeader className="pb-3 border-b border-emerald-100 dark:border-emerald-900/50">
+   318→          <div className="flex items-center justify-between">
+   319→            <CardTitle className="text-lg flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
+   320→              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center flex-shrink-0 shadow-sm">
+   321→                <BookOpen className="w-4 h-4 text-white" />
+   322→              </div>
+   323→              Study Session
+   324→            </CardTitle>
+   325→            {timerRunning && (
+   326→              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+   327→                <Clock className="w-3 h-3 mr-1" /> {timerPaused ? 'Paused' : 'In Progress'}
+   328→              </Badge>
+   329→            )}
+   330→          </div>
+   331→          <CardDescription className="text-emerald-700/70 dark:text-emerald-400/70">Which chapter do you want to study today?</CardDescription>
+   332→        </CardHeader>
+   333→        <CardContent className="space-y-5 pt-5">
+   334→          {sessionQuote && timerRunning && (
+   335→            <div className="bg-gradient-to-r from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800 grow-in">
+   336→              <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium text-center">{sessionQuote}</p>
+   337→            </div>
+   338→          )}
+   339→
+   340→          {!timerRunning && !timerCompleted ? (
+   341→            <>
+   342→              {/* Subject & Chapter Selectors */}
+   343→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   344→                <div className="space-y-1.5">
+   345→                  <Label className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Subject</Label>
+   346→                  <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   347→                    <SelectTrigger className="bg-white/80 dark:bg-slate-800/80 border-emerald-200 dark:border-emerald-800 focus:ring-emerald-300">
+   348→                      <SelectValue placeholder="Choose subject" />
+   349→                    </SelectTrigger>
+   350→                    <SelectContent>{subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+   351→                  </Select>
+   352→                </div>
+   353→                <div className="space-y-1.5">
+   354→                  <Label className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Chapter</Label>
+   355→                  <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   356→                    <SelectTrigger className="bg-white/80 dark:bg-slate-800/80 border-emerald-200 dark:border-emerald-800 focus:ring-emerald-300">
+   357→                      <SelectValue placeholder="Choose chapter" />
+   358→                    </SelectTrigger>
+   359→                    <SelectContent>{chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+   360→                  </Select>
+   361→                </div>
+   362→              </div>
+   363→
+   364→              {/* Timer Presets with Pomodoro label */}
+   365→              <div className="space-y-2">
+   366→                <Label className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Study Duration (Pomodoro Timer)</Label>
+   367→                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+   368→                  {timerPresets.map(p => (
+   369→                    <button key={p.value} onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}
+   370→                      className={`flex flex-col items-center p-2.5 rounded-xl border-2 transition-all active:scale-[0.97] ${
+   371→                        timerPreset === p.value
+   372→                          ? 'border-emerald-500 bg-emerald-100 dark:bg-emerald-900/40 shadow-sm'
+   373→                          : 'border-emerald-200 dark:border-emerald-800 bg-white/60 dark:bg-slate-800/40 hover:border-emerald-300 dark:hover:border-emerald-700'
+   374→                      }`}>
+   375→                      <span className={`text-sm font-bold ${timerPreset === p.value ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-300'}`}>{p.label}</span>
+   376→                      <span className="text-[10px] text-slate-500 dark:text-slate-400">{p.desc}</span>
+   377→                    </button>
+   378→                  ))}
+   379→                </div>
+   380→                <div className="flex items-center gap-2 mt-1">
+   381→                  <Input type="number" placeholder="Custom (min)" className="w-32 h-8 text-sm bg-white/80 dark:bg-slate-800/80 border-emerald-200 dark:border-emerald-800 focus:ring-emerald-300"
+   382→                    value={customMinutes} onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }} min={1} />
+   383→                  <span className="text-xs text-emerald-600 dark:text-emerald-400">min</span>
+   384→                </div>
+   385→              </div>
+   386→
+   387→              <Button onClick={startTimer}
+   388→                disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || (timerPreset === -1 && !customMinutes)}
+   389→                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 text-white shadow-md font-semibold">
+   390→                <Play className="w-4 h-4 mr-2" /> Start Pomodoro Session
+   391→              </Button>
+   392→            </>
+   393→          ) : timerCompleted ? (
+   394→            /* Timer Completion Dialog */
+   395→            <div className="text-center py-6 space-y-4">
+   396→              <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center celebration-burst">
+   397→                <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
+   398→              </div>
+   399→              <h3 className="text-xl font-bold text-emerald-900 dark:text-emerald-100">Session Complete! 🎉</h3>
+   400→              <p className="text-emerald-700/70 dark:text-emerald-400/70">Have you completed this chapter?</p>
+   401→              <div className="text-left space-y-1.5 max-w-md mx-auto">
+   402→                <label className="text-xs font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+   403→                  <StickyNote className="w-3 h-3" /> Session Notes (optional)
+   404→                </label>
+   405→                <textarea
+   406→                  placeholder="What did you learn? Any key takeaways?"
+   407→                  value={sessionNotes}
+   408→                  onChange={(e) => setSessionNotes(e.target.value)}
+   409→                  rows={3}
+   410→                  className="w-full px-3 py-2 text-sm rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white/80 dark:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-emerald-300 dark:focus:ring-emerald-700 resize-none"
+   411→                />
+   412→              </div>
+   413→              <div className="flex items-center justify-center gap-3">
+   414→                <Button onClick={() => handleTimerComplete(true)} className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md">
+   415→                  <CheckCircle2 className="w-4 h-4 mr-2" /> Yes, Done!
+   416→                </Button>
+   417→                <Button variant="outline" onClick={() => handleTimerComplete(false)} className="border-emerald-200 dark:border-emerald-800">Not Yet</Button>
+   418→              </div>
+   419→            </div>
+   420→          ) : (
+   421→            /* ═══════════════════════════════════════════════════════════════
+   422→                CIRCULAR POMODORO TIMER (Active Session)
+   423→            ═══════════════════════════════════════════════════════════════ */
+   424→            <div className="text-center py-4 space-y-4">
+   425→              <div>
+   426→                <p className="text-sm text-emerald-600 dark:text-emerald-400 mb-1">Studying</p>
+   427→                <p className="font-semibold text-emerald-900 dark:text-emerald-100">{chapters.find(c => c.id === selectedChapterId)?.name}</p>
+   428→              </div>
+   429→
+   430→              {/* Circular Progress Bar Timer */}
+   431→              <div className="relative inline-flex items-center justify-center">
+   432→                <TimerCountdownRing size={240} strokeWidth={10} totalSeconds={timerTotalSeconds} remainingSeconds={timerSeconds} />
+   433→                <div className="absolute inset-0 flex flex-col items-center justify-center">
+   434→                  <span className="text-5xl font-mono font-bold text-emerald-900 dark:text-emerald-100 tabular-nums tracking-tight">
+   435→                    {formatTimer(timerSeconds)}
+   436→                  </span>
+   437→                  <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-1 font-medium uppercase tracking-wider">
+   438→                    {timerPaused ? '⏸ Paused' : '🔥 Focus Mode'}
+   439→                  </span>
+   440→                  <div className="mt-2 flex items-center gap-1.5">
+   441→                    <div className={`w-2 h-2 rounded-full ${timerPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+   442→                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+   443→                      {Math.round(timerProgress)}% complete
+   444→                    </span>
+   445→                  </div>
+   446→                </div>
+   447→              </div>
+   448→
+   449→              {/* Timer Controls */}
+   450→              <div className="flex items-center justify-center gap-3">
+   451→                <Button variant="outline" size="icon"
+   452→                  onClick={() => setTimerPaused(prev => !prev)}
+   453→                  className="h-14 w-14 rounded-full border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
+   454→                  {timerPaused ? <Play className="w-6 h-6 text-emerald-600 dark:text-emerald-400" /> : <Pause className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />}
+   455→                </Button>
+   456→                <Button variant="outline" size="icon"
+   457→                  onClick={resetTimer}
+   458→                  className="h-14 w-14 rounded-full border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
+   459→                  <RotateCcw className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+   460→                </Button>
+   461→              </div>
+   462→
+   463→              <Button variant="ghost" onClick={() => { resetTimer(); setSelectedChapterId('') }} className="text-sm text-emerald-600 dark:text-emerald-400">
+   464→                Choose Another Chapter
+   465→              </Button>
+   466→            </div>
+   467→          )}
+   468→        </CardContent>
+   469→      </Card>
+   470→
+   471→      {/* ═══════════════════════════════════════════════════════════════════
+   472→          2. ACTION CARDS (Group of 3)
+   473→      ═══════════════════════════════════════════════════════════════════ */}
+   474→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   475→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-amber-500" onClick={() => {
+   476→          for (const s of subjects) {
+   477→            if (s.chapters.length > 0) { setSelectedSubjectId(s.id); setSelectedChapterId(s.chapters[0].id); break }
+   478→          }
+   479→          document.getElementById('study-session-card')?.scrollIntoView({ behavior: 'smooth' })
+   480→        }}>
+   481→          <CardContent className="pt-4 pb-4">
+   482→            <div className="flex items-center gap-3">
+   483→              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+   484→                <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+   485→              </div>
+   486→              <div className="min-w-0 flex-1">
+   487→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue where you left off</p>
+   488→                <p className="text-xs text-slate-500">Jump back into studying</p>
+   489→              </div>
+   490→              <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+   491→                <ChevronRight className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+   492→              </div>
+   493→            </div>
+   494→          </CardContent>
+   495→        </Card>
+   496→
+   497→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-orange-500 relative overflow-hidden" onClick={handleStrike}>
+   498→          <CardContent className="pt-4 pb-4">
+   499→            <div className="flex items-center gap-3">
+   500→              <div className={`p-2.5 rounded-lg ${canStrike ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-slate-50 dark:bg-slate-800'}`}>
+   501→                <Flame className={`w-5 h-5 ${canStrike ? 'text-orange-600 dark:text-orange-400' : 'text-slate-400'}`} />
+   502→              </div>
+   503→              <div>
+   504→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue Streak</p>
+   505→                <p className="text-xs text-slate-500">{canStrike ? 'Send your daily strike!' : 'Already struck today ✓'}</p>
+   506→              </div>
+   507→              {canStrike && (
+   508→                <div className="ml-auto w-3 h-3 rounded-full bg-orange-500 pulse-check flex-shrink-0" />
+   509→              )}
+   510→            </div>
+   511→          </CardContent>
+   512→        </Card>
+   513→
+   514→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-emerald-500">
+   515→          <CardContent className="pt-4 pb-4">
+   516→            <div className="flex items-center gap-3">
+   517→              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+   518→                <CalendarCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   519→              </div>
+   520→              <div className="min-w-0 flex-1">
+   521→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">View Study Plan</p>
+   522→                <p className="text-xs text-slate-500">Check today's schedule</p>
+   523→              </div>
+   524→              <div className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+   525→                <ChevronRight className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+   526→              </div>
+   527→            </div>
+   528→          </CardContent>
+   529→        </Card>
+   530→      </div>
+   531→
+   532→      {/* ═══════════════════════════════════════════════════════════════════
+   533→          3. PROFILE CARD (Score, Streak, Strike, Settings)
+   534→      ═══════════════════════════════════════════════════════════════════ */}
+   535→      <Card className="overflow-hidden">
+   536→        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-6 relative">
+   537→          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+   538→          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/3 rounded-full translate-y-1/3 -translate-x-1/4" />
+   539→          <div className="relative flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+   540→            <div className="flex items-center gap-4 sm:gap-5">
+   541→              <CircularProgressRing size={80} strokeWidth={5} progress={scoreProgress} color="#f59e0b" trackColor="rgba(255,255,255,0.15)">
+   542→                <Avatar className="h-14 w-14 border-2 border-white/20">
+   543→                  <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   544→                    {(student.fullName || 'U').charAt(0).toUpperCase()}
+   545→                  </AvatarFallback>
+   546→                </Avatar>
+   547→              </CircularProgressRing>
+   548→              <div className="min-w-0">
+   549→                <div className="flex items-center gap-2 flex-wrap">
+   550→                  <h2 className="text-lg sm:text-xl font-bold text-white truncate">{student.fullName}</h2>
+   551→                  {student.verified && (
+   552→                    <TooltipProvider><Tooltip>
+   553→                      <TooltipTrigger><div className="verified-glow rounded-full p-0.5"><CheckCircle2 className="w-5 h-5 text-blue-400" /></div></TooltipTrigger>
+   554→                      <TooltipContent><p>Verified - 7 Day Streak! 🔥</p></TooltipContent>
+   555→                    </Tooltip></TooltipProvider>
+   556→                  )}
+   557→                </div>
+   558→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   559→                <div className="flex items-center gap-4 mt-2">
+   560→                  <div className="flex items-center gap-1.5">
+   561→                    <Trophy className="w-4 h-4 text-amber-400" />
+   562→                    <span className="text-white font-semibold">{student.score}</span>
+   563→                    <span className="text-slate-400 text-xs">points</span>
+   564→                  </div>
+   565→                  <div className="flex items-center gap-1.5">
+   566→                    <Flame className="w-4 h-4 text-orange-400" />
+   567→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   568→                    <span className="text-slate-400 text-xs">day streak</span>
+   569→                  </div>
+   570→                </div>
+   571→              </div>
+   572→            </div>
+   573→            <div className="flex items-center gap-2 self-start">
+   574→              <TooltipProvider><Tooltip>
+   575→                <TooltipTrigger asChild>
+   576→                  <Button size="icon" variant="ghost"
+   577→                    className={`h-11 w-11 text-orange-400 hover:text-orange-300 hover:bg-white/10 relative ${strikeAnimating ? 'fire-animate' : ''}`}
+   578→                    onClick={handleStrike} disabled={!canStrike || strikeLoading}>
+   579→                    <Flame className="w-6 h-6" />
+   580→                    {strikeAnimating && (
+   581→                      <>
+   582→                        <div className="flame-particle bg-orange-500" style={{ top: '-8px', left: '6px' }} />
+   583→                        <div className="flame-particle bg-red-500" style={{ top: '-12px', left: '14px', animationDelay: '0.1s' }} />
+   584→                        <div className="flame-particle bg-amber-500" style={{ top: '-6px', left: '22px', animationDelay: '0.2s' }} />
+   585→                        <div className="flame-particle bg-yellow-400" style={{ top: '-14px', left: '10px', animationDelay: '0.15s' }} />
+   586→                        <div className="flame-particle bg-orange-400" style={{ top: '-10px', left: '18px', animationDelay: '0.25s' }} />
+   587→                      </>
+   588→                    )}
+   589→                  </Button>
+   590→                </TooltipTrigger>
+   591→                <TooltipContent>{canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}</TooltipContent>
+   592→              </Tooltip></TooltipProvider>
+   593→
+   594→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   595→                <DialogTrigger asChild>
+   596→                  <Button size="icon" variant="ghost" className="h-11 w-11 text-slate-400 hover:text-white hover:bg-white/10">
+   597→                    <Settings className="w-5 h-5" />
+   598→                  </Button>
+   599→                </DialogTrigger>
+   600→                <DialogContent>
+   601→                  <DialogHeader>
+   602→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   603→                    <DialogDescription>This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.</DialogDescription>
+   604→                  </DialogHeader>
+   605→                  <DialogFooter>
+   606→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   607→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   608→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Reset Stats
+   609→                    </Button>
+   610→                  </DialogFooter>
+   611→                </DialogContent>
+   612→              </Dialog>
+   613→            </div>
+   614→          </div>
+   615→        </div>
+   616→      </Card>
+   617→
+   618→      {/* ═══════════════════════════════════════════════════════════════════
+   619→          5. RESUME LAST CHAPTER CARD
+   620→      ═══════════════════════════════════════════════════════════════════ */}
+   621→      {lastStudySession && !timerRunning && !timerCompleted && (
+   622→        <Card className="card-hover overflow-hidden border-l-4 border-l-emerald-500 cursor-pointer slide-up" onClick={handleResumeLastChapter}>
+   623→          <CardContent className="p-4">
+   624→            <div className="flex items-center gap-4">
+   625→              <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30 flex-shrink-0">
+   626→                <ArrowRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   627→              </div>
+   628→              <div className="min-w-0 flex-1">
+   629→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resume Last Chapter</p>
+   630→                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+   631→                  {lastStudySession.chapter?.name || 'General Study'}
+   632→                  {lastStudySession.chapter?.subject?.name && ` — ${lastStudySession.chapter.subject.name}`}
+   633→                </p>
+   634→              </div>
+   635→              <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 flex-shrink-0">
+   636→                {formatMinutes(lastStudySession.durationMin)}
+   637→              </Badge>
+   638→            </div>
+   639→          </CardContent>
+   640→        </Card>
+   641→      )}
+   642→
+   643→      {/* ═══════════════════════════════════════════════════════════════════
+   644→          6. QUICK STATS & DAILY GOAL + LEADERBOARD
+   645→      ═══════════════════════════════════════════════════════════════════ */}
+   646→      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+   647→        {/* Quick Stats */}
+   648→        <div className="space-y-6">
+   649→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+   650→            {[
+   651→              { icon: BookOpen, value: data.totalSubjects, label: 'Subjects', gradient: 'from-blue-500 to-cyan-500' },
+   652→              { icon: ListChecks, value: data.totalChapters, label: 'Total Chapters', gradient: 'from-violet-500 to-purple-500' },
+   653→              { icon: CheckCircle2, value: data.completedChapters, label: 'Completed', gradient: 'from-emerald-500 to-teal-500' },
+   654→              { icon: Clock, value: formatMinutes(data.todayStudyMin), label: 'Today', gradient: 'from-amber-500 to-orange-500' },
+   655→            ].map((stat, i) => (
+   656→              <Card key={i} className="card-hover overflow-hidden relative">
+   657→                <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-[0.08] dark:opacity-[0.12]`} />
+   658→                <CardContent className="pt-4 pb-4 relative">
+   659→                  <div className="flex items-center gap-3">
+   660→                    <div className={`p-2.5 rounded-xl bg-gradient-to-br ${stat.gradient} shadow-sm`}>
+   661→                      <stat.icon className="w-4 h-4 text-white" />
+   662→                    </div>
+   663→                    <div>
+   664→                      <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">{stat.value}</p>
+   665→                      <p className="text-xs text-slate-500">{stat.label}</p>
+   666→                    </div>
+   667→                  </div>
+   668→                </CardContent>
+   669→              </Card>
+   670→            ))}
+   671→          </div>
+   672→
+   673→          {/* Achievements */}
+   674→          <Card className="overflow-hidden">
+   675→            <CardHeader className="pb-3">
+   676→              <div className="flex items-center justify-between">
+   677→                <CardTitle className="text-lg flex items-center gap-2">
+   678→                  <Trophy className="w-5 h-5 text-amber-500" /> Achievements
+   679→                </CardTitle>
+   680→                <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+   681→                  {unlockedCount}/{totalAchievements} Unlocked
+   682→                </Badge>
+   683→              </div>
+   684→            </CardHeader>
+   685→            <CardContent>
+   686→              <div className="mb-4">
+   687→                <div className="flex justify-between text-xs mb-1">
+   688→                  <span className="text-slate-500 dark:text-slate-400">Progress</span>
+   689→                  <span className="text-slate-600 dark:text-slate-300 font-medium">{Math.round((unlockedCount / totalAchievements) * 100)}%</span>
+   690→                </div>
+   691→                <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+   692→                  <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500 relative" style={{ width: `${(unlockedCount / totalAchievements) * 100}%` }}>
+   693→                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent shimmer-bar" />
+   694→                  </div>
+   695→                </div>
+   696→              </div>
+   697→              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3">
+   698→                {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+   699→                  <TooltipProvider key={a.id}>
+   700→                    <Tooltip>
+   701→                      <TooltipTrigger asChild>
+   702→                        <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
+   703→                          a.unlocked
+   704→                            ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+   705→                            : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+   706→                        }`}
+   707→                          style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
+   708→                          {a.unlocked ? (
+   709→                            <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+   710→                          ) : (
+   711→                            <div className="relative">
+   712→                              <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+   713→                              <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
+   714→                            </div>
+   715→                          )}
+   716→                          <span className={`text-[10px] font-medium text-center leading-tight ${
+   717→                            a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+   718→                          }`}>{a.name}</span>
+   719→                        </div>
+   720→                      </TooltipTrigger>
+   721→                      <TooltipContent>
+   722→                        <p className="font-semibold">{a.name}</p>
+   723→                        <p className="text-xs">{a.description}</p>
+   724→                        <p className="text-xs text-slate-400 mt-1">{a.threshold} points needed</p>
+   725→                        {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+   726→                      </TooltipContent>
+   727→                    </Tooltip>
+   728→                  </TooltipProvider>
+   729→                ))}
+   730→              </div>
+   731→            </CardContent>
+   732→          </Card>
+   733→        </div>
+   734→
+   735→        {/* Right Column: Daily Goal + Leaderboard */}
+   736→        <div className="space-y-6">
+   737→          <Card>
+   738→            <CardHeader className="pb-3">
+   739→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   740→                <Target className="w-4 h-4 text-emerald-500" /> Daily Goal
+   741→              </CardTitle>
+   742→            </CardHeader>
+   743→            <CardContent className="flex flex-col items-center">
+   744→              <CircularProgressRing size={100} strokeWidth={8} progress={dailyGoalProgress}
+   745→                color={dailyGoalReached ? '#10b981' : '#f59e0b'} trackColor="rgba(100,116,139,0.2)">
+   746→                <div className="text-center">
+   747→                  <p className="text-lg font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   748→                  <p className="text-[10px] text-slate-400">of {formatMinutes(dailyGoalMin)}</p>
+   749→                </div>
+   750→              </CircularProgressRing>
+   751→              <div className="mt-3 text-center">
+   752→                {dailyGoalReached ? (
+   753→                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+   754→                    <CheckCircle2 className="w-3.5 h-3.5" /> Goal Reached!
+   755→                  </p>
+   756→                ) : (
+   757→                  <p className="text-xs text-slate-500">{formatMinutes(dailyGoalMin - data.todayStudyMin)} more to go</p>
+   758→                )}
+   759→              </div>
+   760→            </CardContent>
+   761→          </Card>
+   762→
+   763→          <Card className="overflow-hidden">
+   764→            <CardHeader className="pb-3">
+   765→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   766→                <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+   767→              </CardTitle>
+   768→            </CardHeader>
+   769→            <CardContent>
+   770→              <div className="space-y-2">
+   771→                {leaderboardLoading ? (
+   772→                  <div className="space-y-2">
+   773→                    {Array.from({length: 5}).map((_, i) => (
+   774→                      <div key={i} className="flex items-center gap-2.5 p-2">
+   775→                        <Skeleton className="w-6 h-6 rounded-full" />
+   776→                        <Skeleton className="h-3 w-20" />
+   777→                        <div className="flex-1" />
+   778→                        <Skeleton className="h-3 w-8" />
+   779→                      </div>
+   780→                    ))}
+   781→                  </div>
+   782→                ) : leaderboardData.length === 0 ? (
+   783→                  <p className="text-xs text-slate-400 text-center py-4">No data yet</p>
+   784→                ) : leaderboardData.map((entry: any) => (
+   785→                  <div key={entry.rank} className={`flex items-center gap-2.5 p-2 rounded-lg transition-colors ${
+   786→                    entry.rank <= 3 ? 'bg-slate-50 dark:bg-slate-800/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+   787→                  }`}>
+   788→                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+   789→                      entry.rank === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+   790→                      entry.rank === 2 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
+   791→                      entry.rank === 3 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+   792→                      'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-500'
+   793→                    }`}>
+   794→                      {entry.rank === 1 ? <Crown className="w-3.5 h-3.5" /> : entry.rank}
+   795→                    </div>
+   796→                    <div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">{entry.name}</p></div>
+   797→                    <div className="flex items-center gap-1.5 flex-shrink-0">
+   798→                      <Flame className="w-3 h-3 text-orange-400" /><span className="text-[10px] text-slate-500">{entry.currentStreak}</span>
+   799→                    </div>
+   800→                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">{entry.score}</span>
+   801→                  </div>
+   802→                ))}
+   803→              </div>
+   804→            </CardContent>
+   805→          </Card>
+   806→        </div>
+   807→      </div>
+   808→    </div>
+   809→  )
+   810→}
+   811→

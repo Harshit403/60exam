@@ -1,0 +1,818 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback, useRef } from 'react'
+     4→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Input } from '@/components/ui/input'
+     8→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+     9→import { ScrollArea } from '@/components/ui/scroll-area'
+    10→import { Skeleton } from '@/components/ui/skeleton'
+    11→import {
+    12→  Users, MessageCircle, LogOut, Send, Clock, UserPlus, Crown, Circle, Loader2,
+    13→} from 'lucide-react'
+    14→import { io, Socket } from 'socket.io-client'
+    15→import { api } from '@/lib/api-client'
+    16→import { StudyGroup, GroupMemberInfo, TimerState, GroupMessage } from '../types'
+    17→import { formatTimer, CircularProgressRing } from '../utils'
+    18→
+    19→// ─── Content Filter ─────────────────────────────────────────────────────
+    20→const BLOCKED_TERMS = ['instagram', 'telegram', 'whatsapp', 'facebook', 'twitter', 'tiktok', 'snapchat', 'discord', 'youtube']
+    21→
+    22→function filterContent(text: string): string {
+    23→  let filtered = text
+    24→  BLOCKED_TERMS.forEach(term => {
+    25→    filtered = filtered.replace(new RegExp(term, 'gi'), '***')
+    26→  })
+    27→  return filtered
+    28→}
+    29→
+    30→// ─── Mini Timer Ring for member list ────────────────────────────────────
+    31→function MiniTimerRing({ timerState }: { timerState: TimerState }) {
+    32→  const size = 28
+    33→  const strokeWidth = 3
+    34→  const progress = timerState.total > 0 ? (timerState.remaining / timerState.total) * 100 : 0
+    35→  const color = timerState.running ? '#10b981' : timerState.paused ? '#f59e0b' : '#94a474'
+    36→
+    37→  return (
+    38→    <CircularProgressRing size={size} strokeWidth={strokeWidth} progress={progress} color={color} trackColor="rgba(100,116,139,0.15)">
+    39→      <Clock className="w-2.5 h-2.5 text-emerald-600" />
+    40→    </CircularProgressRing>
+    41→  )
+    42→}
+    43→
+    44→// ─── Member Item ────────────────────────────────────────────────────────
+    45→function MemberItem({ member, currentUserId }: { member: { userId: string; name: string; timerState?: TimerState | null }; currentUserId: string }) {
+    46→  const isSelf = member.userId === currentUserId
+    47→  const isStudying = member.timerState?.running === true
+    48→  const isPaused = member.timerState?.paused === true && member.timerState?.running === false
+    49→
+    50→  return (
+    51→    <div className={`flex items-center gap-2.5 p-2 rounded-lg transition-colors ${
+    52→      isSelf ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+    53→    }`}>
+    54→      <div className="relative flex-shrink-0">
+    55→        <Avatar className="h-8 w-8">
+    56→          <AvatarFallback className={`text-xs font-semibold ${
+    57→            isSelf
+    58→              ? 'bg-emerald-500 text-white'
+    59→              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+    60→          }`}>
+    61→            {(member.name || 'U').charAt(0).toUpperCase()}
+    62→          </AvatarFallback>
+    63→        </Avatar>
+    64→        {/* Status dot */}
+    65→        <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-900 ${
+    66→          isStudying ? 'bg-emerald-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
+    67→        }`} />
+    68→      </div>
+    69→      <div className="flex-1 min-w-0">
+    70→        <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+    71→          {member.name} {isSelf && <span className="text-emerald-600 dark:text-emerald-400">(You)</span>}
+    72→        </p>
+    73→        <p className={`text-[10px] ${isStudying ? 'text-emerald-600 dark:text-emerald-400 font-medium' : isPaused ? 'text-amber-500' : 'text-slate-400'}`}>
+    74→          {isStudying
+    75→            ? `Studying · ${formatTimer(member.timerState!.remaining)}`
+    76→            : isPaused
+    77→            ? `Paused · ${formatTimer(member.timerState!.remaining)}`
+    78→            : 'Idle'}
+    79→        </p>
+    80→      </div>
+    81→      {member.timerState && member.timerState.running && (
+    82→        <MiniTimerRing timerState={member.timerState} />
+    83→      )}
+    84→    </div>
+    85→  )
+    86→}
+    87→
+    88→// ─── Chat Message ───────────────────────────────────────────────────────
+    89→function ChatMessageBubble({ msg, currentUserId }: { msg: { id: string; userId: string; userName: string; content: string; type: string; timestamp: number | string }; currentUserId: string }) {
+    90→  const isSystem = msg.type === 'system'
+    91→  const isSelf = msg.userId === currentUserId
+    92→
+    93→  if (isSystem) {
+    94→    return (
+    95→      <div className="flex justify-center py-1">
+    96→        <span className="text-[10px] text-slate-400 dark:text-slate-500 italic px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/50">
+    97→          {msg.content}
+    98→        </span>
+    99→      </div>
+   100→    )
+   101→  }
+   102→
+   103→  const time = typeof msg.timestamp === 'number'
+   104→    ? new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+   105→    : new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+   106→
+   107→  return (
+   108→    <div className={`flex gap-2 ${isSelf ? 'flex-row-reverse' : ''} slide-up`}>
+   109→      <Avatar className="h-7 w-7 flex-shrink-0 mt-0.5">
+   110→        <AvatarFallback className={`text-[10px] font-semibold ${
+   111→          isSelf
+   112→            ? 'bg-emerald-500 text-white'
+   113→            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+   114→        }`}>
+   115→          {(msg.userName || 'U').charAt(0).toUpperCase()}
+   116→        </AvatarFallback>
+   117→      </Avatar>
+   118→      <div className={`max-w-[75%] ${isSelf ? 'text-right' : ''}`}>
+   119→        <div className="flex items-baseline gap-1.5 mb-0.5">
+   120→          {isSelf ? (
+   121→            <>
+   122→              <span className="text-[10px] text-slate-400">{time}</span>
+   123→              <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">You</span>
+   124→            </>
+   125→          ) : (
+   126→            <>
+   127→              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{msg.userName}</span>
+   128→              <span className="text-[10px] text-slate-400">{time}</span>
+   129→            </>
+   130→          )}
+   131→        </div>
+   132→        <div className={`inline-block px-3 py-1.5 rounded-2xl text-sm break-words ${
+   133→          isSelf
+   134→            ? 'bg-emerald-500 text-white rounded-br-md'
+   135→            : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-md'
+   136→        }`}>
+   137→          {msg.content}
+   138→        </div>
+   139→      </div>
+   140→    </div>
+   141→  )
+   142→}
+   143→
+   144→// ═══════════════════════════════════════════════════════════════════════
+   145→// MAIN COMPONENT
+   146→// ═══════════════════════════════════════════════════════════════════════
+   147→
+   148→export function GroupStudyPage() {
+   149→  // ─── State ──────────────────────────────────────────────────────────
+   150→  const [groups, setGroups] = useState<StudyGroup[]>([])
+   151→  const [currentGroup, setCurrentGroup] = useState<StudyGroup | null>(null)
+   152→  const [loading, setLoading] = useState(true)
+   153→  const [joinLoading, setJoinLoading] = useState<string | null>(null)
+   154→  const [inRoom, setInRoom] = useState(false)
+   155→
+   156→  // Room state
+   157→  const [members, setMembers] = useState<{ userId: string; name: string; timerState?: TimerState | null }[]>([])
+   158→  const [messages, setMessages] = useState<{ id: string; userId: string; userName: string; content: string; type: string; timestamp: number | string }[]>([])
+   159→  const [chatInput, setChatInput] = useState('')
+   160→  const [isConnected, setIsConnected] = useState(false)
+   161→  const [typingUsers, setTypingUsers] = useState<{ userId: string; userName: string }[]>([])
+   162→  const [leavingGroup, setLeavingGroup] = useState(false)
+   163→
+   164→  // User info
+   165→  const [userId, setUserId] = useState('')
+   166→  const [userName, setUserName] = useState('')
+   167→
+   168→  // Refs
+   169→  const socketRef = useRef<Socket | null>(null)
+   170→  const messagesEndRef = useRef<HTMLDivElement>(null)
+   171→  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+   172→  const timerSyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
+   173→
+   174→  // ─── Get user info ──────────────────────────────────────────────────
+   175→  useEffect(() => {
+   176→    try {
+   177→      const token = localStorage.getItem('token')
+   178→      if (token) {
+   179→        const payload = JSON.parse(atob(token.split('.')[1]))
+   180→        setUserId(payload.id || '')
+   181→        setUserName(payload.email?.split('@')[0] || payload.fullName || 'Student')
+   182→      }
+   183→    } catch (e) { /* ignore */ }
+   184→  }, [])
+   185→
+   186→  // ─── Fetch groups ──────────────────────────────────────────────────
+   187→  const fetchGroups = useCallback(async () => {
+   188→    setLoading(true)
+   189→    try {
+   190→      const data = await api.studentGroups()
+   191→      setGroups(data.groups || [])
+   192→      setCurrentGroup(data.currentGroup || null)
+   193→    } catch (err) {
+   194→      console.error('Groups fetch error:', err)
+   195→    } finally {
+   196→      setLoading(false)
+   197→    }
+   198→  }, [])
+   199→
+   200→  useEffect(() => { fetchGroups() }, [fetchGroups])
+   201→
+   202→  // ─── Join group ────────────────────────────────────────────────────
+   203→  const [joinError, setJoinError] = useState<string | null>(null)
+   204→
+   205→  const handleJoinGroup = async (groupId: string) => {
+   206→    setJoinLoading(groupId)
+   207→    setJoinError(null)
+   208→    try {
+   209→      await api.studentJoinGroup(groupId)
+   210→      await fetchGroups()
+   211→      // Will enter room via the currentGroup update
+   212→    } catch (err: any) {
+   213→      console.error('Join group error:', err)
+   214→      const msg = err?.message || err?.error || 'Failed to join group'
+   215→      setJoinError(typeof msg === 'string' ? msg : 'Failed to join group')
+   216→    } finally {
+   217→      setJoinLoading(null)
+   218→    }
+   219→  }
+   220→
+   221→  // ─── Leave group ───────────────────────────────────────────────────
+   222→  const handleLeaveGroup = async () => {
+   223→    if (!currentGroup) return
+   224→    setLeavingGroup(true)
+   225→    try {
+   226→      // Emit leave to socket first
+   227→      if (socketRef.current) {
+   228→        socketRef.current.emit('group-leave', { groupId: currentGroup.id, userId })
+   229→      }
+   230→      await api.studentLeaveGroup(currentGroup.id)
+   231→      setCurrentGroup(null)
+   232→      setInRoom(false)
+   233→      setMessages([])
+   234→      setMembers([])
+   235→      setTypingUsers([])
+   236→      // Disconnect socket
+   237→      if (socketRef.current) {
+   238→        socketRef.current.disconnect()
+   239→        socketRef.current = null
+   240→      }
+   241→      await fetchGroups()
+   242→    } catch (err) {
+   243→      console.error('Leave group error:', err)
+   244→    } finally {
+   245→      setLeavingGroup(false)
+   246→    }
+   247→  }
+   248→
+   249→  // ─── Enter room (socket connection) ────────────────────────────────
+   250→  const enterRoom = useCallback((group: StudyGroup) => {
+   251→    setInRoom(true)
+   252→    setMessages([])
+   253→    setMembers([])
+   254→    setTypingUsers([])
+   255→
+   256→    const socket = io('/?XTransformPort=3003', {
+   257→      path: '/',
+   258→      transports: ['websocket', 'polling'],
+   259→      forceNew: true,
+   260→      reconnection: true,
+   261→      reconnectionAttempts: 5,
+   262→      reconnectionDelay: 1000,
+   263→      timeout: 10000,
+   264→    })
+   265→    socketRef.current = socket
+   266→
+   267→    socket.on('connect', () => {
+   268→      setIsConnected(true)
+   269→      socket.emit('auth', { userId, name: userName, role: 'student' })
+   270→    })
+   271→
+   272→    socket.on('disconnect', () => setIsConnected(false))
+   273→    socket.on('connect_error', () => setIsConnected(false))
+   274→
+   275→    socket.on('auth-ok', () => {
+   276→      socket.emit('group-join', { groupId: group.id, userId, userName })
+   277→    })
+   278→
+   279→    // Receive message history
+   280→    socket.on('group-history', (data: { groupId: string; messages: any[] }) => {
+   281→      setMessages(data.messages || [])
+   282→    })
+   283→
+   284→    // New chat message (from others or system)
+   285→    socket.on('group-chat-message', (msg: any) => {
+   286→      setMessages(prev => [...prev, msg])
+   287→    })
+   288→
+   289→    // Member list updates
+   290→    socket.on('group-members', (data: { groupId: string; members: any[] }) => {
+   291→      setMembers(data.members || [])
+   292→    })
+   293→
+   294→    // User joined
+   295→    socket.on('group-user-joined', (data: { member: any; message: any }) => {
+   296→      setMessages(prev => [...prev, data.message])
+   297→    })
+   298→
+   299→    // User left
+   300→    socket.on('group-user-left', (data: { userId: string; message: any }) => {
+   301→      setMessages(prev => [...prev, data.message])
+   302→      setMembers(prev => prev.filter(m => m.userId !== data.userId))
+   303→    })
+   304→
+   305→    // Typing indicator
+   306→    socket.on('group-typing', (data: { groupId: string; userId: string; userName: string; isTyping: boolean }) => {
+   307→      setTypingUsers(prev => {
+   308→        const filtered = prev.filter(u => u.userId !== data.userId)
+   309→        return data.isTyping ? [...filtered, { userId: data.userId, userName: data.userName }] : filtered
+   310→      })
+   311→    })
+   312→
+   313→    // Timer sync from other members
+   314→    socket.on('group-member-timer', (data: { userId: string; timerState: TimerState }) => {
+   315→      setMembers(prev => prev.map(m =>
+   316→        m.userId === data.userId ? { ...m, timerState: data.timerState } : m
+   317→      ))
+   318→    })
+   319→  }, [userId, userName])
+   320→
+   321→  // ─── Auto-enter room if currentGroup exists ────────────────────────
+   322→  useEffect(() => {
+   323→    if (currentGroup && !inRoom && userId) {
+   324→      enterRoom(currentGroup)
+   325→    }
+   326→  }, [currentGroup, inRoom, userId, enterRoom])
+   327→
+   328→  // ─── Cleanup socket on unmount ──────────────────────────────────────
+   329→  useEffect(() => {
+   330→    return () => {
+   331→      if (socketRef.current) {
+   332→        socketRef.current.disconnect()
+   333→        socketRef.current = null
+   334→      }
+   335→    }
+   336→  }, [])
+   337→
+   338→  // ─── Auto-scroll ───────────────────────────────────────────────────
+   339→  useEffect(() => {
+   340→    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+   341→  }, [messages])
+   342→
+   343→  // ─── Load chat history from API ────────────────────────────────────
+   344→  useEffect(() => {
+   345→    if (!currentGroup || !inRoom) return
+   346→    const loadHistory = async () => {
+   347→      try {
+   348→        const data = await api.studentGroupMessages(currentGroup.id)
+   349→        // Merge API history with socket history (avoid duplicates)
+   350→        if (data.messages && data.messages.length > 0) {
+   351→          setMessages(prev => {
+   352→            const existingIds = new Set(prev.map(m => m.id))
+   353→            const newMsgs = data.messages.filter((m: any) => !existingIds.has(m.id))
+   354→            return [...newMsgs, ...prev]
+   355→          })
+   356→        }
+   357→      } catch (err) {
+   358→        console.error('Message history fetch error:', err)
+   359→      }
+   360→    }
+   361→    loadHistory()
+   362→  }, [currentGroup, inRoom])
+   363→
+   364→  // ─── Broadcast timer state from localStorage ──────────────────────
+   365→  useEffect(() => {
+   366→    if (!currentGroup || !inRoom || !socketRef.current) return
+   367→
+   368→    const syncTimer = () => {
+   369→      try {
+   370→        const timerData = localStorage.getItem('pomodoro-timer')
+   371→        if (timerData) {
+   372→          const parsed = JSON.parse(timerData)
+   373→          const timerState: TimerState = {
+   374→            running: parsed.running || false,
+   375→            paused: parsed.paused || false,
+   376→            remaining: parsed.remaining || 0,
+   377→            total: parsed.total || 0,
+   378→            chapterName: parsed.chapterName || null,
+   379→          }
+   380→          socketRef.current?.emit('group-timer-update', {
+   381→            groupId: currentGroup.id,
+   382→            userId,
+   383→            userName,
+   384→            timerState,
+   385→          })
+   386→
+   387→          // Also update local member list for self
+   388→          setMembers(prev => prev.map(m =>
+   389→            m.userId === userId ? { ...m, timerState } : m
+   390→          ))
+   391→        }
+   392→      } catch (e) { /* ignore */ }
+   393→    }
+   394→
+   395→    // Sync immediately and every 5 seconds
+   396→    syncTimer()
+   397→    timerSyncRef.current = setInterval(syncTimer, 5000)
+   398→
+   399→    return () => {
+   400→      if (timerSyncRef.current) clearInterval(timerSyncRef.current)
+   401→    }
+   402→  }, [currentGroup, inRoom, userId, userName])
+   403→
+   404→  // ─── Send chat message ─────────────────────────────────────────────
+   405→  const sendMessage = () => {
+   406→    if (!chatInput.trim() || !socketRef.current || !isConnected || !currentGroup) return
+   407→
+   408→    const filtered = filterContent(chatInput.trim())
+   409→
+   410→    socketRef.current.emit('group-chat-message', {
+   411→      groupId: currentGroup.id,
+   412→      userId,
+   413→      userName,
+   414→      content: filtered,
+   415→      type: 'text',
+   416→    })
+   417→
+   418→    // Also persist to API
+   419→    api.studentSendGroupMessage(currentGroup.id, filtered, 'text').catch(err =>
+   420→      console.error('Send message API error:', err)
+   421→    )
+   422→
+   423→    setChatInput('')
+   424→    socketRef.current.emit('group-typing', { groupId: currentGroup.id, userId, userName, isTyping: false })
+   425→  }
+   426→
+   427→  // ─── Handle chat input change with typing indicator ────────────────
+   428→  const handleInputChange = (value: string) => {
+   429→    setChatInput(value)
+   430→    if (!socketRef.current || !isConnected || !currentGroup) return
+   431→
+   432→    socketRef.current.emit('group-typing', {
+   433→      groupId: currentGroup.id,
+   434→      userId,
+   435→      userName,
+   436→      isTyping: value.length > 0,
+   437→    })
+   438→
+   439→    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+   440→    typingTimeoutRef.current = setTimeout(() => {
+   441→      socketRef.current?.emit('group-typing', {
+   442→        groupId: currentGroup!.id,
+   443→        userId,
+   444→        userName,
+   445→        isTyping: false,
+   446→      })
+   447→    }, 2000)
+   448→  }
+   449→
+   450→  // ─── Format time for messages ──────────────────────────────────────
+   451→  const formatMsgTime = (ts: number | string) => {
+   452→    const date = typeof ts === 'number' ? new Date(ts) : new Date(ts)
+   453→    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+   454→  }
+   455→
+   456→  // ═══════════════════════════════════════════════════════════════════
+   457→  // RENDER: Group List View
+   458→  // ═══════════════════════════════════════════════════════════════════
+   459→  if (!inRoom || !currentGroup) {
+   460→    return (
+   461→      <div className="space-y-6 page-transition">
+   462→        {/* Join Error Banner */}
+   463→        {joinError && (
+   464→          <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between">
+   465→            <p className="text-sm text-red-700 dark:text-red-400">{joinError}</p>
+   466→            <button onClick={() => setJoinError(null)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-3 text-lg font-bold">&times;</button>
+   467→          </div>
+   468→        )}
+   469→
+   470→        {/* Header */}
+   471→        <div className="flex items-center gap-3">
+   472→          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center shadow-sm">
+   473→            <Users className="w-5 h-5 text-white" />
+   474→          </div>
+   475→          <div>
+   476→            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Group Study</h2>
+   477→            <p className="text-xs text-slate-500 dark:text-slate-400">Study together with peers in real-time</p>
+   478→          </div>
+   479→        </div>
+   480→
+   481→        {/* Currently in a group banner */}
+   482→        {currentGroup && !inRoom && (
+   483→          <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30">
+   484→            <CardContent className="py-4 flex items-center justify-between flex-wrap gap-3">
+   485→              <div className="flex items-center gap-3">
+   486→                <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
+   487→                  <Crown className="w-4 h-4 text-white" />
+   488→                </div>
+   489→                <div>
+   490→                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+   491→                    You&apos;re in <span className="font-bold">{currentGroup.name}</span>
+   492→                  </p>
+   493→                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+   494→                    {currentGroup.memberCount} member{currentGroup.memberCount !== 1 ? 's' : ''} online
+   495→                  </p>
+   496→                </div>
+   497→              </div>
+   498→              <Button
+   499→                onClick={() => enterRoom(currentGroup)}
+   500→                className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+   501→              >
+   502→                <MessageCircle className="w-4 h-4 mr-2" /> Go to Room
+   503→              </Button>
+   504→            </CardContent>
+   505→          </Card>
+   506→        )}
+   507→
+   508→        {/* Loading state */}
+   509→        {loading ? (
+   510→          <div className="grid gap-4 sm:grid-cols-2">
+   511→            {[1, 2, 3, 4].map(i => (
+   512→              <Card key={i} className="overflow-hidden">
+   513→                <CardContent className="p-4 space-y-3">
+   514→                  <Skeleton className="h-5 w-3/4 rounded" />
+   515→                  <Skeleton className="h-3 w-full rounded" />
+   516→                  <div className="flex gap-2">
+   517→                    <Skeleton className="h-6 w-16 rounded-full" />
+   518→                    <Skeleton className="h-6 w-20 rounded-full" />
+   519→                  </div>
+   520→                </CardContent>
+   521→              </Card>
+   522→            ))}
+   523→          </div>
+   524→        ) : groups.length === 0 ? (
+   525→          /* Empty state */
+   526→          <Card className="border-dashed">
+   527→            <CardContent className="py-16 text-center">
+   528→              <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center mx-auto mb-4">
+   529→                <Users className="w-8 h-8 text-emerald-400 dark:text-emerald-600" />
+   530→              </div>
+   531→              <h3 className="text-base font-semibold text-slate-700 dark:text-slate-300 mb-1">No Study Groups Yet</h3>
+   532→              <p className="text-sm text-slate-400 dark:text-slate-500 max-w-sm mx-auto">
+   533→                Study groups will appear here once created by admin. Check back soon!
+   534→              </p>
+   535→            </CardContent>
+   536→          </Card>
+   537→        ) : (
+   538→          /* Group cards */
+   539→          <div className="grid gap-4 sm:grid-cols-2">
+   540→            {groups.map((group, idx) => {
+   541→              const isFull = group.memberCount >= group.maxCapacity
+   542→              const isCurrentGroup = currentGroup?.id === group.id
+   543→              return (
+   544→                <Card
+   545→                  key={group.id}
+   546→                  className={`card-hover overflow-hidden border transition-all slide-up ${
+   547→                    isCurrentGroup
+   548→                      ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-200 dark:ring-emerald-800'
+   549→                      : 'border-slate-200 dark:border-slate-800'
+   550→                  }`}
+   551→                  style={{ animationDelay: `${idx * 60}ms` }}
+   552→                >
+   553→                  <div className={`h-1.5 ${
+   554→                    isCurrentGroup
+   555→                      ? 'bg-gradient-to-r from-emerald-400 to-green-400'
+   556→                      : 'bg-gradient-to-r from-emerald-200 to-green-200 dark:from-emerald-800 dark:to-green-800'
+   557→                  }`} />
+   558→                  <CardContent className="p-4 space-y-3">
+   559→                    <div className="flex items-start justify-between gap-2">
+   560→                      <div className="flex-1 min-w-0">
+   561→                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+   562→                          {isCurrentGroup && <Crown className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />}
+   563→                          {group.name}
+   564→                        </h3>
+   565→                        {group.description && (
+   566→                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+   567→                            {group.description}
+   568→                          </p>
+   569→                        )}
+   570→                      </div>
+   571→                      {isFull && !isCurrentGroup && (
+   572→                        <Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 flex-shrink-0">
+   573→                          Full
+   574→                        </Badge>
+   575→                      )}
+   576→                    </div>
+   577→
+   578→                    <div className="flex items-center flex-wrap gap-2">
+   579→                      {/* Member count */}
+   580→                      <Badge variant="secondary" className={`text-[10px] ${
+   581→                        isFull
+   582→                          ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+   583→                          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+   584→                      }`}>
+   585→                        <Users className="w-2.5 h-2.5 mr-1" />
+   586→                        {group.memberCount}/{group.maxCapacity}
+   587→                      </Badge>
+   588→                      {/* Subject */}
+   589→                      {group.subject && (
+   590→                        <Badge variant="secondary" className="text-[10px] bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+   591→                          <BookOpen2 className="w-2.5 h-2.5 mr-1" />
+   592→                          {group.subject.name}
+   593→                        </Badge>
+   594→                      )}
+   595→                    </div>
+   596→
+   597→                    <div className="flex justify-end">
+   598→                      {isCurrentGroup ? (
+   599→                        <Button
+   600→                          size="sm"
+   601→                          onClick={() => enterRoom(group)}
+   602→                          className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
+   603→                        >
+   604→                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Go to Room
+   605→                        </Button>
+   606→                      ) : isFull ? (
+   607→                        <Button size="sm" variant="outline" disabled className="h-8 text-xs opacity-50">
+   608→                          <Users className="w-3.5 h-3.5 mr-1.5" /> Group Full
+   609→                        </Button>
+   610→                      ) : (
+   611→                        <Button
+   612→                          size="sm"
+   613→                          onClick={() => handleJoinGroup(group.id)}
+   614→                          disabled={joinLoading === group.id}
+   615→                          className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
+   616→                        >
+   617→                          {joinLoading === group.id ? (
+   618→                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+   619→                          ) : (
+   620→                            <UserPlus className="w-3.5 h-3.5 mr-1.5" />
+   621→                          )}
+   622→                          Join
+   623→                        </Button>
+   624→                      )}
+   625→                    </div>
+   626→                  </CardContent>
+   627→                </Card>
+   628→              )
+   629→            })}
+   630→          </div>
+   631→        )}
+   632→      </div>
+   633→    )
+   634→  }
+   635→
+   636→  // ═══════════════════════════════════════════════════════════════════
+   637→  // RENDER: Group Room View
+   638→  // ═══════════════════════════════════════════════════════════════════
+   639→  const studyingMembers = members.filter(m => m.timerState?.running).length
+   640→
+   641→  return (
+   642→    <div className="page-transition h-[calc(100vh-8rem)] flex flex-col -m-4 md:-m-6 lg:-m-8">
+   643→      {/* Room Header */}
+   644→      <div className="flex-shrink-0 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 border-b border-emerald-200 dark:border-emerald-800 px-4 py-3">
+   645→        <div className="flex items-center justify-between flex-wrap gap-3">
+   646→          <div className="flex items-center gap-3">
+   647→            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center shadow-sm">
+   648→              <Users className="w-4.5 h-4.5 text-white" />
+   649→            </div>
+   650→            <div>
+   651→              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+   652→                {currentGroup.name}
+   653→                <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+   654→                  <Users className="w-2.5 h-2.5 mr-1" /> {members.length}
+   655→                </Badge>
+   656→                {studyingMembers > 0 && (
+   657→                  <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+   658→                    <Clock className="w-2.5 h-2.5 mr-1" /> {studyingMembers} studying
+   659→                  </Badge>
+   660→                )}
+   661→              </h2>
+   662→              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+   663→                <Circle className={`w-1.5 h-1.5 ${isConnected ? 'fill-emerald-500 text-emerald-500' : 'fill-slate-400 text-slate-400'}`} />
+   664→                {isConnected ? 'Connected' : 'Reconnecting...'}
+   665→                {currentGroup.subject && ` · ${currentGroup.subject.name}`}
+   666→              </p>
+   667→            </div>
+   668→          </div>
+   669→          <Button
+   670→            variant="outline"
+   671→            size="sm"
+   672→            onClick={handleLeaveGroup}
+   673→            disabled={leavingGroup}
+   674→            className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30 h-8"
+   675→          >
+   676→            {leavingGroup ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5 mr-1.5" />}
+   677→            Leave Group
+   678→          </Button>
+   679→        </div>
+   680→      </div>
+   681→
+   682→      {/* Main Content: Members Panel + Chat Panel */}
+   683→      <div className="flex-1 flex min-h-0">
+   684→        {/* Members Panel (left on desktop, top on mobile) */}
+   685→        <div className="w-full md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/10 order-2 md:order-1">
+   686→          {/* Mobile: horizontal scroll members */}
+   687→          <div className="md:hidden">
+   688→            <div className="px-3 py-2 border-b border-emerald-100 dark:border-emerald-900/50">
+   689→              <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+   690→                Members ({members.length})
+   691→              </p>
+   692→            </div>
+   693→            <ScrollArea className="whitespace-nowrap">
+   694→              <div className="flex gap-1 p-2 overflow-x-auto">
+   695→                {members.map(m => (
+   696→                  <div key={m.userId} className="flex-shrink-0 flex flex-col items-center gap-0.5 px-2 py-1.5">
+   697→                    <div className="relative">
+   698→                      <Avatar className="h-8 w-8">
+   699→                        <AvatarFallback className={`text-[10px] font-semibold ${
+   700→                          m.userId === userId
+   701→                            ? 'bg-emerald-500 text-white'
+   702→                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+   703→                        }`}>
+   704→                          {(m.name || 'U').charAt(0).toUpperCase()}
+   705→                        </AvatarFallback>
+   706→                      </Avatar>
+   707→                      <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white dark:ring-slate-900 ${
+   708→                        m.timerState?.running ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+   709→                      }`} />
+   710→                    </div>
+   711→                    <p className="text-[9px] text-slate-600 dark:text-slate-400 truncate max-w-[48px] text-center">{(m.name || 'User').split(' ')[0]}</p>
+   712→                  </div>
+   713→                ))}
+   714→              </div>
+   715→            </ScrollArea>
+   716→          </div>
+   717→
+   718→          {/* Desktop: vertical member list */}
+   719→          <div className="hidden md:block h-full">
+   720→            <div className="px-3 py-2 border-b border-emerald-100 dark:border-emerald-900/50">
+   721→              <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+   722→                Members ({members.length})
+   723→              </p>
+   724→            </div>
+   725→            <ScrollArea className="h-[calc(100%-36px)]">
+   726→              <div className="p-2 space-y-0.5">
+   727→                {members.map(m => (
+   728→                  <MemberItem key={m.userId} member={m} currentUserId={userId} />
+   729→                ))}
+   730→                {members.length === 0 && (
+   731→                  <div className="py-6 text-center">
+   732→                    <Users className="w-6 h-6 mx-auto text-emerald-300 dark:text-emerald-700 mb-1" />
+   733→                    <p className="text-[10px] text-slate-400">No members yet</p>
+   734→                  </div>
+   735→                )}
+   736→              </div>
+   737→            </ScrollArea>
+   738→          </div>
+   739→        </div>
+   740→
+   741→        {/* Chat Panel */}
+   742→        <div className="flex-1 flex flex-col min-w-0 order-1 md:order-2">
+   743→          {/* Messages area */}
+   744→          <ScrollArea className="flex-1 p-4">
+   745→            <div className="space-y-2">
+   746→              {messages.length === 0 ? (
+   747→                <div className="flex flex-col items-center justify-center py-12 text-center">
+   748→                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center mb-3">
+   749→                    <MessageCircle className="w-6 h-6 text-emerald-400 dark:text-emerald-600" />
+   750→                  </div>
+   751→                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Start the conversation!</p>
+   752→                  <p className="text-xs text-slate-400 dark:text-slate-500">Say hi to your study group members</p>
+   753→                </div>
+   754→              ) : (
+   755→                messages.map(msg => (
+   756→                  <ChatMessageBubble key={msg.id} msg={msg} currentUserId={userId} />
+   757→                ))
+   758→              )}
+   759→
+   760→              {/* Typing indicator */}
+   761→              {typingUsers.length > 0 && (
+   762→                <div className="flex items-center gap-1.5 py-1 px-2 fade-in">
+   763→                  <div className="flex gap-0.5">
+   764→                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+   765→                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+   766→                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+   767→                  </div>
+   768→                  <span className="text-[10px] text-slate-400 italic">
+   769→                    {typingUsers.map(u => u.userName).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+   770→                  </span>
+   771→                </div>
+   772→              )}
+   773→
+   774→              <div ref={messagesEndRef} />
+   775→            </div>
+   776→          </ScrollArea>
+   777→
+   778→          {/* Input area */}
+   779→          <div className="flex-shrink-0 p-3 border-t border-emerald-100 dark:border-emerald-900/50 bg-white dark:bg-slate-900">
+   780→            <div className="flex gap-2">
+   781→              <Input
+   782→                placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
+   783→                value={chatInput}
+   784→                onChange={(e) => handleInputChange(e.target.value)}
+   785→                onKeyDown={(e) => {
+   786→                  if (e.key === 'Enter' && !e.shiftKey) {
+   787→                    e.preventDefault()
+   788→                    sendMessage()
+   789→                  }
+   790→                }}
+   791→                disabled={!isConnected}
+   792→                className="flex-1 h-9 text-sm border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500"
+   793→              />
+   794→              <Button
+   795→                onClick={sendMessage}
+   796→                disabled={!isConnected || !chatInput.trim()}
+   797→                className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4"
+   798→              >
+   799→                <Send className="w-4 h-4" />
+   800→              </Button>
+   801→            </div>
+   802→            <p className="text-[9px] text-slate-400 mt-1">Press Enter to send · Social media links are filtered</p>
+   803→          </div>
+   804→        </div>
+   805→      </div>
+   806→    </div>
+   807→  )
+   808→}
+   809→
+   810→// ─── Inline BookOpen2 icon (small utility) ──────────────────────────────
+   811→function BookOpen2({ className }: { className?: string }) {
+   812→  return (
+   813→    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+   814→      <path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+   815→    </svg>
+   816→  )
+   817→}
+   818→

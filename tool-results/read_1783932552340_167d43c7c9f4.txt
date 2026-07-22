@@ -1,0 +1,944 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback, useMemo } from 'react'
+     4→import { api } from '@/lib/api-client'
+     5→import { toast } from 'sonner'
+     6→
+     7→import { Button } from '@/components/ui/button'
+     8→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     9→import { Input } from '@/components/ui/input'
+    10→import { Label } from '@/components/ui/label'
+    11→import { Badge } from '@/components/ui/badge'
+    12→import { Switch } from '@/components/ui/switch'
+    13→import { Skeleton } from '@/components/ui/skeleton'
+    14→import { Textarea } from '@/components/ui/textarea'
+    15→import { Separator } from '@/components/ui/separator'
+    16→import { Checkbox } from '@/components/ui/checkbox'
+    17→import { Progress } from '@/components/ui/progress'
+    18→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    19→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+    20→import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+    21→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    22→import { SidebarProvider, Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, SidebarSeparator } from '@/components/ui/sidebar'
+    23→import { QuizzesPage } from './QuizzesPage'
+    24→
+    25→import {
+    26→  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target,
+    27→} from 'lucide-react'
+    28→
+    29→// ─── CSS Keyframes (injected once) ─────────────────────────────────
+    30→const ANIM_STYLES = `
+    31→@keyframes fadeInUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+    32→@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+    33→@keyframes slideDown { from { opacity:0; transform:translateY(-8px) } to { opacity:1; transform:translateY(0) } }
+    34→.anim-fade-up { animation: fadeInUp .2s ease-out both }
+    35→.anim-fade { animation: fadeIn .2s ease-out both }
+    36→.anim-slide-down { animation: slideDown .2s ease-out both }
+    37→`
+    38→
+    39→let stylesInjected = false
+    40→function InjectStyles() {
+    41→  useEffect(() => {
+    42→    if (stylesInjected) return
+    43→    stylesInjected = true
+    44→    const el = document.createElement('style')
+    45→    el.textContent = ANIM_STYLES
+    46→    document.head.appendChild(el)
+    47→  }, [])
+    48→  return null
+    49→}
+    50→
+    51→// ─── Types ───────────────────────────────────────────────────────
+    52→interface AdminPanelProps { onLogout: () => void }
+    53→type PageKey = 'dashboard' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes'
+    54→
+    55→interface DashboardData { totalStudents:number; totalCourses:number; totalSubjects:number; totalChapters:number; totalReviews:number; totalDiscussions:number; totalQuizzes?:number; totalQuizAttempts?:number; totalNotes?:number; recentSignups:any[]; weeklySignups?:any[]; activityLog?:any[] }
+    56→interface Student { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; status:string; createdAt:string }
+    57→interface Course { id:string; title:string; slug:string; _count?:{students:number;subjects:number} }
+    58→interface Subject { id:string; name:string; order:number; courseId:string; course?:{title:string}; _count?:{chapters:number} }
+    59→interface Chapter { id:string; name:string; subjectId:string; subject?:{name:string;course?:{title:string}} }
+    60→interface TopPerformer { id:string; name:string; mobile:string; email:string; course:string; studyHours:number; subjectsStudied:number }
+    61→interface Review { id:string; authorName:string; text:string; rating:number; courseId:string; course?:{title:string}; source:string; status:string; studentId?:string|null }
+    62→interface Approval { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; createdAt:string }
+    63→interface Discussion { id:string; title:string; content:string; student?:{name:string;email:string}; adminReply?:string|null; createdAt:string }
+    64→interface NotificationCounts { pendingApprovals:number; pendingReviews:number; unreadDiscussions:number; total:number }
+    65→
+    66→// ─── Navigation Config ──────────────────────────────────────────
+    67→const navItems: { key:PageKey; label:string; icon:React.ElementType; color:string }[] = [
+    68→  { key:'dashboard', label:'Dashboard', icon:LayoutDashboard, color:'bg-emerald-500/10 text-emerald-600' },
+    69→  { key:'students', label:'Students', icon:Users, color:'bg-sky-500/10 text-sky-600' },
+    70→  { key:'courses', label:'Courses', icon:BookOpen, color:'bg-amber-500/10 text-amber-600' },
+    71→  { key:'subjects', label:'Subjects', icon:BookMarked, color:'bg-violet-500/10 text-violet-600' },
+    72→  { key:'chapters', label:'Chapters', icon:FileText, color:'bg-teal-500/10 text-teal-600' },
+    73→  { key:'top-performers', label:'Top Performers', icon:Trophy, color:'bg-orange-500/10 text-orange-600' },
+    74→  { key:'reviews', label:'Reviews', icon:Star, color:'bg-rose-500/10 text-rose-600' },
+    75→  { key:'approvals', label:'Approvals', icon:ShieldCheck, color:'bg-emerald-500/10 text-emerald-600' },
+    76→  { key:'discussions', label:'Discussions', icon:MessageCircle, color:'bg-cyan-500/10 text-cyan-600' },
+    77→  { key:'quizzes', label:'Quizzes', icon:Brain, color:'bg-purple-500/10 text-purple-600' },
+    78→]
+    79→
+    80→// ─── Helpers ─────────────────────────────────────────────────────
+    81→function StarRating({ rating }: { rating:number }) {
+    82→  return <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><Star key={s} className={`size-3.5 ${s<=rating?'fill-amber-400 text-amber-400':'text-muted-foreground/30'}`} />)}</div>
+    83→}
+    84→
+    85→function MiniSparkline({ data, color }: { data:number[]; color:string }) {
+    86→  const max = Math.max(...data, 1)
+    87→  const pts = data.map((v,i)=>`${(i/(data.length-1))*60},${24-(v/max)*20}`).join(' ')
+    88→  return <svg width="64" height="28" className="opacity-60"><polyline fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={pts} /></svg>
+    89→}
+    90→
+    91→function TableSkeleton({ cols=4, rows=5 }: { cols?:number; rows?:number }) {
+    92→  return <div className="space-y-3 p-4">
+    93→    <div className="flex gap-4">{Array.from({length:cols}).map((_,i)=><Skeleton key={i} className="h-8 flex-1 animate-pulse" />)}</div>
+    94→    {Array.from({length:rows}).map((_,r)=><div key={r} className="flex gap-4">{Array.from({length:cols}).map((_,i)=><Skeleton key={i} className="h-10 flex-1 animate-pulse" />)}</div>)}
+    95→  </div>
+    96→}
+    97→
+    98→// ─── Inline SVG Charts ───────────────────────────────────────────
+    99→function InlineLineChart({ data, height=200 }: { data:{day:string;signups:number}[]; height?:number }) {
+   100→  if (!data.length) return null
+   101→  const maxVal = Math.max(...data.map(d=>d.signups), 1)
+   102→  const w = 500, h = height, padL = 40, padR = 20, padT = 20, padB = 40
+   103→  const plotW = w - padL - padR, plotH = h - padT - padB
+   104→  const yScale = (v:number) => padT + plotH - (v/maxVal)*plotH
+   105→  const xScale = (i:number) => padL + (i/(data.length-1))*plotW
+   106→
+   107→  const linePath = data.map((d,i)=>`${i===0?'M':'L'}${xScale(i)},${yScale(d.signups)}`).join(' ')
+   108→  const areaPath = linePath + ` L${xScale(data.length-1)},${padT+plotH} L${padL},${padT+plotH} Z`
+   109→  const yTicks = 5
+   110→  const yStep = maxVal / yTicks
+   111→
+   112→  return (
+   113→    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{maxHeight:height}}>
+   114→      {/* Grid lines */}
+   115→      {Array.from({length:yTicks+1}).map((_,i)=>{
+   116→        const val = Math.round(i*yStep)
+   117→        const y = yScale(val)
+   118→        return <g key={i}><line x1={padL} y1={y} x2={w-padR} y2={y} stroke="currentColor" strokeOpacity={0.08} strokeDasharray="4 4" /><text x={padL-8} y={y+4} textAnchor="end" className="fill-muted-foreground" fontSize="11">{val}</text></g>
+   119→      })}
+   120→      {/* Area fill */}
+   121→      <path d={areaPath} fill="#10b981" fillOpacity={0.08} />
+   122→      {/* Line */}
+   123→      <path d={linePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+   124→      {/* Dots + labels */}
+   125→      {data.map((d,i)=><g key={i}>
+   126→        <circle cx={xScale(i)} cy={yScale(d.signups)} r="4" fill="#10b981" />
+   127→        <text x={xScale(i)} y={h-8} textAnchor="middle" className="fill-muted-foreground" fontSize="11">{d.day}</text>
+   128→      </g>)}
+   129→    </svg>
+   130→  )
+   131→}
+   132→
+   133→function InlineBarChart({ data, height=220 }: { data:TopPerformer[]; height?:number }) {
+   134→  if (!data.length) return null
+   135→  const maxVal = Math.max(...data.map(d=>d.studyHours), 1)
+   136→  const barW = Math.min(40, 400/data.length - 8)
+   137→  const w = 500, h = height, padL = 40, padR = 20, padT = 10, padB = 60
+   138→  const plotW = w - padL - padR, plotH = h - padT - padB
+   139→  const yScale = (v:number) => padT + plotH - (v/maxVal)*plotH
+   140→  const gap = plotW / data.length
+   141→
+   142→  return (
+   143→    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{maxHeight:height}}>
+   144→      {/* Grid */}
+   145→      {[0,0.25,0.5,0.75,1].map((pct,i)=>{
+   146→        const y = yScale(maxVal*pct)
+   147→        const val = Math.round(maxVal*pct)
+   148→        return <g key={i}><line x1={padL} y1={y} x2={w-padR} y2={y} stroke="currentColor" strokeOpacity={0.08} strokeDasharray="4 4" /><text x={padL-8} y={y+4} textAnchor="end" className="fill-muted-foreground" fontSize="11">{val}</text></g>
+   149→      })}
+   150→      {/* Bars */}
+   151→      {data.map((d,i)=>{
+   152→        const x = padL + i*gap + gap/2 - barW/2
+   153→        const barH = (d.studyHours/maxVal)*plotH
+   154→        const y = padT + plotH - barH
+   155→        const name = d.name.length > 8 ? d.name.slice(0,7)+'…' : d.name
+   156→        return <g key={i}>
+   157→          <rect x={x} y={y} width={barW} height={barH} fill="#f59e0b" rx="3" className="transition-opacity hover:opacity-80" />
+   158→          <text x={padL+i*gap+gap/2} y={h-28} textAnchor="middle" className="fill-muted-foreground" fontSize="10" transform={`rotate(-25,${padL+i*gap+gap/2},${h-28})`}>{name}</text>
+   159→        </g>
+   160→      })}
+   161→    </svg>
+   162→  )
+   163→}
+   164→
+   165→// ─── Hooks ───────────────────────────────────────────────────────
+   166→function useFetch<T>(fetcher:()=>Promise<T>, deps:any[]) {
+   167→  const [data, setData] = useState<T|null>(null)
+   168→  const [loading, setLoading] = useState(true)
+   169→  const [error, setError] = useState<string|null>(null)
+   170→  const [refreshKey, setRefreshKey] = useState(0)
+   171→  const refresh = useCallback(()=>setRefreshKey(k=>k+1), [])
+   172→  useEffect(()=>{
+   173→    let c=false
+   174→    fetcher().then(r=>{if(c)return;setData(r);setError(null);setLoading(false)}).catch(e=>{if(c)return;setError(e.message||'Failed');setLoading(false)})
+   175→    return()=>{c=true}
+   176→  }, [...deps, refreshKey])
+   177→  return { data, loading, error, refresh, setData }
+   178→}
+   179→
+   180→function usePagination<T>(items:T[], pageSize=10) {
+   181→  const [page, setPage] = useState(1)
+   182→  const totalPages = Math.max(1, Math.ceil(items.length/pageSize))
+   183→  const safePage = Math.min(page, totalPages)
+   184→  const paginated = items.slice((safePage-1)*pageSize, safePage*pageSize)
+   185→  const goTo = (p:number)=>setPage(Math.max(1,Math.min(p,totalPages)))
+   186→  if (page>totalPages&&totalPages>0) setPage(totalPages)
+   187→  return { page:safePage, totalPages, paginated, goTo, setPage }
+   188→}
+   189→
+   190→function exportCSV(filename:string, headers:string[], rows:string[][]) {
+   191→  const csv = [headers.join(','),...rows.map(r=>r.map(c=>`"${c.replace(/"/g,'""')}"`).join(','))].join('\n')
+   192→  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'})
+   193→  const url = URL.createObjectURL(blob)
+   194→  const a = document.createElement('a'); a.href=url; a.download=`${filename}.csv`; a.click()
+   195→  URL.revokeObjectURL(url)
+   196→}
+   197→
+   198→// ─── Pagination Controls ─────────────────────────────────────────
+   199→function PaginationControls({ page, totalPages, goTo }: { page:number; totalPages:number; goTo:(p:number)=>void }) {
+   200→  if (totalPages<=1) return null
+   201→  return <div className="flex items-center justify-between px-4 py-3 border-t">
+   202→    <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
+   203→    <div className="flex items-center gap-1">
+   204→      <Button variant="outline" size="sm" onClick={()=>goTo(page-1)} disabled={page<=1}><ChevronLeft className="size-4" /> Prev</Button>
+   205→      <Button variant="outline" size="sm" onClick={()=>goTo(page+1)} disabled={page>=totalPages}>Next <ChevronRight className="size-4" /></Button>
+   206→    </div>
+   207→  </div>
+   208→}
+   209→
+   210→// ─── Styled Table Wrapper ────────────────────────────────────────
+   211→function StyledTable({ children }: { children:React.ReactNode }) {
+   212→  return <div className="rounded-lg overflow-hidden border">{children}</div>
+   213→}
+   214→
+   215→// ─── Reusable form field with icon ───────────────────────────────
+   216→function IconField({ icon:Icon, label, ...inputProps }: { icon:React.ElementType; label?:string } & React.InputHTMLAttributes<HTMLInputElement>) {
+   217→  return <div className="space-y-1.5">
+   218→    {label && <Label className="flex items-center gap-1.5"><Icon className="size-3.5 text-muted-foreground" /> {label}</Label>}
+   219→    <div className="relative">
+   220→      <Icon className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+   221→      <Input {...inputProps} className={`pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30 ${inputProps.className||''}`} />
+   222→    </div>
+   223→  </div>
+   224→}
+   225→
+   226→// ─── Main AdminPanel Component ───────────────────────────────────
+   227→export default function AdminPanel({ onLogout }: AdminPanelProps) {
+   228→  const [activePage, setActivePage] = useState<PageKey>('dashboard')
+   229→  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+   230→
+   231→  // Fetch notification badge counts (refreshes every 60s)
+   232→  const { data: notifications, refresh: refreshNotifications } = useFetch<NotificationCounts>(
+   233→    () => api.adminNotifications(),
+   234→    []
+   235→  )
+   236→  useEffect(() => {
+   237→    const interval = setInterval(() => {
+   238→      refreshNotifications()
+   239→    }, 60000)
+   240→    return () => clearInterval(interval)
+   241→  }, [refreshNotifications])
+   242→
+   243→  // Resolve a badge count for a given nav item
+   244→  const badgeCountFor = (key: PageKey): number => {
+   245→    if (!notifications) return 0
+   246→    switch (key) {
+   247→      case 'approvals': return notifications.pendingApprovals
+   248→      case 'reviews': return notifications.pendingReviews
+   249→      case 'discussions': return notifications.unreadDiscussions
+   250→      default: return 0
+   251→    }
+   252→  }
+   253→
+   254→  const renderPage = () => {
+   255→    switch (activePage) {
+   256→      case 'dashboard': return <DashboardPage />
+   257→      case 'students': return <StudentsPage />
+   258→      case 'courses': return <CoursesPage />
+   259→      case 'subjects': return <SubjectsPage />
+   260→      case 'chapters': return <ChaptersPage />
+   261→      case 'top-performers': return <TopPerformersPage />
+   262→      case 'reviews': return <ReviewsPage />
+   263→      case 'approvals': return <ApprovalsPage />
+   264→      case 'discussions': return <DiscussionsPage />
+   265→      case 'quizzes': return <QuizzesPage />
+   266→    }
+   267→  }
+   268→
+   269→  return (
+   270→    <SidebarProvider>
+   271→      <InjectStyles />
+   272→      <Sidebar variant="sidebar" collapsible="icon" side="left">
+   273→        <SidebarHeader className="p-3">
+   274→          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+   275→            <div className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shrink-0 shadow-sm">M</div>
+   276→            <div className="group-data-[collapsible=icon]:hidden">
+   277→              <h2 className="text-sm font-semibold text-sidebar-foreground">MISSION CS</h2>
+   278→              <p className="text-[10px] text-sidebar-foreground/60">Admin Panel</p>
+   279→            </div>
+   280→          </div>
+   281→        </SidebarHeader>
+   282→        <SidebarSeparator />
+   283→        <SidebarContent>
+   284→          <SidebarGroup><SidebarGroupContent><SidebarMenu>
+   285→            {navItems.map(item=>{
+   286→              const isActive = activePage===item.key
+   287→              const badgeCount = badgeCountFor(item.key)
+   288→              return <SidebarMenuItem key={item.key}>
+   289→                <SidebarMenuButton isActive={isActive} onClick={()=>setActivePage(item.key)} tooltip={item.label} className="group relative transition-all duration-200">
+   290→                  <div className={`flex size-8 items-center justify-center rounded-md transition-all duration-200 ${isActive?item.color:'bg-transparent text-muted-foreground group-hover:bg-muted'}`}>
+   291→                    <item.icon className="size-4" />
+   292→                  </div>
+   293→                  <span className="flex-1">{item.label}</span>
+   294→                  {badgeCount > 0 && (
+   295→                    <>
+   296→                      {/* Number badge — visible when sidebar is expanded */}
+   297→                      <span className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-background group-data-[collapsible=icon]:hidden">
+   298→                        {badgeCount > 99 ? '99+' : badgeCount}
+   299→                      </span>
+   300→                      {/* Red dot — visible when sidebar is collapsed to icon */}
+   301→                      <span className="absolute right-1 top-1 size-2 rounded-full bg-red-500 ring-2 ring-background hidden group-data-[collapsible=icon]:block" />
+   302→                    </>
+   303→                  )}
+   304→                  {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r-full bg-gradient-to-b from-emerald-500 to-teal-500 transition-all duration-200" />}
+   305→                </SidebarMenuButton>
+   306→              </SidebarMenuItem>
+   307→            })}
+   308→          </SidebarMenu></SidebarGroupContent></SidebarGroup>
+   309→        </SidebarContent>
+   310→        <SidebarFooter><SidebarMenu>
+   311→          <SidebarMenuItem><SidebarMenuButton tooltip="Toggle Theme" onClick={()=>{const t=document.documentElement.classList.contains('dark')?'light':'dark';document.documentElement.classList.toggle('dark',t==='dark');localStorage.setItem('theme',t)}}><SunMoon className="size-4" /><span>Toggle Theme</span></SidebarMenuButton></SidebarMenuItem>
+   312→          <SidebarMenuItem><SidebarMenuButton tooltip="Change Password" onClick={()=>setChangePasswordOpen(true)}><Lock className="size-4" /><span>Change Password</span></SidebarMenuButton></SidebarMenuItem>
+   313→          <SidebarMenuItem><SidebarMenuButton tooltip="Logout" onClick={onLogout}><LogOut className="size-4" /><span>Logout</span></SidebarMenuButton></SidebarMenuItem>
+   314→        </SidebarMenu></SidebarFooter>
+   315→        <SidebarRail />
+   316→      </Sidebar>
+   317→
+   318→      <SidebarInset>
+   319→        <header className="flex h-14 items-center gap-2 border-b px-4 bg-background/95 backdrop-blur-sm sticky top-0 z-20">
+   320→          <SidebarTrigger className="-ml-1" />
+   321→          <Separator orientation="vertical" className="mr-2 h-4" />
+   322→          <h1 key={activePage} className="text-base font-semibold capitalize anim-fade-up">{navItems.find(n=>n.key===activePage)?.label||'Dashboard'}</h1>
+   323→        </header>
+   324→        <div className="flex-1 p-4 md:p-6 overflow-auto">
+   325→          <div key={activePage} className="anim-fade-up">{renderPage()}</div>
+   326→        </div>
+   327→      </SidebarInset>
+   328→
+   329→      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+   330→    </SidebarProvider>
+   331→  )
+   332→}
+   333→
+   334→// ─── 1. Dashboard Page ───────────────────────────────────────────
+   335→function DashboardPage() {
+   336→  const { data, loading } = useFetch<DashboardData>(()=>api.adminDashboard().then(r=>r.data||r), [])
+   337→
+   338→  const sparkData: Record<string,number[]> = {
+   339→    'Total Students':[12,19,15,25,22,30,35],'Courses':[2,3,3,4,4,5,5],
+   340→    'Subjects':[5,8,10,12,14,16,18],'Chapters':[20,30,35,45,50,55,60],
+   341→    'Reviews':[3,5,8,10,12,15,18],'Discussions':[1,3,5,4,7,9,11],
+   342→    'Quizzes':[1,2,2,3,4,4,5],'Quiz Attempts':[0,2,5,8,10,15,22],'Notes':[0,1,3,5,7,10,15],
+   343→  }
+   344→  const sparkColors: Record<string,string> = {
+   345→    'Total Students':'#10b981','Courses':'#f59e0b','Subjects':'#8b5cf6',
+   346→    'Chapters':'#14b8a6','Reviews':'#f43f5e','Discussions':'#06b6d4',
+   347→    'Quizzes':'#a855f7','Quiz Attempts':'#ec4899','Notes':'#f97316',
+   348→  }
+   349→
+   350→  const stats = data ? [
+   351→    { label:'Total Students', value:data.totalStudents, icon:Users, gradient:'from-emerald-500/10 via-emerald-500/5 to-transparent', iconBg:'bg-emerald-500/15 text-emerald-600' },
+   352→    { label:'Courses', value:data.totalCourses, icon:BookOpen, gradient:'from-amber-500/10 via-amber-500/5 to-transparent', iconBg:'bg-amber-500/15 text-amber-600' },
+   353→    { label:'Subjects', value:data.totalSubjects, icon:BookMarked, gradient:'from-violet-500/10 via-violet-500/5 to-transparent', iconBg:'bg-violet-500/15 text-violet-600' },
+   354→    { label:'Chapters', value:data.totalChapters, icon:FileText, gradient:'from-teal-500/10 via-teal-500/5 to-transparent', iconBg:'bg-teal-500/15 text-teal-600' },
+   355→    { label:'Reviews', value:data.totalReviews, icon:Star, gradient:'from-rose-500/10 via-rose-500/5 to-transparent', iconBg:'bg-rose-500/15 text-rose-600' },
+   356→    { label:'Discussions', value:data.totalDiscussions, icon:MessageCircle, gradient:'from-cyan-500/10 via-cyan-500/5 to-transparent', iconBg:'bg-cyan-500/15 text-cyan-600' },
+   357→    { label:'Quizzes', value:data.totalQuizzes||0, icon:Brain, gradient:'from-purple-500/10 via-purple-500/5 to-transparent', iconBg:'bg-purple-500/15 text-purple-600' },
+   358→    { label:'Quiz Attempts', value:data.totalQuizAttempts||0, icon:Target, gradient:'from-pink-500/10 via-pink-500/5 to-transparent', iconBg:'bg-pink-500/15 text-pink-600' },
+   359→    { label:'Notes', value:data.totalNotes||0, icon:BookMarked, gradient:'from-orange-500/10 via-orange-500/5 to-transparent', iconBg:'bg-orange-500/15 text-orange-600' },
+   360→  ] : []
+   361→
+   362→  const weeklyData = useMemo(()=>{
+   363→    if (data?.weeklySignups?.length) return data.weeklySignups
+   364→    return ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(day=>({day,signups:Math.floor(Math.random()*15)+2}))
+   365→  }, [data])
+   366→
+   367→  const activityLog = useMemo(()=>{
+   368→    if (data?.activityLog?.length) {
+   369→      const iconMap: Record<string, React.ElementType> = {
+   370→        signup: Users, review: Star, discussion: MessageCircle, approval: ShieldCheck, course: BookOpen,
+   371→      }
+   372→      const colorMap: Record<string, string> = {
+   373→        signup: 'text-emerald-500', review: 'text-amber-500', discussion: 'text-cyan-500', approval: 'text-emerald-500', course: 'text-sky-500',
+   374→      }
+   375→      return data.activityLog.map((item:any)=>({
+   376→        ...item,
+   377→        icon: iconMap[item.type] || Users,
+   378→        color: colorMap[item.type] || 'text-slate-500',
+   379→      }))
+   380→    }
+   381→    const actions = [
+   382→      {type:'signup',text:'New student registered',icon:Users,color:'text-emerald-500'},
+   383→      {type:'review',text:'New review submitted',icon:Star,color:'text-amber-500'},
+   384→      {type:'discussion',text:'Discussion posted',icon:MessageCircle,color:'text-cyan-500'},
+   385→      {type:'approval',text:'Student approved',icon:ShieldCheck,color:'text-emerald-500'},
+   386→      {type:'course',text:'Course updated',icon:BookOpen,color:'text-sky-500'},
+   387→    ]
+   388→    return Array.from({length:10}).map((_,i)=>{
+   389→      const a=actions[i%actions.length], m=(i+1)*12
+   390→      return {...a, time:m<60?`${m}m ago`:`${Math.floor(m/60)}h ago`}
+   391→    })
+   392→  }, [data])
+   393→
+   394→  return <div className="space-y-6">
+   395→    {/* Gradient Stat Cards */}
+   396→    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
+   397→      {loading ? Array.from({length:9}).map((_,i)=><Card key={i}><CardContent className="p-4"><Skeleton className="h-20 w-full animate-pulse" /></CardContent></Card>)
+   398→       : stats.map(s=>(
+   399→        <Card key={s.label} className="overflow-hidden relative">
+   400→          <div className={`absolute inset-0 bg-gradient-to-br ${s.gradient}`} />
+   401→          <CardContent className="p-4 relative">
+   402→            <div className="flex items-start justify-between">
+   403→              <div>
+   404→                <div className={`flex size-9 items-center justify-center rounded-lg ${s.iconBg} mb-2`}><s.icon className="size-4" /></div>
+   405→                <p className="text-2xl font-bold">{s.value}</p>
+   406→                <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+   407→              </div>
+   408→              <MiniSparkline data={sparkData[s.label]||[]} color={sparkColors[s.label]||'#888'} />
+   409→            </div>
+   410→          </CardContent>
+   411→        </Card>
+   412→      ))}
+   413→    </div>
+   414→
+   415→    {/* Chart & Activity */}
+   416→    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   417→      <Card className="lg:col-span-2">
+   418→        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Activity className="size-4 text-emerald-500" /> Student Signups - Last 7 Days</CardTitle></CardHeader>
+   419→        <CardContent>
+   420→          {loading ? <Skeleton className="h-[200px] w-full animate-pulse" /> : <InlineLineChart data={weeklyData} />}
+   421→        </CardContent>
+   422→      </Card>
+   423→      <Card>
+   424→        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Clock className="size-4 text-amber-500" /> Recent Activity</CardTitle></CardHeader>
+   425→        <CardContent className="p-0">
+   426→          <div className="max-h-[230px] overflow-y-auto px-4 pb-3">
+   427→            {loading ? <div className="space-y-3 pt-2">{Array.from({length:5}).map((_,i)=><Skeleton key={i} className="h-8 w-full animate-pulse" style={{animationDelay:`${i*100}ms`}} />)}</div>
+   428→             : <div className="space-y-1">
+   429→                {activityLog.map((item:any,i:number)=>{
+   430→                  const Icon=item.icon
+   431→                  return <div key={i} className="flex items-center gap-3 py-2 border-b last:border-0 anim-fade-up" style={{animationDelay:`${i*40}ms`}}>
+   432→                    <div className={`shrink-0 ${item.color}`}><Icon className="size-3.5" /></div>
+   433→                    <span className="text-sm flex-1 truncate">{item.text}</span>
+   434→                    <span className="text-xs text-muted-foreground shrink-0">{item.time}</span>
+   435→                  </div>
+   436→                })}
+   437→              </div>
+   438→            }
+   439→          </div>
+   440→        </CardContent>
+   441→      </Card>
+   442→    </div>
+   443→
+   444→    {/* Recent Signups Table */}
+   445→    <Card>
+   446→      <CardHeader><CardTitle className="text-base">Recent Signups (Last 24h)</CardTitle><CardDescription>Students who registered in the last 24 hours</CardDescription></CardHeader>
+   447→      <CardContent>
+   448→        {loading ? <TableSkeleton cols={4} rows={3} />
+   449→         : !data?.recentSignups?.length ? <p className="text-sm text-muted-foreground py-8 text-center">No recent signups</p>
+   450→         : <StyledTable><Table>
+   451→            <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Mobile</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+   452→            <TableBody>{data.recentSignups.map((s:any,i:number)=>(
+   453→              <TableRow key={s.id} className={i%2===1?'bg-muted/15':''}><TableCell className="font-medium">{s.name}</TableCell><TableCell>{s.email}</TableCell><TableCell>{s.mobile}</TableCell><TableCell>{new Date(s.createdAt).toLocaleDateString()}</TableCell></TableRow>
+   454→            ))}</TableBody>
+   455→          </Table></StyledTable>
+   456→        }
+   457→      </CardContent>
+   458→    </Card>
+   459→  </div>
+   460→}
+   461→
+   462→// ─── 2. Students Page ────────────────────────────────────────────
+   463→function StudentsPage() {
+   464→  const [search,setSearch]=useState(''), [addOpen,setAddOpen]=useState(false)
+   465→  const [editStudent,setEditStudent]=useState<Student|null>(null), [deleteStudent,setDeleteStudent]=useState<Student|null>(null), [passwordStudent,setPasswordStudent]=useState<Student|null>(null)
+   466→  const [selectedIds,setSelectedIds]=useState<Set<string>>(new Set()), [bulkAction,setBulkAction]=useState('')
+   467→
+   468→  const { data:students, loading, refresh } = useFetch<Student[]>(()=>api.adminStudents(search||undefined).then(r=>r.data||r.students||r), [search])
+   469→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   470→  const courseList=courses||[], studentList=students||[], pagination=usePagination(studentList,10)
+   471→
+   472→  const toggleSelect=(id:string)=>setSelectedIds(p=>{const n=new Set(p);if(n.has(id))n.delete(id);else n.add(id);return n})
+   473→  const toggleSelectAll=()=>{if(selectedIds.size===pagination.paginated.length)setSelectedIds(new Set());else setSelectedIds(new Set(pagination.paginated.map(s=>s.id)))}
+   474→
+   475→  const handleBulkAction=async()=>{
+   476→    if(!bulkAction||selectedIds.size===0)return
+   477→    try{const ids=Array.from(selectedIds);for(const id of ids){if(bulkAction==='approve')await api.adminUpdateStudent(id,{status:'APPROVED'});else if(bulkAction==='reject')await api.adminUpdateStudent(id,{status:'REJECTED'});else if(bulkAction==='delete')await api.adminDeleteStudent(id)}
+   478→      toast.success(`${selectedIds.size} student(s) ${bulkAction==='delete'?'deleted':bulkAction+'d'}`);setSelectedIds(new Set());setBulkAction('');refresh()
+   479→    }catch(e:any){toast.error(e.message)}
+   480→  }
+   481→
+   482→  const handleExport=()=>{exportCSV('students',['Name','Email','Mobile','Course','Status','Created'],studentList.map(s=>[s.name,s.email,s.mobile,s.course?.title||'',s.status,new Date(s.createdAt).toLocaleDateString()]));toast.success('CSV exported')}
+   483→
+   484→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateStudent({name:fd.get('name'),email:fd.get('email'),mobile:fd.get('mobile'),password:fd.get('password'),courseId:fd.get('courseId')});toast.success('Student created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   485→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editStudent)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateStudent(editStudent.id,{name:fd.get('name'),email:fd.get('email'),mobile:fd.get('mobile'),courseId:fd.get('courseId'),status:fd.get('status')});toast.success('Student updated');setEditStudent(null);refresh()}catch(e:any){toast.error(e.message)}}
+   486→  const handleDelete=async()=>{if(!deleteStudent)return;try{await api.adminDeleteStudent(deleteStudent.id);toast.success('Student deleted');setDeleteStudent(null);refresh()}catch(e:any){toast.error(e.message)}}
+   487→  const handleChangePassword=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!passwordStudent)return;const fd=new FormData(e.currentTarget);try{await api.adminChangePassword(passwordStudent.id,fd.get('password') as string);toast.success('Password changed');setPasswordStudent(null)}catch(e:any){toast.error(e.message)}}
+   488→
+   489→  return <div className="space-y-4">
+   490→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   491→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   492→        <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search students..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   493→        <Button variant="outline" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   494→      </div>
+   495→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Student</Button>
+   496→    </div>
+   497→
+   498→    {selectedIds.size>0&&<div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/50 anim-slide-down">
+   499→      <span className="text-sm font-medium">{selectedIds.size} selected</span>
+   500→      <Select value={bulkAction} onValueChange={setBulkAction}><SelectTrigger className="w-36"><SelectValue placeholder="Bulk action" /></SelectTrigger><SelectContent><SelectItem value="approve">Approve</SelectItem><SelectItem value="reject">Reject</SelectItem><SelectItem value="delete">Delete</SelectItem></SelectContent></Select>
+   501→      <Button size="sm" onClick={handleBulkAction} disabled={!bulkAction}>Apply</Button>
+   502→      <Button size="sm" variant="ghost" onClick={()=>{setSelectedIds(new Set());setBulkAction('')}}>Clear</Button>
+   503→    </div>}
+   504→
+   505→    <Card><CardContent className="p-0">
+   506→      {loading ? <TableSkeleton cols={7} /> : <StyledTable><Table>
+   507→        <TableHeader><TableRow className="bg-muted/50">
+   508→          <TableHead className="w-10"><Checkbox checked={pagination.paginated.length>0&&selectedIds.size===pagination.paginated.length} onCheckedChange={toggleSelectAll} /></TableHead>
+   509→          <TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead>Course</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
+   510→        </TableRow></TableHeader>
+   511→        <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No students found</TableCell></TableRow>
+   512→          :pagination.paginated.map((s,i)=>(
+   513→          <TableRow key={s.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   514→            <TableCell><Checkbox checked={selectedIds.has(s.id)} onCheckedChange={()=>toggleSelect(s.id)} /></TableCell>
+   515→            <TableCell className="font-medium">{s.name}</TableCell><TableCell className="text-sm">{s.email}</TableCell>
+   516→            <TableCell className="hidden md:table-cell">{s.mobile}</TableCell><TableCell>{s.course?.title||'—'}</TableCell>
+   517→            <TableCell><Badge variant={s.status==='APPROVED'?'default':s.status==='REJECTED'?'destructive':'secondary'}>{s.status}</Badge></TableCell>
+   518→            <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
+   519→              <Button variant="ghost" size="icon" onClick={()=>setEditStudent(s)} title="Edit"><Pencil className="size-4" /></Button>
+   520→              <Button variant="ghost" size="icon" onClick={()=>setPasswordStudent(s)} title="Change Password"><Lock className="size-4" /></Button>
+   521→              <Button variant="ghost" size="icon" onClick={()=>setDeleteStudent(s)} title="Delete"><Trash2 className="size-4 text-destructive" /></Button>
+   522→            </div></TableCell>
+   523→          </TableRow>))
+   524→        }</TableBody>
+   525→      </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}
+   526→    </CardContent></Card>
+   527→
+   528→    {/* Add Student */}
+   529→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent className="sm:max-w-md">
+   530→      <DialogHeader><DialogTitle>Add Student</DialogTitle><DialogDescription>Create a new student account</DialogDescription></DialogHeader>
+   531→      <form onSubmit={handleAdd} className="space-y-4">
+   532→        <IconField icon={User} label="Name" name="name" required />
+   533→        <IconField icon={Mail} label="Email" name="email" type="email" required />
+   534→        <IconField icon={Phone} label="Mobile" name="mobile" required />
+   535→        <IconField icon={Lock} label="Password" name="password" type="password" required />
+   536→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId"><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   537→        <DialogFooter><Button type="submit">Create Student</Button></DialogFooter>
+   538→      </form>
+   539→    </DialogContent></Dialog>
+   540→
+   541→    {/* Edit Student */}
+   542→    <Dialog open={!!editStudent} onOpenChange={o=>!o&&setEditStudent(null)}><DialogContent className="sm:max-w-md">
+   543→      <DialogHeader><DialogTitle>Edit Student</DialogTitle></DialogHeader>
+   544→      {editStudent&&<form onSubmit={handleEdit} className="space-y-4">
+   545→        <IconField icon={User} label="Name" name="name" defaultValue={editStudent.name} required />
+   546→        <IconField icon={Mail} label="Email" name="email" type="email" defaultValue={editStudent.email} required />
+   547→        <IconField icon={Phone} label="Mobile" name="mobile" defaultValue={editStudent.mobile} required />
+   548→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId" defaultValue={editStudent.courseId||undefined}><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   549→        <div className="space-y-1.5"><Label>Status</Label><Select name="status" defaultValue={editStudent.status}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PENDING">PENDING</SelectItem><SelectItem value="APPROVED">APPROVED</SelectItem><SelectItem value="REJECTED">REJECTED</SelectItem></SelectContent></Select></div>
+   550→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   551→      </form>}
+   552→    </DialogContent></Dialog>
+   553→
+   554→    {/* Change Student Password */}
+   555→    <Dialog open={!!passwordStudent} onOpenChange={o=>!o&&setPasswordStudent(null)}><DialogContent>
+   556→      <DialogHeader><DialogTitle>Change Password</DialogTitle><DialogDescription>For {passwordStudent?.name}</DialogDescription></DialogHeader>
+   557→      <form onSubmit={handleChangePassword} className="space-y-4">
+   558→        <IconField icon={Lock} label="New Password" name="password" type="password" required minLength={6} />
+   559→        <DialogFooter><Button type="submit">Update Password</Button></DialogFooter>
+   560→      </form>
+   561→    </DialogContent></Dialog>
+   562→
+   563→    {/* Delete */}
+   564→    <AlertDialog open={!!deleteStudent} onOpenChange={o=>!o&&setDeleteStudent(null)}><AlertDialogContent>
+   565→      <AlertDialogHeader><AlertDialogTitle>Delete Student</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete {deleteStudent?.name}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+   566→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   567→    </AlertDialogContent></AlertDialog>
+   568→  </div>
+   569→}
+   570→
+   571→// ─── 3. Courses Page ─────────────────────────────────────────────
+   572→function CoursesPage() {
+   573→  const [search,setSearch]=useState(''), [addOpen,setAddOpen]=useState(false)
+   574→  const [editCourse,setEditCourse]=useState<Course|null>(null), [deleteCourse,setDeleteCourse]=useState<Course|null>(null)
+   575→  const { data:courses, loading, refresh } = useFetch<Course[]>(()=>api.adminCourses(search||undefined).then(r=>r.data||r.courses||r), [search])
+   576→  const courseList=courses||[], pagination=usePagination(courseList,10)
+   577→
+   578→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateCourse({title:fd.get('title'),slug:fd.get('slug')});toast.success('Course created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   579→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editCourse)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateCourse(editCourse.id,{title:fd.get('title'),slug:fd.get('slug')});toast.success('Course updated');setEditCourse(null);refresh()}catch(e:any){toast.error(e.message)}}
+   580→  const handleDelete=async()=>{if(!deleteCourse)return;try{await api.adminDeleteCourse(deleteCourse.id);toast.success('Course deleted');setDeleteCourse(null);refresh()}catch(e:any){toast.error(e.message)}}
+   581→
+   582→  return <div className="space-y-4">
+   583→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   584→      <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search courses..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   585→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Course</Button>
+   586→    </div>
+   587→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:<StyledTable><Table>
+   588→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Title</TableHead><TableHead>Slug</TableHead><TableHead className="hidden sm:table-cell">Students</TableHead><TableHead className="hidden sm:table-cell">Subjects</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   589→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No courses found</TableCell></TableRow>
+   590→        :pagination.paginated.map((c,i)=>(
+   591→        <TableRow key={c.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}><TableCell className="font-medium">{c.title}</TableCell><TableCell className="text-sm text-muted-foreground">{c.slug}</TableCell><TableCell className="hidden sm:table-cell">{c._count?.students??0}</TableCell><TableCell className="hidden sm:table-cell">{c._count?.subjects??0}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="icon" onClick={()=>setEditCourse(c)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={()=>setDeleteCourse(c)}><Trash2 className="size-4 text-destructive" /></Button></div></TableCell></TableRow>
+   592→      ))}</TableBody>
+   593→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   594→
+   595→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+   596→      <DialogHeader><DialogTitle>Add Course</DialogTitle></DialogHeader>
+   597→      <form onSubmit={handleAdd} className="space-y-4">
+   598→        <div className="space-y-1.5"><Label>Title</Label><Input name="title" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   599→        <div className="space-y-1.5"><Label>Slug</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="slug" required placeholder="e.g. computer-science" className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+   600→        <DialogFooter><Button type="submit">Create Course</Button></DialogFooter>
+   601→      </form>
+   602→    </DialogContent></Dialog>
+   603→
+   604→    <Dialog open={!!editCourse} onOpenChange={o=>!o&&setEditCourse(null)}><DialogContent>
+   605→      <DialogHeader><DialogTitle>Edit Course</DialogTitle></DialogHeader>
+   606→      {editCourse&&<form onSubmit={handleEdit} className="space-y-4">
+   607→        <div className="space-y-1.5"><Label>Title</Label><Input name="title" defaultValue={editCourse.title} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   608→        <div className="space-y-1.5"><Label>Slug</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="slug" defaultValue={editCourse.slug} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+   609→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   610→      </form>}
+   611→    </DialogContent></Dialog>
+   612→
+   613→    <AlertDialog open={!!deleteCourse} onOpenChange={o=>!o&&setDeleteCourse(null)}><AlertDialogContent>
+   614→      <AlertDialogHeader><AlertDialogTitle>Delete Course</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteCourse?.title}&quot;?</AlertDialogDescription></AlertDialogHeader>
+   615→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   616→    </AlertDialogContent></AlertDialog>
+   617→  </div>
+   618→}
+   619→
+   620→// ─── 4. Subjects Page ────────────────────────────────────────────
+   621→function SubjectsPage() {
+   622→  const [search,setSearch]=useState(''), [courseFilter,setCourseFilter]=useState(''), [addOpen,setAddOpen]=useState(false)
+   623→  const [editSubject,setEditSubject]=useState<Subject|null>(null), [deleteSubject,setDeleteSubject]=useState<Subject|null>(null)
+   624→  const { data:subjects, loading, refresh } = useFetch<Subject[]>(()=>api.adminSubjects(search||undefined,courseFilter||undefined).then(r=>r.data||r.subjects||r), [search,courseFilter])
+   625→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   626→  const courseList=courses||[], subjectList=subjects||[], pagination=usePagination(subjectList,10)
+   627→
+   628→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateSubject({name:fd.get('name'),courseId:fd.get('courseId'),order:Number(fd.get('order'))});toast.success('Subject created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   629→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editSubject)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateSubject(editSubject.id,{name:fd.get('name'),courseId:fd.get('courseId'),order:Number(fd.get('order'))});toast.success('Subject updated');setEditSubject(null);refresh()}catch(e:any){toast.error(e.message)}}
+   630→  const handleDelete=async()=>{if(!deleteSubject)return;try{await api.adminDeleteSubject(deleteSubject.id);toast.success('Subject deleted');setDeleteSubject(null);refresh()}catch(e:any){toast.error(e.message)}}
+   631→
+   632→  return <div className="space-y-4">
+   633→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   634→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   635→        <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search subjects..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   636→        <Select value={courseFilter||'__all__'} onValueChange={v=>setCourseFilter(v==='__all__'?'':v)}><SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Courses" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Courses</SelectItem>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select>
+   637→      </div>
+   638→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Subject</Button>
+   639→    </div>
+   640→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:<StyledTable><Table>
+   641→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Course</TableHead><TableHead>Order</TableHead><TableHead className="hidden sm:table-cell">Chapters</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   642→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No subjects found</TableCell></TableRow>
+   643→        :pagination.paginated.map((s,i)=>(
+   644→        <TableRow key={s.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}><TableCell className="font-medium">{s.name}</TableCell><TableCell>{s.course?.title||'—'}</TableCell><TableCell>{s.order}</TableCell><TableCell className="hidden sm:table-cell">{s._count?.chapters??0}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="icon" onClick={()=>setEditSubject(s)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={()=>setDeleteSubject(s)}><Trash2 className="size-4 text-destructive" /></Button></div></TableCell></TableRow>
+   645→      ))}</TableBody>
+   646→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   647→
+   648→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+   649→      <DialogHeader><DialogTitle>Add Subject</DialogTitle></DialogHeader>
+   650→      <form onSubmit={handleAdd} className="space-y-4">
+   651→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId" required><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   652→        <div className="space-y-1.5"><Label>Subject Name</Label><Input name="name" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   653→        <div className="space-y-1.5"><Label>Order</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="order" type="number" min={1} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+   654→        <DialogFooter><Button type="submit">Create Subject</Button></DialogFooter>
+   655→      </form>
+   656→    </DialogContent></Dialog>
+   657→
+   658→    <Dialog open={!!editSubject} onOpenChange={o=>!o&&setEditSubject(null)}><DialogContent>
+   659→      <DialogHeader><DialogTitle>Edit Subject</DialogTitle></DialogHeader>
+   660→      {editSubject&&<form onSubmit={handleEdit} className="space-y-4">
+   661→        <div className="space-y-1.5"><Label>Course</Label><Select name="courseId" defaultValue={editSubject.courseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   662→        <div className="space-y-1.5"><Label>Subject Name</Label><Input name="name" defaultValue={editSubject.name} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   663→        <div className="space-y-1.5"><Label>Order</Label><div className="relative"><Hash className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input name="order" type="number" min={1} defaultValue={editSubject.order} required className="pl-8 transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div></div>
+   664→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   665→      </form>}
+   666→    </DialogContent></Dialog>
+   667→
+   668→    <AlertDialog open={!!deleteSubject} onOpenChange={o=>!o&&setDeleteSubject(null)}><AlertDialogContent>
+   669→      <AlertDialogHeader><AlertDialogTitle>Delete Subject</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteSubject?.name}&quot;?</AlertDialogDescription></AlertDialogHeader>
+   670→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   671→    </AlertDialogContent></AlertDialog>
+   672→  </div>
+   673→}
+   674→
+   675→// ─── 5. Chapters Page ────────────────────────────────────────────
+   676→function ChaptersPage() {
+   677→  const [search,setSearch]=useState(''), [courseFilter,setCourseFilter]=useState(''), [subjectFilter,setSubjectFilter]=useState('')
+   678→  const [addOpen,setAddOpen]=useState(false), [addCourseId,setAddCourseId]=useState('')
+   679→  const [editChapter,setEditChapter]=useState<Chapter|null>(null), [deleteChapter,setDeleteChapter]=useState<Chapter|null>(null)
+   680→
+   681→  const { data:chapters, loading, refresh } = useFetch<Chapter[]>(()=>api.adminChapters(search||undefined,subjectFilter||undefined,courseFilter||undefined).then(r=>r.data||r.chapters||r), [search,courseFilter,subjectFilter])
+   682→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   683→  const { data:subjects } = useFetch<Subject[]>(()=>api.adminSubjects().then(r=>r.data||r.subjects||r), [])
+   684→  const courseList=courses||[], subjectList=subjects||[], chapterList=chapters||[], pagination=usePagination(chapterList,10)
+   685→
+   686→  const filteredSubjects=useMemo(()=>courseFilter&&courseFilter!=='__all__'?subjectList.filter(s=>s.courseId===courseFilter):subjectList,[courseFilter,subjectList])
+   687→  const addSubjects=useMemo(()=>addCourseId?subjectList.filter(s=>s.courseId===addCourseId):[] as Subject[],[addCourseId,subjectList])
+   688→
+   689→  const handleCourseFilterChange=(v:string)=>{setCourseFilter(v==='__all__'?'':v);setSubjectFilter('')}
+   690→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateChapter({name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter created');setAddOpen(false);setAddCourseId('');refresh()}catch(e:any){toast.error(e.message)}}
+   691→  const handleEdit=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(!editChapter)return;const fd=new FormData(e.currentTarget);try{await api.adminUpdateChapter(editChapter.id,{name:fd.get('name'),subjectId:fd.get('subjectId')});toast.success('Chapter updated');setEditChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+   692→  const handleDelete=async()=>{if(!deleteChapter)return;try{await api.adminDeleteChapter(deleteChapter.id);toast.success('Chapter deleted');setDeleteChapter(null);refresh()}catch(e:any){toast.error(e.message)}}
+   693→
+   694→  return <div className="space-y-4">
+   695→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   696→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   697→        <div className="relative w-full sm:w-64"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search chapters..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   698→        <Select value={courseFilter||'__all__'} onValueChange={handleCourseFilterChange}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Courses" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Courses</SelectItem>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select>
+   699→        <Select value={subjectFilter||'__all__'} onValueChange={v=>setSubjectFilter(v==='__all__'?'':v)}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Subjects" /></SelectTrigger><SelectContent><SelectItem value="__all__">All Subjects</SelectItem>{filteredSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select>
+   700→      </div>
+   701→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Chapter</Button>
+   702→    </div>
+   703→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={4}/>:<StyledTable><Table>
+   704→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Subject</TableHead><TableHead className="hidden sm:table-cell">Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   705→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No chapters found</TableCell></TableRow>
+   706→        :pagination.paginated.map((ch,i)=>(
+   707→        <TableRow key={ch.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}><TableCell className="font-medium">{ch.name}</TableCell><TableCell>{ch.subject?.name||'—'}</TableCell><TableCell className="hidden sm:table-cell">{ch.subject?.course?.title||'—'}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="icon" onClick={()=>setEditChapter(ch)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={()=>setDeleteChapter(ch)}><Trash2 className="size-4 text-destructive" /></Button></div></TableCell></TableRow>
+   708→      ))}</TableBody>
+   709→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   710→
+   711→    {/* Add Chapter - cascading dropdown */}
+   712→    <Dialog open={addOpen} onOpenChange={v=>{setAddOpen(v);if(!v)setAddCourseId('')}}><DialogContent>
+   713→      <DialogHeader><DialogTitle>Add Chapter</DialogTitle></DialogHeader>
+   714→      <form onSubmit={handleAdd} className="space-y-4">
+   715→        <div className="space-y-1.5"><Label>Course</Label><Select value={addCourseId} onValueChange={setAddCourseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select course first" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   716→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" required disabled={!addCourseId}><SelectTrigger className="w-full"><SelectValue placeholder={addCourseId?'Select subject':'Select course first'} /></SelectTrigger><SelectContent>{addSubjects.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   717→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   718→        <DialogFooter><Button type="submit" disabled={!addCourseId}>Create Chapter</Button></DialogFooter>
+   719→      </form>
+   720→    </DialogContent></Dialog>
+   721→
+   722→    <Dialog open={!!editChapter} onOpenChange={o=>!o&&setEditChapter(null)}><DialogContent>
+   723→      <DialogHeader><DialogTitle>Edit Chapter</DialogTitle></DialogHeader>
+   724→      {editChapter&&<form onSubmit={handleEdit} className="space-y-4">
+   725→        <div className="space-y-1.5"><Label>Subject</Label><Select name="subjectId" defaultValue={editChapter.subjectId}><SelectTrigger className="w-full"><SelectValue placeholder="Select subject" /></SelectTrigger><SelectContent>{subjectList.map(s=><SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+   726→        <div className="space-y-1.5"><Label>Chapter Name</Label><Input name="name" defaultValue={editChapter.name} required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   727→        <DialogFooter><Button type="submit">Save Changes</Button></DialogFooter>
+   728→      </form>}
+   729→    </DialogContent></Dialog>
+   730→
+   731→    <AlertDialog open={!!deleteChapter} onOpenChange={o=>!o&&setDeleteChapter(null)}><AlertDialogContent>
+   732→      <AlertDialogHeader><AlertDialogTitle>Delete Chapter</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete &quot;{deleteChapter?.name}&quot;?</AlertDialogDescription></AlertDialogHeader>
+   733→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   734→    </AlertDialogContent></AlertDialog>
+   735→  </div>
+   736→}
+   737→
+   738→// ─── 6. Top Performers Page ──────────────────────────────────────
+   739→function TopPerformersPage() {
+   740→  const [search,setSearch]=useState('')
+   741→  const { data:performers, loading } = useFetch<TopPerformer[]>(()=>api.adminTopPerformers(search||undefined).then(r=>r.data||r.performers||r), [search])
+   742→  const performerList=performers||[], pagination=usePagination(performerList,10)
+   743→  const maxHours=useMemo(()=>Math.max(...performerList.map(p=>p.studyHours),1),[performerList])
+   744→
+   745→  const handleExport=()=>{exportCSV('top-performers',['Rank','Name','Mobile','Email','Course','Study Hours','Subjects Studied'],performerList.map((p,i)=>[String(i+1),p.name,p.mobile,p.email,p.course||'',String(p.studyHours),String(p.subjectsStudied)]));toast.success('CSV exported')}
+   746→  const medalEmoji=(i:number)=>i===0?'🥇':i===1?'🥈':i===2?'🥉':null
+   747→
+   748→  return <div className="space-y-4">
+   749→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   750→      <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search performers..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   751→      <Button variant="outline" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   752→    </div>
+   753→
+   754→    {!loading&&performerList.length>0&&<Card>
+   755→      <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Trophy className="size-4 text-amber-500" /> Study Hours Overview</CardTitle></CardHeader>
+   756→      <CardContent><InlineBarChart data={performerList.slice(0,10)} /></CardContent>
+   757→    </Card>}
+   758→
+   759→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={6}/>:<StyledTable><Table>
+   760→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Rank</TableHead><TableHead>Name</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Course</TableHead><TableHead>Study Hours</TableHead></TableRow></TableHeader>
+   761→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No performers found</TableCell></TableRow>
+   762→        :pagination.paginated.map((p,i)=>{
+   763→          const gi=(pagination.page-1)*10+i, medal=medalEmoji(gi)
+   764→          return <TableRow key={p.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   765→            <TableCell><div className="flex items-center gap-1.5">{medal?<span className="text-lg">{medal}</span>:<div className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{gi+1}</div>}</div></TableCell>
+   766→            <TableCell className="font-medium">{p.name}</TableCell><TableCell className="hidden md:table-cell">{p.mobile}</TableCell><TableCell className="hidden lg:table-cell text-sm">{p.email}</TableCell><TableCell>{p.course||'—'}</TableCell>
+   767→            <TableCell><div className="flex items-center gap-2"><Badge variant="secondary">{p.studyHours}h</Badge><div className="hidden sm:block w-20"><Progress value={(p.studyHours/maxHours)*100} className="h-1.5" /></div></div></TableCell>
+   768→          </TableRow>
+   769→        })
+   770→      }</TableBody>
+   771→    </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   772→  </div>
+   773→}
+   774→
+   775→// ─── 7. Reviews Page ─────────────────────────────────────────────
+   776→function ReviewsPage() {
+   777→  const [search,setSearch]=useState(''), [addOpen,setAddOpen]=useState(false), [deleteReview,setDeleteReview]=useState<Review|null>(null)
+   778→  const { data:reviews, loading, refresh } = useFetch<Review[]>(()=>api.adminReviews(search||undefined).then(r=>r.data||r.reviews||r), [search])
+   779→  const { data:courses } = useFetch<Course[]>(()=>api.adminCourses().then(r=>r.data||r.courses||r), [])
+   780→  const courseList=courses||[], reviewList=reviews||[], pagination=usePagination(reviewList,10)
+   781→
+   782→  const handleExport=()=>{exportCSV('reviews',['Author','Text','Rating','Course','Source','Status'],reviewList.map(r=>[r.authorName,r.text,String(r.rating),r.course?.title||'',r.source,r.status]));toast.success('CSV exported')}
+   783→  const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateReview({authorName:fd.get('authorName'),text:fd.get('text'),rating:Number(fd.get('rating')),courseId:fd.get('courseId')||null});toast.success('Review created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
+   784→  const handleStatusChange=async(id:string,status:string)=>{try{await api.adminUpdateReview(id,{status});toast.success(`Review ${status.toLowerCase()}`);refresh()}catch(e:any){toast.error(e.message)}}
+   785→  const handleDelete=async()=>{if(!deleteReview)return;try{await api.adminDeleteReview(deleteReview.id);toast.success('Review deleted');setDeleteReview(null);refresh()}catch(e:any){toast.error(e.message)}}
+   786→  const sourceBadge=(s:string)=>s==='ADMIN'?'bg-slate-100 text-slate-700 border-slate-200':'bg-amber-100 text-amber-700 border-amber-200'
+   787→
+   788→  return <div className="space-y-4">
+   789→    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+   790→      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+   791→        <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search reviews..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   792→        <Button variant="outline" onClick={handleExport}><Download className="size-4" /> Export CSV</Button>
+   793→      </div>
+   794→      <Button onClick={()=>setAddOpen(true)}><Plus className="size-4" /> Add Review</Button>
+   795→    </div>
+   796→    <Card><CardContent className="p-0">{loading?<TableSkeleton cols={7}/>:<StyledTable><div className="overflow-x-auto"><Table>
+   797→      <TableHeader><TableRow className="bg-muted/50"><TableHead>Author</TableHead><TableHead className="max-w-[200px]">Text</TableHead><TableHead>Rating</TableHead><TableHead className="hidden md:table-cell">Course</TableHead><TableHead>Source</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   798→      <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No reviews found</TableCell></TableRow>
+   799→        :pagination.paginated.map((r,i)=>(
+   800→        <TableRow key={r.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   801→          <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[200px] truncate">{r.text}</TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
+   802→          <TableCell className="hidden md:table-cell">{r.course?.title||'—'}</TableCell>
+   803→          <TableCell><Badge variant="outline" className={sourceBadge(r.source)}>{r.source}</Badge></TableCell>
+   804→          <TableCell><Badge variant={r.status==='APPROVED'?'default':r.status==='REJECTED'?'destructive':'secondary'}>{r.status}</Badge></TableCell>
+   805→          <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
+   806→            {r.status==='PENDING'&&r.studentId&&<><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'APPROVED')} className="text-emerald-600 hover:text-emerald-700"><Check className="size-3.5" /> Approve</Button><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'REJECTED')} className="text-destructive hover:text-red-700"><X className="size-3.5" /> Reject</Button></>}
+   807→            <Button variant="ghost" size="icon" onClick={()=>setDeleteReview(r)}><Trash2 className="size-4 text-destructive" /></Button>
+   808→          </div></TableCell>
+   809→        </TableRow>
+   810→      ))}</TableBody>
+   811→    </Table></div><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   812→
+   813→    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent>
+   814→      <DialogHeader><DialogTitle>Add Review</DialogTitle></DialogHeader>
+   815→      <form onSubmit={handleAdd} className="space-y-4">
+   816→        <IconField icon={User} label="Author Name" name="authorName" required />
+   817→        <div className="space-y-1.5"><Label>Review Text</Label><Textarea name="text" required className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" /></div>
+   818→        <div className="space-y-1.5"><Label>Rating</Label><Select name="rating" required><SelectTrigger className="w-full"><SelectValue placeholder="Select rating" /></SelectTrigger><SelectContent>{[1,2,3,4,5].map(r=><SelectItem key={r} value={String(r)}>{r} Star{r>1?'s':''}</SelectItem>)}</SelectContent></Select></div>
+   819→        <div className="space-y-1.5"><Label>Course (Optional)</Label><Select name="courseId"><SelectTrigger className="w-full"><SelectValue placeholder="Select course" /></SelectTrigger><SelectContent>{courseList.map(c=><SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent></Select></div>
+   820→        <DialogFooter><Button type="submit">Create Review</Button></DialogFooter>
+   821→      </form>
+   822→    </DialogContent></Dialog>
+   823→
+   824→    <AlertDialog open={!!deleteReview} onOpenChange={o=>!o&&setDeleteReview(null)}><AlertDialogContent>
+   825→      <AlertDialogHeader><AlertDialogTitle>Delete Review</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this review?</AlertDialogDescription></AlertDialogHeader>
+   826→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   827→    </AlertDialogContent></AlertDialog>
+   828→  </div>
+   829→}
+   830→
+   831→// ─── 8. Approvals Page ───────────────────────────────────────────
+   832→function ApprovalsPage() {
+   833→  const [search,setSearch]=useState('')
+   834→  const { data:approvals, loading, refresh:refreshApprovals } = useFetch<Approval[]>(()=>api.adminApprovals().then(r=>r.data||r.approvals||r.students||r), [])
+   835→  const { data:settings, refresh:refreshSettings } = useFetch<any>(()=>api.adminGetSettings().then(r=>r.data||r), [])
+   836→  const approvalEnabled=useMemo(()=>{if(settings){const v=settings.signup_approval||settings.signupApproval;return v==='true'||v===true}return false},[settings])
+   837→
+   838→  const handleToggle=async(enabled:boolean)=>{try{await api.adminToggleApproval(enabled);toast.success(`Signup approval ${enabled?'enabled':'disabled'}`);refreshSettings()}catch(e:any){toast.error(e.message)}}
+   839→  const handleApprove=async(id:string)=>{try{await api.adminApproveStudent(id);toast.success('Student approved');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   840→  const handleReject=async(id:string)=>{try{await api.adminRejectStudent(id);toast.success('Student rejected');refreshApprovals()}catch(e:any){toast.error(e.message)}}
+   841→
+   842→  const approvalList=approvals||[]
+   843→  const filtered=search?approvalList.filter(a=>a.name?.toLowerCase().includes(search.toLowerCase())||a.email?.toLowerCase().includes(search.toLowerCase())||a.mobile?.includes(search)):approvalList
+   844→  const pagination=usePagination(filtered,10)
+   845→
+   846→  return <div className="space-y-6">
+   847→    <Card className="overflow-hidden relative">
+   848→      <div className={`absolute inset-0 transition-colors duration-500 ${approvalEnabled?'bg-emerald-500/5':'bg-muted/30'}`} />
+   849→      <CardContent className="p-5 relative">
+   850→        <div className="flex items-center justify-between">
+   851→          <div className="flex items-center gap-3">
+   852→            <div className={`flex size-10 items-center justify-center rounded-lg ${approvalEnabled?'bg-emerald-500/15 text-emerald-600':'bg-muted text-muted-foreground'}`}><ShieldCheck className="size-5" /></div>
+   853→            <div><h3 className="font-semibold">Signup Approval Required</h3><p className="text-sm text-muted-foreground">When enabled, new students must be approved before accessing the platform.</p></div>
+   854→          </div>
+   855→          <div className="flex items-center gap-3">
+   856→            <span className={`text-sm font-medium ${approvalEnabled?'text-emerald-600':'text-muted-foreground'}`}>{approvalEnabled?'Enabled':'Disabled'}</span>
+   857→            <Switch checked={approvalEnabled} onCheckedChange={handleToggle} className="data-[state=checked]:bg-emerald-500 scale-110" />
+   858→          </div>
+   859→        </div>
+   860→      </CardContent>
+   861→    </Card>
+   862→    <div className="space-y-4">
+   863→      <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search pending students..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   864→      <Card><CardContent className="p-0">{loading?<TableSkeleton cols={5}/>:<StyledTable><Table>
+   865→        <TableHeader><TableRow className="bg-muted/50"><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="hidden md:table-cell">Mobile</TableHead><TableHead>Course</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   866→        <TableBody>{!pagination.paginated.length?<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No pending approvals</TableCell></TableRow>
+   867→          :pagination.paginated.map((a,i)=>(
+   868→          <TableRow key={a.id} className={`transition-colors hover:bg-muted/40 ${i%2===1?'bg-muted/15':''}`}>
+   869→            <TableCell className="font-medium"><div className="flex items-center gap-2"><XCircle className="size-4 text-amber-500 shrink-0" />{a.name}</div></TableCell>
+   870→            <TableCell className="text-sm">{a.email}</TableCell><TableCell className="hidden md:table-cell">{a.mobile}</TableCell><TableCell>{a.course?.title||'—'}</TableCell>
+   871→            <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
+   872→              <Button size="sm" variant="default" className="bg-emerald-600 hover:bg-emerald-700 gap-1" onClick={()=>handleApprove(a.id)}><CheckCircle2 className="size-3.5" /> Accept</Button>
+   873→              <Button size="sm" variant="destructive" className="gap-1" onClick={()=>handleReject(a.id)}><XCircle className="size-3.5" /> Reject</Button>
+   874→            </div></TableCell>
+   875→          </TableRow>
+   876→        ))}</TableBody>
+   877→      </Table><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></StyledTable>}</CardContent></Card>
+   878→    </div>
+   879→  </div>
+   880→}
+   881→
+   882→// ─── 9. Discussions Page ─────────────────────────────────────────
+   883→function DiscussionsPage() {
+   884→  const [search,setSearch]=useState(''), [replyId,setReplyId]=useState<string|null>(null), [replyText,setReplyText]=useState(''), [deleteId,setDeleteId]=useState<string|null>(null)
+   885→  const { data:discussions, loading, refresh } = useFetch<Discussion[]>(()=>api.adminDiscussions(search||undefined).then(r=>r.data||r.discussions||r), [search])
+   886→  const discussionList=discussions||[], pagination=usePagination(discussionList,10)
+   887→
+   888→  const handleReply=async(id:string)=>{if(!replyText.trim())return;try{await api.adminReplyDiscussion(id,replyText);toast.success('Reply sent');setReplyId(null);setReplyText('');refresh()}catch(e:any){toast.error(e.message)}}
+   889→  const handleDelete=async()=>{if(!deleteId)return;try{await api.adminDeleteDiscussion(deleteId);toast.success('Discussion deleted');setDeleteId(null);refresh()}catch(e:any){toast.error(e.message)}}
+   890→
+   891→  return <div className="space-y-4">
+   892→    <div className="relative w-full sm:w-72"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input placeholder="Search discussions..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-8" /></div>
+   893→    {loading?<div className="space-y-4">{Array.from({length:3}).map((_,i)=><Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full animate-pulse" style={{animationDelay:`${i*100}ms`}} /></CardContent></Card>)}</div>
+   894→     :!pagination.paginated.length?<Card><CardContent className="py-12 text-center text-muted-foreground">No discussions found</CardContent></Card>
+   895→     :<><div className="space-y-4">{pagination.paginated.map((d,i)=>(
+   896→        <Card key={d.id} className="overflow-hidden anim-fade-up" style={{animationDelay:`${i*40}ms`}}>
+   897→          <CardContent className="p-4 space-y-3">
+   898→            <div className="flex items-start justify-between">
+   899→              <div><h3 className="font-semibold text-sm">{d.title}</h3><p className="text-xs text-muted-foreground">By {d.student?.name||'Unknown'} &middot; {d.student?.email||''} &middot; {new Date(d.createdAt).toLocaleDateString()}</p></div>
+   900→              <Button variant="ghost" size="icon" onClick={()=>setDeleteId(d.id)}><Trash2 className="size-4 text-destructive" /></Button>
+   901→            </div>
+   902→            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{d.content}</p>
+   903→            {d.adminReply&&<div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3 text-sm"><p className="text-xs font-medium text-emerald-600 mb-1">Admin Reply:</p><p className="whitespace-pre-wrap">{d.adminReply}</p></div>}
+   904→            {replyId===d.id?<div className="space-y-2">
+   905→              <Textarea placeholder="Type your reply..." value={replyText} onChange={e=>setReplyText(e.target.value)} rows={3} className="transition-shadow focus:ring-2 focus:ring-emerald-500/30" />
+   906→              <div className="flex gap-2"><Button size="sm" onClick={()=>handleReply(d.id)} disabled={!replyText.trim()}><Send className="size-3.5" /> Send Reply</Button><Button size="sm" variant="outline" onClick={()=>{setReplyId(null);setReplyText('')}}>Cancel</Button></div>
+   907→            </div>:!d.adminReply?<Button size="sm" variant="outline" onClick={()=>{setReplyId(d.id);setReplyText('')}}><MessageCircle className="size-3.5" /> Reply</Button>:null}
+   908→          </CardContent>
+   909→        </Card>
+   910→      ))}</div>
+   911→      <Card><PaginationControls page={pagination.page} totalPages={pagination.totalPages} goTo={pagination.goTo} /></Card>
+   912→    </>}
+   913→
+   914→    <AlertDialog open={!!deleteId} onOpenChange={o=>!o&&setDeleteId(null)}><AlertDialogContent>
+   915→      <AlertDialogHeader><AlertDialogTitle>Delete Discussion</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this discussion? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+   916→      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+   917→    </AlertDialogContent></AlertDialog>
+   918→  </div>
+   919→}
+   920→
+   921→// ─── 10. Change Password Dialog ──────────────────────────────────
+   922→function ChangePasswordDialog({ open, onOpenChange }: { open:boolean; onOpenChange:(open:boolean)=>void }) {
+   923→  const [currentPassword,setCurrentPassword]=useState(''), [newPassword,setNewPassword]=useState(''), [confirmPassword,setConfirmPassword]=useState(''), [submitting,setSubmitting]=useState(false)
+   924→
+   925→  const handleSubmit=async(e:React.FormEvent)=>{
+   926→    e.preventDefault()
+   927→    if(newPassword!==confirmPassword){toast.error('New passwords do not match');return}
+   928→    if(newPassword.length<6){toast.error('Password must be at least 6 characters');return}
+   929→    setSubmitting(true)
+   930→    try{await api.adminChangeOwnPassword(currentPassword,newPassword);toast.success('Password changed successfully');onOpenChange(false);setCurrentPassword('');setNewPassword('');setConfirmPassword('')}
+   931→    catch(e:any){toast.error(e.message||'Failed to change password')}finally{setSubmitting(false)}
+   932→  }
+   933→
+   934→  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
+   935→    <DialogHeader><DialogTitle>Change Password</DialogTitle><DialogDescription>Update your admin account password</DialogDescription></DialogHeader>
+   936→    <form onSubmit={handleSubmit} className="space-y-4">
+   937→      <IconField icon={Lock} label="Current Password" type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} required />
+   938→      <IconField icon={Lock} label="New Password" type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} required minLength={6} />
+   939→      <IconField icon={Lock} label="Confirm New Password" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required minLength={6} />
+   940→      <DialogFooter><Button type="submit" disabled={submitting}>{submitting&&<Loader2 className="size-4 animate-spin" />} Change Password</Button></DialogFooter>
+   941→    </form>
+   942→  </DialogContent></Dialog>
+   943→}
+   944→

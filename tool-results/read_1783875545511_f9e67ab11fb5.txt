@@ -1,0 +1,1743 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Label } from '@/components/ui/label'
+     7→import { Textarea } from '@/components/ui/textarea'
+     8→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     9→import { Badge } from '@/components/ui/badge'
+    10→import { Progress } from '@/components/ui/progress'
+    11→import { Separator } from '@/components/ui/separator'
+    12→import { Skeleton } from '@/components/ui/skeleton'
+    13→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    14→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    15→import { Alert, AlertDescription } from '@/components/ui/alert'
+    16→import { Calendar } from '@/components/ui/calendar'
+    17→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    18→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    19→import { ScrollArea } from '@/components/ui/scroll-area'
+    20→import {
+    21→  LayoutDashboard, BookOpen, CalendarDays, CalendarCheck, MessageCircle, ListChecks,
+    22→  UserCog, LogOut, Flame, Settings, CheckCircle2, Clock, Play, Pause, RotateCcw,
+    23→  ChevronRight, Trophy, Star, Target, Zap, TrendingUp, GraduationCap, AlertCircle,
+    24→  Send, Loader2, X, Menu, Lock, Crown, Plus, Sparkles, Moon,
+    25→} from 'lucide-react'
+    26→import { api } from '@/lib/api-client'
+    27→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    28→
+    29→// ─── Types ──────────────────────────────────────────────────────────────
+    30→
+    31→interface StudentPanelProps { onLogout: () => void }
+    32→type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'syllabus' | 'profile'
+    33→
+    34→interface Subject {
+    35→  id: string; name: string; orderNum: number; chapters: Chapter[]
+    36→}
+    37→interface Chapter {
+    38→  id: string; name: string; subjectId: string; orderNum?: number
+    39→}
+    40→interface DashboardData {
+    41→  student: {
+    42→    id: string; fullName: string; email: string; mobile: string; score: number
+    43→    totalStudyMin: number; currentStreak: number; verified: boolean; lastStrikeAt?: string
+    44→    course: { id: string; title: string; subjects: Subject[] }
+    45→  }
+    46→  subjects: Subject[]; totalSubjects: number; totalChapters: number
+    47→  completedChapters: number; completionPercent: number; todayStudyMin: number
+    48→  achievements: { achievement: { id: string; name: string; icon: string; threshold: number }; unlockedAt: string }[]
+    49→}
+    50→interface StudySession {
+    51→  id: string; durationMin: number; completed: boolean; date: string
+    52→  chapter?: { id: string; name: string; subject: { name: string } } | null
+    53→}
+    54→interface StudyPlan {
+    55→  id: string; chapterId: string | null; notes: string | null; plannedDate: string
+    56→  chapter?: { id: string; name: string; subject: { name: string } } | null
+    57→}
+    58→interface Discussion {
+    59→  id: string; title: string; content: string; createdAt: string
+    60→  replies: { id: string; content: string; createdAt: string; student?: { fullName: string } | null; adminReply?: boolean }[]
+    61→}
+    62→interface SyllabusSubject {
+    63→  id: string; name: string; totalChapters: number; completedChapters: number
+    64→  completionPercent: number; chapters: { id: string; name: string; completed: boolean; completedAt: string | null }[]
+    65→}
+    66→
+    67→// ─── CSS Animations (injected once) ─────────────────────────────────────
+    68→
+    69→const CSS_ANIMATIONS = `
+    70→@keyframes firePulse {
+    71→  0% { transform: scale(1); filter: brightness(1); }
+    72→  25% { transform: scale(1.3); filter: brightness(1.5) drop-shadow(0 0 8px #f97316); }
+    73→  50% { transform: scale(1.1); filter: brightness(1.8) drop-shadow(0 0 16px #ef4444); }
+    74→  75% { transform: scale(1.25); filter: brightness(1.3) drop-shadow(0 0 12px #f59e0b); }
+    75→  100% { transform: scale(1); filter: brightness(1); }
+    76→}
+    77→.fire-animate { animation: firePulse 0.8s ease-in-out; }
+    78→
+    79→@keyframes shimmer {
+    80→  0% { background-position: -200% 0; }
+    81→  100% { background-position: 200% 0; }
+    82→}
+    83→.badge-shimmer { background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite; }
+    84→
+    85→@keyframes confetti-fall {
+    86→  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+    87→  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    88→}
+    89→.confetti-piece {
+    90→  position: fixed; width: 10px; height: 10px; z-index: 9999; pointer-events: none;
+    91→  animation: confetti-fall 2.5s ease-in forwards;
+    92→}
+    93→
+    94→@keyframes screen-flash {
+    95→  0% { opacity: 0; } 15% { opacity: 0.4; } 100% { opacity: 0; }
+    96→}
+    97→.strike-flash { animation: screen-flash 0.6s ease-out forwards; }
+    98→
+    99→@keyframes glow-pulse {
+   100→  0%, 100% { box-shadow: 0 0 8px rgba(59,130,246,0.4), 0 0 16px rgba(59,130,246,0.2); }
+   101→  50% { box-shadow: 0 0 16px rgba(59,130,246,0.6), 0 0 32px rgba(59,130,246,0.3); }
+   102→}
+   103→.verified-glow { animation: glow-pulse 2s ease-in-out infinite; }
+   104→
+   105→@keyframes celebration-burst {
+   106→  0% { transform: scale(0.5); opacity: 0; }
+   107→  50% { transform: scale(1.2); opacity: 1; }
+   108→  100% { transform: scale(1); opacity: 1; }
+   109→}
+   110→.celebration-burst { animation: celebration-burst 0.6s ease-out forwards; }
+   111→
+   112→@keyframes float-particle {
+   113→  0% { transform: translateY(0) scale(1); opacity: 1; }
+   114→  100% { transform: translateY(-40px) scale(0); opacity: 0; }
+   115→}
+   116→.flame-particle {
+   117→  position: absolute; width: 6px; height: 6px; border-radius: 50%;
+   118→  animation: float-particle 0.8s ease-out forwards; pointer-events: none;
+   119→}
+   120→
+   121→@keyframes page-fade-in {
+   122→  0% { opacity: 0; transform: translateY(8px); }
+   123→  100% { opacity: 1; transform: translateY(0); }
+   124→}
+   125→.page-transition { animation: page-fade-in 0.2s ease-out forwards; }
+   126→
+   127→@keyframes slide-in-left {
+   128→  0% { transform: translateX(-100%); }
+   129→  100% { transform: translateX(0); }
+   130→}
+   131→.sidebar-slide-in { animation: slide-in-left 0.3s ease-out forwards; }
+   132→
+   133→@keyframes fade-in {
+   134→  0% { opacity: 0; } 100% { opacity: 1; }
+   135→}
+   136→.fade-in { animation: fade-in 0.2s ease-out forwards; }
+   137→
+   138→@keyframes grow-in {
+   139→  0% { opacity: 0; max-height: 0; } 100% { opacity: 1; max-height: 500px; }
+   140→}
+   141→.grow-in { animation: grow-in 0.3s ease-out forwards; overflow: hidden; }
+   142→
+   143→@keyframes pop-in {
+   144→  0% { transform: scale(0); opacity: 0; }
+   145→  60% { transform: scale(1.1); opacity: 1; }
+   146→  100% { transform: scale(1); opacity: 1; }
+   147→}
+   148→.pop-in { animation: pop-in 0.4s ease-out forwards; }
+   149→
+   150→.card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+   151→.card-hover:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+   152→.card-hover:active { transform: scale(0.98); }
+   153→
+   154→.nav-active-indicator { transition: all 0.3s ease; }
+   155→`
+   156→
+   157→// ─── Constants ──────────────────────────────────────────────────────────
+   158→
+   159→const MOTIVATIONAL_QUOTES = [
+   160→  { text: "The expert in anything was once a beginner.", author: "Helen Hayes" },
+   161→  { text: "Success is the sum of small efforts repeated day in and day out.", author: "Robert Collier" },
+   162→  { text: "Don't watch the clock; do what it does. Keep going.", author: "Sam Levenson" },
+   163→  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+   164→  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+   165→  { text: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+   166→  { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+   167→  { text: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" },
+   168→  { text: "Strive for progress, not perfection.", author: "Unknown" },
+   169→  { text: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+   170→]
+   171→
+   172→const SESSION_QUOTES = [
+   173→  "Let's crush this study session! 💪", "Focus mode: ACTIVATED 🎯",
+   174→  "One chapter at a time, you've got this! 📚", "Today's effort = Tomorrow's success ⭐",
+   175→  "Deep breath. Let's begin. 🧘", "Knowledge is power - let's power up! ⚡",
+   176→  "Small steps lead to big results 🚀", "Your future self will thank you 🌟",
+   177→]
+   178→
+   179→const MOCK_LEADERBOARD = [
+   180→  { rank: 1, name: 'Arjun Sharma', score: 2840, streak: 14 },
+   181→  { rank: 2, name: 'Priya Patel', score: 2360, streak: 11 },
+   182→  { rank: 3, name: 'Rahul Verma', score: 1920, streak: 8 },
+   183→  { rank: 4, name: 'Ananya Singh', score: 1650, streak: 7 },
+   184→  { rank: 5, name: 'Vikram Joshi', score: 1480, streak: 5 },
+   185→]
+   186→
+   187→// ─── Helpers ────────────────────────────────────────────────────────────
+   188→
+   189→function formatTimer(seconds: number): string {
+   190→  const h = Math.floor(seconds / 3600)
+   191→  const m = Math.floor((seconds % 3600) / 60)
+   192→  const s = seconds % 60
+   193→  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   194→  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   195→}
+   196→
+   197→function formatMinutes(min: number): string {
+   198→  if (min < 60) return `${min}m`
+   199→  const h = Math.floor(min / 60)
+   200→  const m = min % 60
+   201→  return m > 0 ? `${h}h ${m}m` : `${h}h`
+   202→}
+   203→
+   204→function formatDate(date: Date): string {
+   205→  return date.toISOString().split('T')[0]
+   206→}
+   207→
+   208→// ─── Circular Progress Ring ─────────────────────────────────────────────
+   209→
+   210→function CircularProgressRing({
+   211→  size = 120, strokeWidth = 8, progress = 0, color = '#10b981',
+   212→  trackColor = 'rgba(100,116,139,0.2)', children, className = '',
+   213→}: {
+   214→  size?: number; strokeWidth?: number; progress?: number; color?: string
+   215→  trackColor?: string; children?: React.ReactNode; className?: string
+   216→}) {
+   217→  const radius = (size - strokeWidth) / 2
+   218→  const circumference = radius * 2 * Math.PI
+   219→  const offset = circumference - (Math.min(progress, 100) / 100) * circumference
+   220→  const center = size / 2
+   221→
+   222→  return (
+   223→    <div className={`relative inline-flex items-center justify-center ${className}`}>
+   224→      <svg width={size} height={size} className="transform -rotate-90">
+   225→        <circle cx={center} cy={center} r={radius} stroke={trackColor} strokeWidth={strokeWidth} fill="none" />
+   226→        <circle cx={center} cy={center} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none"
+   227→          strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
+   228→          style={{ transition: 'stroke-dashoffset 0.5s ease' }} />
+   229→      </svg>
+   230→      <div className="absolute inset-0 flex items-center justify-center">{children}</div>
+   231→    </div>
+   232→  )
+   233→}
+   234→
+   235→// ─── Timer Countdown Ring ───────────────────────────────────────────────
+   236→
+   237→function TimerCountdownRing({
+   238→  size = 240, strokeWidth = 10, totalSeconds = 0, remainingSeconds = 0,
+   239→}: {
+   240→  size?: number; strokeWidth?: number; totalSeconds?: number; remainingSeconds?: number
+   241→}) {
+   242→  const radius = (size - strokeWidth) / 2
+   243→  const circumference = radius * 2 * Math.PI
+   244→  const progress = totalSeconds > 0 ? remainingSeconds / totalSeconds : 0
+   245→  const offset = circumference - progress * circumference
+   246→  const center = size / 2
+   247→
+   248→  let ringColor = '#10b981', glowColor = 'rgba(16,185,129,0.3)'
+   249→  if (progress < 0.25) { ringColor = '#ef4444'; glowColor = 'rgba(239,68,68,0.4)' }
+   250→  else if (progress < 0.5) { ringColor = '#f59e0b'; glowColor = 'rgba(245,158,11,0.3)' }
+   251→
+   252→  return (
+   253→    <svg width={size} height={size} className="transform -rotate-90">
+   254→      <circle cx={center} cy={center} r={radius + 4} stroke={glowColor}
+   255→        strokeWidth={strokeWidth + 8} fill="none" className="blur-sm" />
+   256→      <circle cx={center} cy={center} r={radius} stroke="rgba(100,116,139,0.15)"
+   257→        strokeWidth={strokeWidth} fill="none" />
+   258→      <circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth}
+   259→        fill="none" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
+   260→        style={{ transition: 'stroke-dashoffset 1s linear, stroke 2s ease', filter: `drop-shadow(0 0 8px ${glowColor})` }} />
+   261→      {Array.from({ length: 60 }).map((_, i) => {
+   262→        const angle = (i / 60) * 360
+   263→        const isMajor = i % 5 === 0
+   264→        const innerR = radius - (isMajor ? 18 : 14)
+   265→        const outerR = radius - 12
+   266→        const rad = (angle * Math.PI) / 180
+   267→        return (
+   268→          <line key={i}
+   269→            x1={center + innerR * Math.cos(rad)} y1={center + innerR * Math.sin(rad)}
+   270→            x2={center + outerR * Math.cos(rad)} y2={center + outerR * Math.sin(rad)}
+   271→            stroke={isMajor ? 'rgba(100,116,139,0.3)' : 'rgba(100,116,139,0.15)'}
+   272→            strokeWidth={isMajor ? 2 : 1} transform={`rotate(90, ${center}, ${center})`} />
+   273→        )
+   274→      })}
+   275→    </svg>
+   276→  )
+   277→}
+   278→
+   279→// ─── Confetti ───────────────────────────────────────────────────────────
+   280→
+   281→function Confetti({ active }: { active: boolean }) {
+   282→  const pieces = useMemo(() => {
+   283→    if (!active) return []
+   284→    const colors = ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6']
+   285→    return Array.from({ length: 30 }).map((_, i) => ({
+   286→      id: i, x: Math.random() * 100,
+   287→      color: colors[Math.floor(Math.random() * colors.length)],
+   288→      delay: Math.random() * 0.8, size: Math.random() * 8 + 5,
+   289→    }))
+   290→  }, [active])
+   291→
+   292→  const [visible, setVisible] = useState(false)
+   293→
+   294→  useEffect(() => {
+   295→    if (active) {
+   296→      setVisible(true)
+   297→      const timeout = setTimeout(() => setVisible(false), 3000)
+   298→      return () => clearTimeout(timeout)
+   299→    } else { setVisible(false) }
+   300→  }, [active])
+   301→
+   302→  if (!visible || pieces.length === 0) return null
+   303→
+   304→  return (
+   305→    <div className="fixed inset-0 pointer-events-none z-[9999]">
+   306→      {pieces.map(p => (
+   307→        <div key={p.id} className="confetti-piece"
+   308→          style={{ left: `${p.x}%`, backgroundColor: p.color, width: `${p.size}px`,
+   309→            height: `${p.size}px`, borderRadius: p.id % 2 ? '50%' : '2px', animationDelay: `${p.delay}s` }} />
+   310→      ))}
+   311→    </div>
+   312→  )
+   313→}
+   314→
+   315→// ─── Study Heatmap ──────────────────────────────────────────────────────
+   316→
+   317→function StudyHeatmap({ data }: { data: Record<string, number> }) {
+   318→  const today = new Date()
+   319→  const days = Array.from({ length: 30 }).map((_, i) => {
+   320→    const d = new Date(); d.setDate(today.getDate() - (29 - i)); return formatDate(d)
+   321→  })
+   322→  const maxMin = Math.max(...Object.values(data), 1)
+   323→
+   324→  const getColor = (minutes: number) => {
+   325→    if (minutes === 0) return 'bg-slate-100 dark:bg-slate-800'
+   326→    const intensity = minutes / maxMin
+   327→    if (intensity < 0.25) return 'bg-emerald-200 dark:bg-emerald-900'
+   328→    if (intensity < 0.5) return 'bg-emerald-300 dark:bg-emerald-700'
+   329→    if (intensity < 0.75) return 'bg-emerald-400 dark:bg-emerald-600'
+   330→    return 'bg-emerald-500 dark:bg-emerald-500'
+   331→  }
+   332→
+   333→  return (
+   334→    <div className="space-y-2">
+   335→      <div className="flex gap-0.5 overflow-x-auto pb-2">
+   336→        <div className="flex flex-col gap-0.5">
+   337→          {days.map((day, i) => {
+   338→            const minutes = data[day] || 0
+   339→            return (
+   340→              <TooltipProvider key={i}>
+   341→                <Tooltip>
+   342→                  <TooltipTrigger asChild>
+   343→                    <div className={`w-4 h-4 rounded-[2px] ${getColor(minutes)} cursor-pointer transition-colors hover:ring-1 hover:ring-slate-400`} />
+   344→                  </TooltipTrigger>
+   345→                  <TooltipContent side="top" className="text-xs">
+   346→                    <p className="font-medium">{new Date(day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+   347→                    <p className="text-slate-400">{minutes > 0 ? formatMinutes(minutes) : 'No study'}</p>
+   348→                  </TooltipContent>
+   349→                </Tooltip>
+   350→              </TooltipProvider>
+   351→            )
+   352→          })}
+   353→        </div>
+   354→      </div>
+   355→      <div className="flex items-center gap-1 text-[10px] text-slate-400">
+   356→        <span>Less</span>
+   357→        <div className="w-3 h-3 rounded-[2px] bg-slate-100 dark:bg-slate-800" />
+   358→        <div className="w-3 h-3 rounded-[2px] bg-emerald-200 dark:bg-emerald-900" />
+   359→        <div className="w-3 h-3 rounded-[2px] bg-emerald-300 dark:bg-emerald-700" />
+   360→        <div className="w-3 h-3 rounded-[2px] bg-emerald-400 dark:bg-emerald-600" />
+   361→        <div className="w-3 h-3 rounded-[2px] bg-emerald-500 dark:bg-emerald-500" />
+   362→        <span>More</span>
+   363→      </div>
+   364→    </div>
+   365→  )
+   366→}
+   367→
+   368→// ─── Main Component ─────────────────────────────────────────────────────
+   369→
+   370→export default function StudentPanel({ onLogout }: StudentPanelProps) {
+   371→  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+   372→  const [sidebarOpen, setSidebarOpen] = useState(false)
+   373→  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+   374→  const [loading, setLoading] = useState(true)
+   375→
+   376→  const fetchDashboard = useCallback(async () => {
+   377→    try {
+   378→      setLoading(true)
+   379→      const data = await api.studentDashboard()
+   380→      setDashboardData(data as DashboardData)
+   381→    } catch (err) { console.error('Dashboard fetch error:', err) }
+   382→    finally { setLoading(false) }
+   383→  }, [])
+   384→
+   385→  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+   386→
+   387→  const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
+   388→    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+   389→    { id: 'track', label: 'Track Study', icon: CalendarDays },
+   390→    { id: 'planner', label: 'Study Planner', icon: CalendarCheck },
+   391→    { id: 'discussion', label: 'Discussion', icon: MessageCircle },
+   392→    { id: 'syllabus', label: 'Syllabus', icon: ListChecks },
+   393→    { id: 'profile', label: 'Edit Profile', icon: UserCog },
+   394→  ]
+   395→
+   396→  const handleNavClick = (page: Page) => { setCurrentPage(page); setSidebarOpen(false) }
+   397→
+   398→  const SidebarContent = () => (
+   399→    <div className="flex flex-col h-full">
+   400→      <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   401→        <div className="flex items-center gap-3">
+   402→          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-800 to-slate-950 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center flex-shrink-0 shadow-sm">
+   403→            <GraduationCap className="w-5 h-5 text-white dark:text-slate-900" />
+   404→          </div>
+   405→          <div>
+   406→            <h2 className="font-bold text-sm text-slate-900 dark:text-slate-100">MISSION CS</h2>
+   407→            <p className="text-[10px] text-slate-500 dark:text-slate-400 tracking-wider">TEST SERIES</p>
+   408→          </div>
+   409→        </div>
+   410→      </div>
+   411→
+   412→      {dashboardData && (
+   413→        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   414→          <div className="flex items-center gap-3">
+   415→            <div className="relative">
+   416→              <Avatar className="h-9 w-9">
+   417→                <AvatarFallback className="bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 text-slate-700 dark:text-slate-300 text-sm font-semibold">
+   418→                  {dashboardData.student.fullName.charAt(0).toUpperCase()}
+   419→                </AvatarFallback>
+   420→              </Avatar>
+   421→              {dashboardData.student.verified && (
+   422→                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center ring-2 ring-white dark:ring-slate-900">
+   423→                  <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+   424→                </div>
+   425→              )}
+   426→            </div>
+   427→            <div className="min-w-0 flex-1">
+   428→              <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{dashboardData.student.fullName}</p>
+   429→              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">Score: {dashboardData.student.score}</p>
+   430→            </div>
+   431→          </div>
+   432→        </div>
+   433→      )}
+   434→
+   435→      <nav className="flex-1 p-3 space-y-1">
+   436→        {navItems.map((item) => {
+   437→          const isActive = currentPage === item.id
+   438→          return (
+   439→            <button key={item.id} onClick={() => handleNavClick(item.id)}
+   440→              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative active:scale-[0.98] ${
+   441→                isActive ? 'text-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+   442→              }`}>
+   443→              {isActive && (
+   444→                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-slate-800 to-slate-950 dark:from-slate-200 dark:to-slate-100 shadow-sm nav-active-indicator" />
+   445→              )}
+   446→              <item.icon className="w-4 h-4 flex-shrink-0 relative z-10" />
+   447→              <span className="relative z-10">{item.label}</span>
+   448→            </button>
+   449→          )
+   450→        })}
+   451→      </nav>
+   452→
+   453→      <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
+   454→        <button onClick={() => {
+   455→          const t = document.documentElement.classList.contains('dark') ? 'light' : 'dark'
+   456→          document.documentElement.classList.toggle('dark', t === 'dark')
+   457→          localStorage.setItem('theme', t)
+   458→        }}
+   459→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+   460→          <Moon className="w-4 h-4 flex-shrink-0" /> <span id="theme-label">Dark Mode</span>
+   461→        </button>
+   462→        <button onClick={onLogout}
+   463→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+   464→          <LogOut className="w-4 h-4 flex-shrink-0" /> Logout
+   465→        </button>
+   466→      </div>
+   467→    </div>
+   468→  )
+   469→
+   470→  const renderPage = () => {
+   471→    if (loading) return <LoadingSkeleton />
+   472→    switch (currentPage) {
+   473→      case 'dashboard': return <DashboardPage data={dashboardData} onRefresh={fetchDashboard} />
+   474→      case 'track': return <TrackStudyPage subjects={dashboardData?.subjects || []} />
+   475→      case 'planner': return <StudyPlannerPage subjects={dashboardData?.subjects || []} />
+   476→      case 'discussion': return <DiscussionPage />
+   477→      case 'syllabus': return <SyllabusPage />
+   478→      case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />
+   479→    }
+   480→  }
+   481→
+   482→  return (
+   483→    <>
+   484→      <style>{CSS_ANIMATIONS}</style>
+   485→      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+   486→        {/* Desktop Sidebar */}
+   487→        <aside className="hidden md:flex w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col fixed inset-y-0 z-40">
+   488→          <SidebarContent />
+   489→        </aside>
+   490→
+   491→        {/* Mobile Sidebar Overlay */}
+   492→        {sidebarOpen && (
+   493→          <>
+   494→            <div className="fixed inset-0 z-50 md:hidden bg-black/50 fade-in"
+   495→              onClick={() => setSidebarOpen(false)} />
+   496→            <aside className="fixed left-0 top-0 bottom-0 w-64 z-50 md:hidden bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 sidebar-slide-in">
+   497→              <SidebarContent />
+   498→            </aside>
+   499→          </>
+   500→        )}
+   501→
+   502→        {/* Main Content */}
+   503→        <main className="flex-1 md:ml-64">
+   504→          <div className="md:hidden sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
+   505→            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+   506→              <Menu className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+   507→            </button>
+   508→            <h1 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+   509→              {navItems.find(n => n.id === currentPage)?.label || 'Dashboard'}
+   510→            </h1>
+   511→          </div>
+   512→
+   513→          <div className="p-4 md:p-6 max-w-5xl mx-auto">
+   514→            <div key={currentPage} className="page-transition">
+   515→              {renderPage()}
+   516→            </div>
+   517→          </div>
+   518→        </main>
+   519→      </div>
+   520→    </>
+   521→  )
+   522→}
+   523→
+   524→// ─── Loading Skeleton ────────────────────────────────────────────────────
+   525→
+   526→function LoadingSkeleton() {
+   527→  return (
+   528→    <div className="space-y-6">
+   529→      <div className="grid gap-4 md:grid-cols-3">
+   530→        {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}
+   531→      </div>
+   532→      <Skeleton className="h-64 rounded-xl" />
+   533→      <Skeleton className="h-48 rounded-xl" />
+   534→    </div>
+   535→  )
+   536→}
+   537→
+   538→// ═══════════════════════════════════════════════════════════════════════
+   539→// PAGE 1: DASHBOARD
+   540→// ═══════════════════════════════════════════════════════════════════════
+   541→
+   542→function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+   543→  const [selectedSubjectId, setSelectedSubjectId] = useState('')
+   544→  const [selectedChapterId, setSelectedChapterId] = useState('')
+   545→  const [timerPreset, setTimerPreset] = useState(0)
+   546→  const [customMinutes, setCustomMinutes] = useState('')
+   547→  const [timerRunning, setTimerRunning] = useState(false)
+   548→  const [timerPaused, setTimerPaused] = useState(false)
+   549→  const [timerSeconds, setTimerSeconds] = useState(0)
+   550→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+   551→  const [timerCompleted, setTimerCompleted] = useState(false)
+   552→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+   553→  const [strikeLoading, setStrikeLoading] = useState(false)
+   554→  const [strikeFlash, setStrikeFlash] = useState(false)
+   555→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+   556→  const [resetLoading, setResetLoading] = useState(false)
+   557→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+   558→  const [achievementsData, setAchievementsData] = useState<any>(null)
+   559→  const [showConfetti, setShowConfetti] = useState(false)
+   560→  const [sessionQuote, setSessionQuote] = useState('')
+   561→  const [dailyGoalMin] = useState(120)
+   562→
+   563→  const dailyQuote = useMemo(() => MOTIVATIONAL_QUOTES[new Date().getDate() % MOTIVATIONAL_QUOTES.length], [])
+   564→  const student = data?.student
+   565→  const subjects = data?.subjects || []
+   566→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+   567→  const chapters = selectedSubject?.chapters || []
+   568→
+   569→  useEffect(() => {
+   570→    const fetchAchievements = async () => {
+   571→      try { setAchievementsData(await api.studentAchievements()) }
+   572→      catch (err) { console.error('Achievements fetch error:', err) }
+   573→    }
+   574→    fetchAchievements()
+   575→  }, [data?.student?.score])
+   576→
+   577→  // Timer logic
+   578→  useEffect(() => {
+   579→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+   580→      timerInterval.current = setInterval(() => {
+   581→        setTimerSeconds(prev => {
+   582→          if (prev <= 1) {
+   583→            setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
+   584→            if (timerInterval.current) clearInterval(timerInterval.current)
+   585→            return 0
+   586→          }
+   587→          return prev - 1
+   588→        })
+   589→      }, 1000)
+   590→    }
+   591→    return () => { if (timerInterval.current) clearInterval(timerInterval.current) }
+   592→  }, [timerRunning, timerPaused, timerSeconds])
+   593→
+   594→  const startTimer = () => {
+   595→    let minutes = timerPreset
+   596→    if (timerPreset === -1) minutes = parseInt(customMinutes) || 0
+   597→    if (minutes <= 0 || !selectedChapterId) return
+   598→    setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
+   599→    setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
+   600→    setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+   601→  }
+   602→
+   603→  const resetTimer = () => {
+   604→    setTimerRunning(false); setTimerPaused(false); setTimerSeconds(0)
+   605→    setTimerTotalSeconds(0); setTimerCompleted(false); setSessionQuote('')
+   606→    if (timerInterval.current) clearInterval(timerInterval.current)
+   607→  }
+   608→
+   609→  const handleTimerComplete = async (completed: boolean) => {
+   610→    const durationMin = Math.round(timerTotalSeconds / 60)
+   611→    try {
+   612→      await api.studentStartSession({ chapterId: selectedChapterId, durationMin, completed })
+   613→      if (completed) await api.studentMarkChapter(selectedChapterId, true)
+   614→    } catch (err) { console.error('Session save error:', err) }
+   615→    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh()
+   616→  }
+   617→
+   618→  const handleStrike = async () => {
+   619→    setStrikeLoading(true); setStrikeAnimating(true); setStrikeFlash(true)
+   620→    try {
+   621→      await api.studentSendStrike()
+   622→      setTimeout(() => { setStrikeAnimating(false); setStrikeFlash(false) }, 800)
+   623→      onRefresh()
+   624→    } catch {
+   625→      setStrikeAnimating(false); setStrikeFlash(false)
+   626→    } finally { setStrikeLoading(false) }
+   627→  }
+   628→
+   629→  const handleResetStats = async () => {
+   630→    setResetLoading(true)
+   631→    try { await api.studentResetStats(); setResetDialogOpen(false); onRefresh() }
+   632→    catch (err) { console.error('Reset error:', err) }
+   633→    finally { setResetLoading(false) }
+   634→  }
+   635→
+   636→  if (!data || !student) return <LoadingSkeleton />
+   637→
+   638→  const canStrike = !(student as any).lastStrikeAt ||
+   639→    new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
+   640→
+   641→  const timerPresets = [
+   642→    { label: '30m', value: 30 }, { label: '45m', value: 45 },
+   643→    { label: '1h', value: 60 }, { label: '1.5h', value: 90 }, { label: '2h', value: 120 },
+   644→  ]
+   645→
+   646→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   647→  const totalAchievements = achievementsData?.totalAchievements || 12
+   648→  const dailyGoalProgress = Math.min((data.todayStudyMin / dailyGoalMin) * 100, 100)
+   649→  const dailyGoalReached = data.todayStudyMin >= dailyGoalMin
+   650→  const scoreProgress = Math.min((student.score / 1000) * 100, 100)
+   651→
+   652→  return (
+   653→    <div className="space-y-6">
+   654→      <Confetti active={showConfetti} />
+   655→      {strikeFlash && <div className="fixed inset-0 bg-orange-400/20 dark:bg-orange-500/10 strike-flash pointer-events-none z-[999]" />}
+   656→
+   657→      {/* Daily Quote */}
+   658→      <div className="rounded-xl bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 dark:from-slate-700 dark:via-slate-600 dark:to-slate-800 p-4 shadow-lg fade-in">
+   659→        <div className="flex items-center gap-3">
+   660→          <Sparkles className="w-5 h-5 text-amber-400 flex-shrink-0" />
+   661→          <div className="min-w-0 flex-1">
+   662→            <p className="text-white text-sm font-medium italic">&ldquo;{dailyQuote.text}&rdquo;</p>
+   663→            <p className="text-slate-400 text-xs mt-0.5">— {dailyQuote.author}</p>
+   664→          </div>
+   665→        </div>
+   666→      </div>
+   667→
+   668→      {/* Profile Card */}
+   669→      <Card className="overflow-hidden">
+   670→        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-6 relative">
+   671→          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+   672→          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/3 rounded-full translate-y-1/3 -translate-x-1/4" />
+   673→          <div className="relative flex items-start justify-between">
+   674→            <div className="flex items-center gap-5">
+   675→              <CircularProgressRing size={80} strokeWidth={5} progress={scoreProgress} color="#f59e0b" trackColor="rgba(255,255,255,0.15)">
+   676→                <Avatar className="h-14 w-14 border-2 border-white/20">
+   677→                  <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   678→                    {student.fullName.charAt(0).toUpperCase()}
+   679→                  </AvatarFallback>
+   680→                </Avatar>
+   681→              </CircularProgressRing>
+   682→              <div>
+   683→                <div className="flex items-center gap-2">
+   684→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+   685→                  {student.verified && (
+   686→                    <TooltipProvider><Tooltip>
+   687→                      <TooltipTrigger><div className="verified-glow rounded-full p-0.5"><CheckCircle2 className="w-5 h-5 text-blue-400" /></div></TooltipTrigger>
+   688→                      <TooltipContent><p>Verified - 7 Day Streak! 🔥</p></TooltipContent>
+   689→                    </Tooltip></TooltipProvider>
+   690→                  )}
+   691→                </div>
+   692→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   693→                <div className="flex items-center gap-4 mt-2">
+   694→                  <div className="flex items-center gap-1.5">
+   695→                    <Trophy className="w-4 h-4 text-amber-400" />
+   696→                    <span className="text-white font-semibold">{student.score}</span>
+   697→                    <span className="text-slate-400 text-xs">points</span>
+   698→                  </div>
+   699→                  <div className="flex items-center gap-1.5">
+   700→                    <Flame className="w-4 h-4 text-orange-400" />
+   701→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   702→                    <span className="text-slate-400 text-xs">day streak</span>
+   703→                  </div>
+   704→                </div>
+   705→              </div>
+   706→            </div>
+   707→            <div className="flex items-center gap-2">
+   708→              <TooltipProvider><Tooltip>
+   709→                <TooltipTrigger asChild>
+   710→                  <Button size="icon" variant="ghost"
+   711→                    className={`h-11 w-11 text-orange-400 hover:text-orange-300 hover:bg-white/10 relative ${strikeAnimating ? 'fire-animate' : ''}`}
+   712→                    onClick={handleStrike} disabled={!canStrike || strikeLoading}>
+   713→                    <Flame className="w-6 h-6" />
+   714→                    {strikeAnimating && (
+   715→                      <>
+   716→                        <div className="flame-particle bg-orange-500" style={{ top: '-8px', left: '6px' }} />
+   717→                        <div className="flame-particle bg-red-500" style={{ top: '-12px', left: '14px', animationDelay: '0.1s' }} />
+   718→                        <div className="flame-particle bg-amber-500" style={{ top: '-6px', left: '22px', animationDelay: '0.2s' }} />
+   719→                        <div className="flame-particle bg-yellow-400" style={{ top: '-14px', left: '10px', animationDelay: '0.15s' }} />
+   720→                        <div className="flame-particle bg-orange-400" style={{ top: '-10px', left: '18px', animationDelay: '0.25s' }} />
+   721→                      </>
+   722→                    )}
+   723→                  </Button>
+   724→                </TooltipTrigger>
+   725→                <TooltipContent>{canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}</TooltipContent>
+   726→              </Tooltip></TooltipProvider>
+   727→
+   728→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   729→                <DialogTrigger asChild>
+   730→                  <Button size="icon" variant="ghost" className="h-11 w-11 text-slate-400 hover:text-white hover:bg-white/10">
+   731→                    <Settings className="w-5 h-5" />
+   732→                  </Button>
+   733→                </DialogTrigger>
+   734→                <DialogContent>
+   735→                  <DialogHeader>
+   736→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   737→                    <DialogDescription>This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.</DialogDescription>
+   738→                  </DialogHeader>
+   739→                  <DialogFooter>
+   740→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   741→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   742→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Reset Stats
+   743→                    </Button>
+   744→                  </DialogFooter>
+   745→                </DialogContent>
+   746→              </Dialog>
+   747→            </div>
+   748→          </div>
+   749→        </div>
+   750→      </Card>
+   751→
+   752→      {/* Quick Actions */}
+   753→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   754→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-amber-500" onClick={() => {
+   755→          for (const s of subjects) {
+   756→            if (s.chapters.length > 0) { setSelectedSubjectId(s.id); setSelectedChapterId(s.chapters[0].id); break }
+   757→          }
+   758→        }}>
+   759→          <CardContent className="pt-4 pb-4">
+   760→            <div className="flex items-center gap-3">
+   761→              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+   762→                <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+   763→              </div>
+   764→              <div>
+   765→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resume Last Chapter</p>
+   766→                <p className="text-xs text-slate-500">Continue where you left off</p>
+   767→              </div>
+   768→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   769→            </div>
+   770→          </CardContent>
+   771→        </Card>
+   772→
+   773→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-orange-500" onClick={handleStrike}>
+   774→          <CardContent className="pt-4 pb-4">
+   775→            <div className="flex items-center gap-3">
+   776→              <div className="p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+   777→                <Flame className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+   778→              </div>
+   779→              <div>
+   780→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue Streak</p>
+   781→                <p className="text-xs text-slate-500">{canStrike ? 'Send your daily strike!' : 'Already struck today ✓'}</p>
+   782→              </div>
+   783→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   784→            </div>
+   785→          </CardContent>
+   786→        </Card>
+   787→
+   788→        <Card className="cursor-pointer hover:shadow-md transition-all card-hover border-l-4 border-l-emerald-500">
+   789→          <CardContent className="pt-4 pb-4">
+   790→            <div className="flex items-center gap-3">
+   791→              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+   792→                <Target className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   793→              </div>
+   794→              <div>
+   795→                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">View Study Plan</p>
+   796→                <p className="text-xs text-slate-500">Check today's schedule</p>
+   797→              </div>
+   798→              <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+   799→            </div>
+   800→          </CardContent>
+   801→        </Card>
+   802→      </div>
+   803→
+   804→      {/* Study Session + Daily Goal */}
+   805→      <div className="grid md:grid-cols-[1fr_280px] gap-6">
+   806→        <Card>
+   807→          <CardHeader className="pb-3">
+   808→            <CardTitle className="text-lg flex items-center gap-2">
+   809→              <BookOpen className="w-5 h-5 text-slate-600 dark:text-slate-400" /> Study Session
+   810→            </CardTitle>
+   811→            <CardDescription>Which chapter do you want to study today?</CardDescription>
+   812→          </CardHeader>
+   813→          <CardContent className="space-y-4">
+   814→            {sessionQuote && timerRunning && (
+   815→              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800 grow-in">
+   816→                <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium text-center">{sessionQuote}</p>
+   817→              </div>
+   818→            )}
+   819→
+   820→            {!timerRunning && !timerCompleted ? (
+   821→              <>
+   822→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   823→                  <div className="space-y-1.5">
+   824→                    <Label className="text-xs font-medium text-slate-500">Subject</Label>
+   825→                    <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   826→                      <SelectTrigger><SelectValue placeholder="Choose subject" /></SelectTrigger>
+   827→                      <SelectContent>{subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+   828→                    </Select>
+   829→                  </div>
+   830→                  <div className="space-y-1.5">
+   831→                    <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+   832→                    <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   833→                      <SelectTrigger><SelectValue placeholder="Choose chapter" /></SelectTrigger>
+   834→                      <SelectContent>{chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+   835→                    </Select>
+   836→                  </div>
+   837→                </div>
+   838→
+   839→                <div className="space-y-2">
+   840→                  <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+   841→                  <div className="flex flex-wrap gap-2">
+   842→                    {timerPresets.map(p => (
+   843→                      <Button key={p.value} variant={timerPreset === p.value ? 'default' : 'outline'} size="sm"
+   844→                        className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+   845→                        onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}>
+   846→                        {p.label}
+   847→                      </Button>
+   848→                    ))}
+   849→                    <div className="flex items-center gap-1.5">
+   850→                      <Input type="number" placeholder="Custom (min)" className="w-28 h-8 text-sm"
+   851→                        value={customMinutes} onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }} min={1} />
+   852→                      <span className="text-xs text-slate-400">min</span>
+   853→                    </div>
+   854→                  </div>
+   855→                </div>
+   856→
+   857→                <Button onClick={startTimer}
+   858→                  disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || (timerPreset === -1 && !customMinutes)}
+   859→                  className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200">
+   860→                  <Play className="w-4 h-4 mr-2" /> Start Session
+   861→                </Button>
+   862→              </>
+   863→            ) : timerCompleted ? (
+   864→              <div className="text-center py-6 space-y-4">
+   865→                <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center celebration-burst">
+   866→                  <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   867→                </div>
+   868→                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Session Complete! 🎉</h3>
+   869→                <p className="text-slate-500 dark:text-slate-400">Have you completed this chapter?</p>
+   870→                <div className="flex items-center justify-center gap-3">
+   871→                  <Button onClick={() => handleTimerComplete(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+   872→                    <CheckCircle2 className="w-4 h-4 mr-2" /> Yes, Done!
+   873→                  </Button>
+   874→                  <Button variant="outline" onClick={() => handleTimerComplete(false)}>Not Yet</Button>
+   875→                </div>
+   876→              </div>
+   877→            ) : (
+   878→              <div className="text-center py-6 space-y-4">
+   879→                <div>
+   880→                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+   881→                  <p className="font-medium text-slate-900 dark:text-slate-100">{chapters.find(c => c.id === selectedChapterId)?.name}</p>
+   882→                </div>
+   883→                <div className="relative inline-flex items-center justify-center">
+   884→                  <TimerCountdownRing size={200} strokeWidth={8} totalSeconds={timerTotalSeconds} remainingSeconds={timerSeconds} />
+   885→                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+   886→                    <span className="text-4xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">{formatTimer(timerSeconds)}</span>
+   887→                    <span className="text-xs text-slate-400 mt-1">{timerPaused ? 'PAUSED' : 'remaining'}</span>
+   888→                  </div>
+   889→                </div>
+   890→                <div className="flex items-center justify-center gap-3">
+   891→                  <Button variant="outline" size="icon" onClick={() => setTimerPaused(prev => !prev)} className="h-12 w-12 rounded-full">
+   892→                    {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+   893→                  </Button>
+   894→                  <Button variant="outline" size="icon" onClick={resetTimer} className="h-12 w-12 rounded-full">
+   895→                    <RotateCcw className="w-5 h-5" />
+   896→                  </Button>
+   897→                </div>
+   898→                <Button variant="ghost" onClick={() => { resetTimer(); setSelectedChapterId('') }} className="text-sm text-slate-500">
+   899→                  Choose Another
+   900→                </Button>
+   901→              </div>
+   902→            )}
+   903→          </CardContent>
+   904→        </Card>
+   905→
+   906→        {/* Right Column */}
+   907→        <div className="space-y-6">
+   908→          <Card>
+   909→            <CardHeader className="pb-3">
+   910→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   911→                <Target className="w-4 h-4 text-emerald-500" /> Daily Goal
+   912→              </CardTitle>
+   913→            </CardHeader>
+   914→            <CardContent className="flex flex-col items-center">
+   915→              <CircularProgressRing size={100} strokeWidth={8} progress={dailyGoalProgress}
+   916→                color={dailyGoalReached ? '#10b981' : '#f59e0b'} trackColor="rgba(100,116,139,0.2)">
+   917→                <div className="text-center">
+   918→                  <p className="text-lg font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   919→                  <p className="text-[10px] text-slate-400">of {formatMinutes(dailyGoalMin)}</p>
+   920→                </div>
+   921→              </CircularProgressRing>
+   922→              <div className="mt-3 text-center">
+   923→                {dailyGoalReached ? (
+   924→                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+   925→                    <CheckCircle2 className="w-3.5 h-3.5" /> Goal Reached!
+   926→                  </p>
+   927→                ) : (
+   928→                  <p className="text-xs text-slate-500">{formatMinutes(dailyGoalMin - data.todayStudyMin)} more to go</p>
+   929→                )}
+   930→              </div>
+   931→            </CardContent>
+   932→          </Card>
+   933→
+   934→          <Card>
+   935→            <CardHeader className="pb-3">
+   936→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   937→                <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+   938→              </CardTitle>
+   939→            </CardHeader>
+   940→            <CardContent>
+   941→              <div className="space-y-2">
+   942→                {MOCK_LEADERBOARD.map((entry) => (
+   943→                  <div key={entry.rank} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+   944→                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+   945→                      entry.rank === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+   946→                      entry.rank === 2 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
+   947→                      entry.rank === 3 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+   948→                      'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-500'
+   949→                    }`}>
+   950→                      {entry.rank === 1 ? <Crown className="w-3.5 h-3.5" /> : entry.rank}
+   951→                    </div>
+   952→                    <div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">{entry.name}</p></div>
+   953→                    <div className="flex items-center gap-1.5 flex-shrink-0">
+   954→                      <Flame className="w-3 h-3 text-orange-400" /><span className="text-[10px] text-slate-500">{entry.streak}</span>
+   955→                    </div>
+   956→                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">{entry.score}</span>
+   957→                  </div>
+   958→                ))}
+   959→              </div>
+   960→            </CardContent>
+   961→          </Card>
+   962→        </div>
+   963→      </div>
+   964→
+   965→      {/* Quick Stats */}
+   966→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   967→        {[
+   968→          { icon: BookOpen, value: data.totalSubjects, label: 'Subjects', from: 'from-blue-50', to: 'to-blue-100', darkFrom: 'dark:from-blue-900/20', darkTo: 'dark:to-blue-800/20', iconColor: 'text-blue-600 dark:text-blue-400' },
+   969→          { icon: ListChecks, value: data.totalChapters, label: 'Total Chapters', from: 'from-purple-50', to: 'to-purple-100', darkFrom: 'dark:from-purple-900/20', darkTo: 'dark:to-purple-800/20', iconColor: 'text-purple-600 dark:text-purple-400' },
+   970→          { icon: CheckCircle2, value: data.completedChapters, label: 'Completed', from: 'from-emerald-50', to: 'to-emerald-100', darkFrom: 'dark:from-emerald-900/20', darkTo: 'dark:to-emerald-800/20', iconColor: 'text-emerald-600 dark:text-emerald-400' },
+   971→          { icon: Clock, value: formatMinutes(data.todayStudyMin), label: 'Today', from: 'from-amber-50', to: 'to-amber-100', darkFrom: 'dark:from-amber-900/20', darkTo: 'dark:to-amber-800/20', iconColor: 'text-amber-600 dark:text-amber-400' },
+   972→        ].map((stat, i) => (
+   973→          <Card key={i} className="card-hover">
+   974→            <CardContent className="pt-4 pb-4">
+   975→              <div className="flex items-center gap-3">
+   976→                <div className={`p-2 rounded-lg bg-gradient-to-br ${stat.from} ${stat.to} ${stat.darkFrom} ${stat.darkTo}`}>
+   977→                  <stat.icon className={`w-4 h-4 ${stat.iconColor}`} />
+   978→                </div>
+   979→                <div>
+   980→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stat.value}</p>
+   981→                  <p className="text-xs text-slate-500">{stat.label}</p>
+   982→                </div>
+   983→              </div>
+   984→            </CardContent>
+   985→          </Card>
+   986→        ))}
+   987→      </div>
+   988→
+   989→      {/* Achievements */}
+   990→      <Card>
+   991→        <CardHeader className="pb-3">
+   992→          <div className="flex items-center justify-between">
+   993→            <CardTitle className="text-lg flex items-center gap-2">
+   994→              <Trophy className="w-5 h-5 text-amber-500" /> Achievements
+   995→            </CardTitle>
+   996→            <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+   997→              {unlockedCount}/{totalAchievements} Unlocked
+   998→            </Badge>
+   999→          </div>
+  1000→        </CardHeader>
+  1001→        <CardContent>
+  1002→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+  1003→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+  1004→              <TooltipProvider key={a.id}>
+  1005→                <Tooltip>
+  1006→                  <TooltipTrigger asChild>
+  1007→                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
+  1008→                      a.unlocked
+  1009→                        ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+  1010→                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+  1011→                    }`}
+  1012→                      style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
+  1013→                      {a.unlocked ? (
+  1014→                        <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+  1015→                      ) : (
+  1016→                        <div className="relative">
+  1017→                          <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+  1018→                          <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
+  1019→                        </div>
+  1020→                      )}
+  1021→                      <span className={`text-[10px] font-medium text-center leading-tight ${
+  1022→                        a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+  1023→                      }`}>{a.name}</span>
+  1024→                    </div>
+  1025→                  </TooltipTrigger>
+  1026→                  <TooltipContent>
+  1027→                    <p className="font-semibold">{a.name}</p>
+  1028→                    <p className="text-xs">{a.description}</p>
+  1029→                    <p className="text-xs text-slate-400 mt-1">{a.threshold} points needed</p>
+  1030→                    {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+  1031→                  </TooltipContent>
+  1032→                </Tooltip>
+  1033→              </TooltipProvider>
+  1034→            ))}
+  1035→          </div>
+  1036→        </CardContent>
+  1037→      </Card>
+  1038→    </div>
+  1039→  )
+  1040→}
+  1041→
+  1042→// ═══════════════════════════════════════════════════════════════════════
+  1043→// PAGE 2: TRACK STUDY
+  1044→// ═══════════════════════════════════════════════════════════════════════
+  1045→
+  1046→function TrackStudyPage({ subjects }: { subjects: Subject[] }) {
+  1047→  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  1048→  const [sessions, setSessions] = useState<StudySession[]>([])
+  1049→  const [totalMin, setTotalMin] = useState(0)
+  1050→  const [chartData, setChartData] = useState<{ date: string; minutes: number }[]>([])
+  1051→  const [heatmapData, setHeatmapData] = useState<Record<string, number>>({})
+  1052→  const [weeklySummary, setWeeklySummary] = useState<{ totalMin: number; sessions: number; bestDay: string; bestDayMin: number } | null>(null)
+  1053→  const [loading, setLoading] = useState(true)
+  1054→
+  1055→  useEffect(() => {
+  1056→    const fetchChart = async () => {
+  1057→      try {
+  1058→        const data = await api.studentStudyHistory()
+  1059→        const allSessions = data.sessions || []
+  1060→        const dateMap: Record<string, number> = {}
+  1061→        allSessions.forEach((s: any) => {
+  1062→          const dateKey = new Date(s.date).toISOString().split('T')[0]
+  1063→          dateMap[dateKey] = (dateMap[dateKey] || 0) + s.durationMin
+  1064→        })
+  1065→        const chart: { date: string; minutes: number }[] = []
+  1066→        for (let i = 13; i >= 0; i--) {
+  1067→          const d = new Date(); d.setDate(d.getDate() - i)
+  1068→          const key = formatDate(d)
+  1069→          chart.push({ date: key, minutes: dateMap[key] || 0 })
+  1070→        }
+  1071→        setChartData(chart)
+  1072→        const heatmap: Record<string, number> = {}
+  1073→        for (let i = 29; i >= 0; i--) {
+  1074→          const d = new Date(); d.setDate(d.getDate() - i)
+  1075→          const key = formatDate(d)
+  1076→          heatmap[key] = dateMap[key] || 0
+  1077→        }
+  1078→        setHeatmapData(heatmap)
+  1079→        let weekTotal = 0, bestDay = '', bestDayMin = 0
+  1080→        for (let i = 6; i >= 0; i--) {
+  1081→          const d = new Date(); d.setDate(d.getDate() - i)
+  1082→          const key = formatDate(d)
+  1083→          const min = dateMap[key] || 0
+  1084→          weekTotal += min
+  1085→          if (min > bestDayMin) { bestDayMin = min; bestDay = key }
+  1086→        }
+  1087→        setWeeklySummary({ totalMin: weekTotal, sessions: allSessions.length, bestDay, bestDayMin })
+  1088→      } catch (err) { console.error('Chart data error:', err) }
+  1089→    }
+  1090→    fetchChart()
+  1091→  }, [])
+  1092→
+  1093→  useEffect(() => {
+  1094→    const fetchSessions = async () => {
+  1095→      setLoading(true)
+  1096→      try {
+  1097→        const dateStr = formatDate(selectedDate)
+  1098→        const data = await api.studentStudyHistory(dateStr)
+  1099→        setSessions(data.sessions || []); setTotalMin(data.totalMin || 0)
+  1100→      } catch (err) { console.error('Sessions fetch error:', err) }
+  1101→      finally { setLoading(false) }
+  1102→    }
+  1103→    fetchSessions()
+  1104→  }, [selectedDate])
+  1105→
+  1106→  const maxChartMinutes = Math.max(...chartData.map(d => d.minutes), 1)
+  1107→
+  1108→  return (
+  1109→    <div className="space-y-6">
+  1110→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1111→        <CalendarDays className="w-5 h-5" /> Track Study
+  1112→      </h2>
+  1113→
+  1114→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+  1115→        <Card>
+  1116→          <CardContent className="pt-4 flex justify-center">
+  1117→            <Calendar mode="single" selected={selectedDate} onSelect={(d) => d && setSelectedDate(d)} className="rounded-md" />
+  1118→          </CardContent>
+  1119→        </Card>
+  1120→
+  1121→        <Card>
+  1122→          <CardHeader className="pb-3">
+  1123→            <div className="flex items-center justify-between">
+  1124→              <CardTitle className="text-base">{selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</CardTitle>
+  1125→              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{formatMinutes(totalMin)} studied</Badge>
+  1126→            </div>
+  1127→          </CardHeader>
+  1128→          <CardContent>
+  1129→            {loading ? (
+  1130→              <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+  1131→            ) : sessions.length === 0 ? (
+  1132→              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">No study sessions on this day</p>
+  1133→            ) : (
+  1134→              <ScrollArea className="max-h-64">
+  1135→                <div className="space-y-2">
+  1136→                  {sessions.map(s => (
+  1137→                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+  1138→                      <div className="flex items-center gap-3">
+  1139→                        <div className={`p-1.5 rounded-lg ${s.completed ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-200 dark:bg-slate-800'}`}>
+  1140→                          {s.completed ? <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Clock className="w-4 h-4 text-slate-500" />}
+  1141→                        </div>
+  1142→                        <div>
+  1143→                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{s.chapter?.name || 'General Study'}</p>
+  1144→                          <p className="text-xs text-slate-500">{s.chapter?.subject?.name || ''}</p>
+  1145→                        </div>
+  1146→                      </div>
+  1147→                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{formatMinutes(s.durationMin)}</span>
+  1148→                    </div>
+  1149→                  ))}
+  1150→                </div>
+  1151→              </ScrollArea>
+  1152→            )}
+  1153→          </CardContent>
+  1154→        </Card>
+  1155→      </div>
+  1156→
+  1157→      {/* Chart */}
+  1158→      <Card>
+  1159→        <CardHeader className="pb-3">
+  1160→          <CardTitle className="text-base flex items-center gap-2">
+  1161→            <TrendingUp className="w-4 h-4 text-slate-600 dark:text-slate-400" /> Last 14 Days
+  1162→          </CardTitle>
+  1163→        </CardHeader>
+  1164→        <CardContent>
+  1165→          <div className="flex items-end gap-1.5 h-44">
+  1166→            {chartData.map((d, i) => {
+  1167→              const height = d.minutes > 0 ? Math.max((d.minutes / maxChartMinutes) * 100, 4) : 2
+  1168→              const isToday = d.date === formatDate(new Date())
+  1169→              return (
+  1170→                <TooltipProvider key={i}>
+  1171→                  <Tooltip>
+  1172→                    <TooltipTrigger asChild>
+  1173→                      <div className="flex-1 flex flex-col items-center gap-1 group">
+  1174→                        <div className={`w-full rounded-t-md transition-all relative overflow-hidden ${
+  1175→                          isToday ? 'bg-gradient-to-t from-slate-800 to-slate-600 dark:from-slate-200 dark:to-slate-400' :
+  1176→                          d.minutes > 0 ? 'bg-gradient-to-t from-slate-500 to-slate-400 dark:from-slate-600 dark:to-slate-500' :
+  1177→                          'bg-slate-200 dark:bg-slate-800'
+  1178→                        }`} style={{ minHeight: '4px', height: `${height}%`, transition: `height 0.4s ease ${i * 0.03}s` }}>
+  1179→                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+  1180→                        </div>
+  1181→                        <span className={`text-[9px] ${isToday ? 'font-bold text-slate-900 dark:text-slate-100' : 'text-slate-400'}`}>
+  1182→                          {new Date(d.date + 'T00:00:00').getDate()}
+  1183→                        </span>
+  1184→                      </div>
+  1185→                    </TooltipTrigger>
+  1186→                    <TooltipContent>
+  1187→                      <p className="font-medium">{formatMinutes(d.minutes)} studied</p>
+  1188→                      <p className="text-xs text-slate-400">{d.date}</p>
+  1189→                    </TooltipContent>
+  1190→                  </Tooltip>
+  1191→                </TooltipProvider>
+  1192→              )
+  1193→            })}
+  1194→          </div>
+  1195→        </CardContent>
+  1196→      </Card>
+  1197→
+  1198→      {/* Heatmap */}
+  1199→      <Card>
+  1200→        <CardHeader className="pb-3">
+  1201→          <CardTitle className="text-base flex items-center gap-2">
+  1202→            <Flame className="w-4 h-4 text-orange-500" /> Study Activity — Last 30 Days
+  1203→          </CardTitle>
+  1204→        </CardHeader>
+  1205→        <CardContent><StudyHeatmap data={heatmapData} /></CardContent>
+  1206→      </Card>
+  1207→
+  1208→      {/* Weekly Summary */}
+  1209→      {weeklySummary && (
+  1210→        <Card>
+  1211→          <CardHeader className="pb-3">
+  1212→            <CardTitle className="text-base flex items-center gap-2">
+  1213→              <Zap className="w-4 h-4 text-amber-500" /> This Week&apos;s Summary
+  1214→            </CardTitle>
+  1215→          </CardHeader>
+  1216→          <CardContent>
+  1217→            <div className="grid grid-cols-3 gap-4">
+  1218→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20">
+  1219→                <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400">{formatMinutes(weeklySummary.totalMin)}</p>
+  1220→                <p className="text-xs text-slate-500 mt-1">Total Study</p>
+  1221→              </div>
+  1222→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+  1223→                <p className="text-xl font-bold text-blue-700 dark:text-blue-400">{weeklySummary.sessions}</p>
+  1224→                <p className="text-xs text-slate-500 mt-1">Sessions</p>
+  1225→              </div>
+  1226→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20">
+  1227→                <p className="text-xl font-bold text-amber-700 dark:text-amber-400">{formatMinutes(weeklySummary.bestDayMin)}</p>
+  1228→                <p className="text-xs text-slate-500 mt-1">Best Day</p>
+  1229→              </div>
+  1230→            </div>
+  1231→          </CardContent>
+  1232→        </Card>
+  1233→      )}
+  1234→    </div>
+  1235→  )
+  1236→}
+  1237→
+  1238→// ═══════════════════════════════════════════════════════════════════════
+  1239→// PAGE 3: STUDY PLANNER
+  1240→// ═══════════════════════════════════════════════════════════════════════
+  1241→
+  1242→function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
+  1243→  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  1244→  const [plans, setPlans] = useState<StudyPlan[]>([])
+  1245→  const [loading, setLoading] = useState(true)
+  1246→  const [showForm, setShowForm] = useState(false)
+  1247→  const [formSubjectId, setFormSubjectId] = useState('')
+  1248→  const [formChapterId, setFormChapterId] = useState('')
+  1249→  const [formNotes, setFormNotes] = useState('')
+  1250→  const [formLoading, setFormLoading] = useState(false)
+  1251→  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  1252→
+  1253→  const chapters = subjects.find(s => s.id === formSubjectId)?.chapters || []
+  1254→
+  1255→  const fetchPlans = useCallback(async () => {
+  1256→    if (!selectedDate) return
+  1257→    setLoading(true)
+  1258→    try {
+  1259→      const data = await api.studentStudyPlans(formatDate(selectedDate))
+  1260→      setPlans(data.plans || [])
+  1261→    } catch (err) { console.error('Plans fetch error:', err) }
+  1262→    finally { setLoading(false) }
+  1263→  }, [selectedDate])
+  1264→
+  1265→  useEffect(() => { fetchPlans() }, [fetchPlans])
+  1266→
+  1267→  const handleSavePlan = async () => {
+  1268→    if (!formChapterId || !selectedDate) return
+  1269→    setFormLoading(true)
+  1270→    try {
+  1271→      if (editingPlanId) {
+  1272→        await api.studentUpdatePlan(editingPlanId, { chapterId: formChapterId, notes: formNotes, plannedDate: formatDate(selectedDate) })
+  1273→      } else {
+  1274→        await api.studentCreatePlan({ chapterId: formChapterId, notes: formNotes, plannedDate: formatDate(selectedDate) })
+  1275→      }
+  1276→      setShowForm(false); setFormSubjectId(''); setFormChapterId(''); setFormNotes(''); setEditingPlanId(null)
+  1277→      fetchPlans()
+  1278→    } catch (err) { console.error('Plan save error:', err) }
+  1279→    finally { setFormLoading(false) }
+  1280→  }
+  1281→
+  1282→  const handleEdit = (plan: StudyPlan) => {
+  1283→    setEditingPlanId(plan.id)
+  1284→    const subject = subjects.find(s => s.chapters.some(c => c.id === plan.chapterId))
+  1285→    if (subject) setFormSubjectId(subject.id)
+  1286→    setFormChapterId(plan.chapterId || ''); setFormNotes(plan.notes || ''); setShowForm(true)
+  1287→  }
+  1288→
+  1289→  const handleCancelForm = () => {
+  1290→    setShowForm(false); setFormSubjectId(''); setFormChapterId(''); setFormNotes(''); setEditingPlanId(null)
+  1291→  }
+  1292→
+  1293→  return (
+  1294→    <div className="space-y-6">
+  1295→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1296→        <CalendarCheck className="w-5 h-5" /> Study Planner
+  1297→      </h2>
+  1298→
+  1299→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+  1300→        <Card>
+  1301→          <CardContent className="pt-4 flex justify-center">
+  1302→            <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate}
+  1303→              disabled={{ before: new Date() }} className="rounded-md" />
+  1304→          </CardContent>
+  1305→        </Card>
+  1306→
+  1307→        <div className="space-y-4">
+  1308→          <Card>
+  1309→            <CardHeader className="pb-3">
+  1310→              <div className="flex items-center justify-between">
+  1311→                <CardTitle className="text-base">
+  1312→                  {selectedDate ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : 'Select a date'}
+  1313→                </CardTitle>
+  1314→                <Button size="sm" onClick={() => { setShowForm(true); setEditingPlanId(null) }} disabled={!selectedDate}
+  1315→                  className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+  1316→                  <Plus className="w-3.5 h-3.5 mr-1" /> Add Plan
+  1317→                </Button>
+  1318→              </div>
+  1319→            </CardHeader>
+  1320→            <CardContent>
+  1321→              {loading ? (
+  1322→                <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
+  1323→              ) : plans.length === 0 ? (
+  1324→                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-6">No plans for this date</p>
+  1325→              ) : (
+  1326→                <div className="space-y-2">
+  1327→                  {plans.map(plan => (
+  1328→                    <div key={plan.id} className="flex items-start justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+  1329→                      <div>
+  1330→                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{plan.chapter?.name || 'General'}</p>
+  1331→                        <p className="text-xs text-slate-500">{plan.chapter?.subject?.name || ''}</p>
+  1332→                        {plan.notes && <p className="text-xs text-slate-500 mt-1">{plan.notes}</p>}
+  1333→                      </div>
+  1334→                      <Button size="sm" variant="ghost" onClick={() => handleEdit(plan)}>Edit</Button>
+  1335→                    </div>
+  1336→                  ))}
+  1337→                </div>
+  1338→              )}
+  1339→            </CardContent>
+  1340→          </Card>
+  1341→
+  1342→          {showForm && selectedDate && (
+  1343→            <div className="grow-in">
+  1344→              <Card>
+  1345→                <CardHeader className="pb-3">
+  1346→                  <CardTitle className="text-base">{editingPlanId ? 'Edit Plan' : 'New Plan'}</CardTitle>
+  1347→                </CardHeader>
+  1348→                <CardContent className="space-y-3">
+  1349→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1350→                    <div className="space-y-1.5">
+  1351→                      <Label className="text-xs">Subject</Label>
+  1352→                      <Select value={formSubjectId} onValueChange={(v) => { setFormSubjectId(v); setFormChapterId('') }}>
+  1353→                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1354→                        <SelectContent>{subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+  1355→                      </Select>
+  1356→                    </div>
+  1357→                    <div className="space-y-1.5">
+  1358→                      <Label className="text-xs">Chapter</Label>
+  1359→                      <Select value={formChapterId} onValueChange={setFormChapterId} disabled={!formSubjectId}>
+  1360→                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1361→                        <SelectContent>{chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+  1362→                      </Select>
+  1363→                    </div>
+  1364→                  </div>
+  1365→                  <div className="space-y-1.5">
+  1366→                    <Label className="text-xs">Notes</Label>
+  1367→                    <Textarea placeholder="Add study notes..." value={formNotes} onChange={(e) => setFormNotes(e.target.value)} rows={3} />
+  1368→                  </div>
+  1369→                  <div className="flex gap-2">
+  1370→                    <Button onClick={handleSavePlan} disabled={!formChapterId || formLoading}
+  1371→                      className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+  1372→                      {formLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
+  1373→                    </Button>
+  1374→                    <Button variant="outline" onClick={handleCancelForm}>Cancel</Button>
+  1375→                  </div>
+  1376→                </CardContent>
+  1377→              </Card>
+  1378→            </div>
+  1379→          )}
+  1380→        </div>
+  1381→      </div>
+  1382→    </div>
+  1383→  )
+  1384→}
+  1385→
+  1386→// ═══════════════════════════════════════════════════════════════════════
+  1387→// PAGE 4: DISCUSSION
+  1388→// ═══════════════════════════════════════════════════════════════════════
+  1389→
+  1390→function DiscussionPage() {
+  1391→  const [discussions, setDiscussions] = useState<Discussion[]>([])
+  1392→  const [loading, setLoading] = useState(true)
+  1393→  const [showForm, setShowForm] = useState(false)
+  1394→  const [title, setTitle] = useState('')
+  1395→  const [content, setContent] = useState('')
+  1396→  const [formLoading, setFormLoading] = useState(false)
+  1397→
+  1398→  const fetchDiscussions = useCallback(async () => {
+  1399→    setLoading(true)
+  1400→    try { const data = await api.studentDiscussions(); setDiscussions(data.discussions || []) }
+  1401→    catch (err) { console.error('Discussions fetch error:', err) }
+  1402→    finally { setLoading(false) }
+  1403→  }, [])
+  1404→
+  1405→  useEffect(() => { fetchDiscussions() }, [fetchDiscussions])
+  1406→
+  1407→  const handleSubmit = async () => {
+  1408→    if (!title || !content) return
+  1409→    setFormLoading(true)
+  1410→    try {
+  1411→      await api.studentCreateDiscussion({ title, content })
+  1412→      setTitle(''); setContent(''); setShowForm(false); fetchDiscussions()
+  1413→    } catch (err) { console.error('Discussion create error:', err) }
+  1414→    finally { setFormLoading(false) }
+  1415→  }
+  1416→
+  1417→  return (
+  1418→    <div className="space-y-6">
+  1419→      <div className="flex items-center justify-between">
+  1420→        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1421→          <MessageCircle className="w-5 h-5" /> Discussion
+  1422→        </h2>
+  1423→        <Button onClick={() => setShowForm(!showForm)}
+  1424→          className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+  1425→          <Plus className="w-4 h-4 mr-2" /> Ask a Doubt
+  1426→        </Button>
+  1427→      </div>
+  1428→
+  1429→      {showForm && (
+  1430→        <div className="grow-in">
+  1431→          <Card>
+  1432→            <CardContent className="pt-4 space-y-3">
+  1433→              <div className="space-y-1.5">
+  1434→                <Label className="text-xs">Title</Label>
+  1435→                <Input placeholder="What's your doubt about?" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1436→              </div>
+  1437→              <div className="space-y-1.5">
+  1438→                <Label className="text-xs">Details</Label>
+  1439→                <Textarea placeholder="Describe your doubt in detail..." value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
+  1440→              </div>
+  1441→              <div className="flex gap-2">
+  1442→                <Button onClick={handleSubmit} disabled={!title || !content || formLoading}
+  1443→                  className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+  1444→                  {formLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />} Post Doubt
+  1445→                </Button>
+  1446→                <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+  1447→              </div>
+  1448→            </CardContent>
+  1449→          </Card>
+  1450→        </div>
+  1451→      )}
+  1452→
+  1453→      {loading ? (
+  1454→        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+  1455→      ) : discussions.length === 0 ? (
+  1456→        <Card>
+  1457→          <CardContent className="py-12 text-center">
+  1458→            <MessageCircle className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+  1459→            <p className="text-slate-500 dark:text-slate-400">No doubts posted yet</p>
+  1460→            <p className="text-sm text-slate-400 dark:text-slate-500">Click &quot;Ask a Doubt&quot; to get help</p>
+  1461→          </CardContent>
+  1462→        </Card>
+  1463→      ) : (
+  1464→        <div className="space-y-4">
+  1465→          {discussions.map(d => (
+  1466→            <Card key={d.id}>
+  1467→              <CardHeader className="pb-2">
+  1468→                <CardTitle className="text-base">{d.title}</CardTitle>
+  1469→                <p className="text-xs text-slate-500">
+  1470→                  {new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+  1471→                </p>
+  1472→              </CardHeader>
+  1473→              <CardContent className="pt-0">
+  1474→                <p className="text-sm text-slate-700 dark:text-slate-300">{d.content}</p>
+  1475→                {d.replies && d.replies.length > 0 && (
+  1476→                  <div className="mt-4 space-y-3">
+  1477→                    <Separator />
+  1478→                    <p className="text-xs font-medium text-slate-500">Replies</p>
+  1479→                    {d.replies.map(r => (
+  1480→                      <div key={r.id} className="ml-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border-l-2 border-slate-300 dark:border-slate-700">
+  1481→                        <div className="flex items-center gap-2 mb-1">
+  1482→                          <Badge variant={r.adminReply ? 'default' : 'secondary'} className="text-[10px]">
+  1483→                            {r.adminReply ? 'Admin' : r.student?.fullName || 'Reply'}
+  1484→                          </Badge>
+  1485→                          <span className="text-[10px] text-slate-400">{new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+  1486→                        </div>
+  1487→                        <p className="text-sm text-slate-700 dark:text-slate-300">{r.content}</p>
+  1488→                      </div>
+  1489→                    ))}
+  1490→                  </div>
+  1491→                )}
+  1492→              </CardContent>
+  1493→            </Card>
+  1494→          ))}
+  1495→        </div>
+  1496→      )}
+  1497→    </div>
+  1498→  )
+  1499→}
+  1500→
+  1501→// ═══════════════════════════════════════════════════════════════════════
+  1502→// PAGE 5: SYLLABUS COMPLETION
+  1503→// ═══════════════════════════════════════════════════════════════════════
+  1504→
+  1505→function SyllabusPage() {
+  1506→  const [syllabus, setSyllabus] = useState<SyllabusSubject[]>([])
+  1507→  const [totalChapters, setTotalChapters] = useState(0)
+  1508→  const [completedChapters, setCompletedChapters] = useState(0)
+  1509→  const [overallPercent, setOverallPercent] = useState(0)
+  1510→  const [loading, setLoading] = useState(true)
+  1511→  const [togglingId, setTogglingId] = useState<string | null>(null)
+  1512→  const [celebratingSubject, setCelebratingSubject] = useState<string | null>(null)
+  1513→
+  1514→  const fetchSyllabus = useCallback(async () => {
+  1515→    setLoading(true)
+  1516→    try {
+  1517→      const data = await api.studentSyllabus()
+  1518→      setSyllabus(data.syllabus || []); setTotalChapters(data.totalChapters || 0)
+  1519→      setCompletedChapters(data.completedChapters || 0); setOverallPercent(data.overallPercent || 0)
+  1520→    } catch (err) { console.error('Syllabus fetch error:', err) }
+  1521→    finally { setLoading(false) }
+  1522→  }, [])
+  1523→
+  1524→  useEffect(() => { fetchSyllabus() }, [fetchSyllabus])
+  1525→
+  1526→  const toggleChapter = async (chapterId: string, currentCompleted: boolean, subjectId: string, subjectCompletionPercent: number) => {
+  1527→    setTogglingId(chapterId)
+  1528→    try {
+  1529→      await api.studentMarkChapter(chapterId, !currentCompleted)
+  1530→      if (!currentCompleted && subjectCompletionPercent >= 90) {
+  1531→        fetchSyllabus()
+  1532→        setTimeout(() => {
+  1533→          const subject = syllabus.find(s => s.id === subjectId)
+  1534→          if (subject && subject.completionPercent === 100) {
+  1535→            setCelebratingSubject(subjectId)
+  1536→            setTimeout(() => setCelebratingSubject(null), 3000)
+  1537→          }
+  1538→        }, 1000)
+  1539→      } else { fetchSyllabus() }
+  1540→    } catch (err) { console.error('Toggle error:', err) }
+  1541→    finally { setTogglingId(null) }
+  1542→  }
+  1543→
+  1544→  if (loading) {
+  1545→    return (
+  1546→      <div className="space-y-6">
+  1547→        <Skeleton className="h-8 w-48" /><Skeleton className="h-4 w-full" />
+  1548→        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-48 rounded-xl" />)}</div>
+  1549→      </div>
+  1550→    )
+  1551→  }
+  1552→
+  1553→  const subjectColors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#14b8a6', '#ec4899', '#6366f1']
+  1554→
+  1555→  return (
+  1556→    <div className="space-y-6">
+  1557→      <Confetti active={!!celebratingSubject} />
+  1558→
+  1559→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1560→        <ListChecks className="w-5 h-5" /> Syllabus Completion
+  1561→      </h2>
+  1562→
+  1563→      {/* Overall Progress */}
+  1564→      <Card>
+  1565→        <CardContent className="pt-6">
+  1566→          <div className="flex items-center gap-6">
+  1567→            <CircularProgressRing size={90} strokeWidth={8} progress={overallPercent}
+  1568→              color={overallPercent === 100 ? '#10b981' : '#3b82f6'} trackColor="rgba(100,116,139,0.2)">
+  1569→              <div className="text-center"><p className="text-xl font-bold text-slate-900 dark:text-slate-100">{overallPercent}%</p></div>
+  1570→            </CircularProgressRing>
+  1571→            <div className="flex-1">
+  1572→              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Overall Progress</span>
+  1573→              <Progress value={overallPercent} className="h-3 mt-2" />
+  1574→              <p className="text-xs text-slate-500 mt-1.5">{completedChapters} of {totalChapters} chapters completed</p>
+  1575→              {overallPercent === 100 && (
+  1576→                <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 pop-in">
+  1577→                  <Trophy className="w-4 h-4" /> All chapters complete!
+  1578→                </p>
+  1579→              )}
+  1580→            </div>
+  1581→          </div>
+  1582→        </CardContent>
+  1583→      </Card>
+  1584→
+  1585→      {/* Subjects */}
+  1586→      <div className="space-y-4">
+  1587→        {syllabus.map((subject, idx) => {
+  1588→          const color = subjectColors[idx % subjectColors.length]
+  1589→          const isComplete = subject.completionPercent === 100
+  1590→          const isCelebrating = celebratingSubject === subject.id
+  1591→
+  1592→          return (
+  1593→            <div key={subject.id} className={`transition-all ${isCelebrating ? 'ring-2 ring-emerald-400 rounded-xl' : ''}`}>
+  1594→              <Card className={isComplete ? 'border-emerald-200 dark:border-emerald-800' : ''}>
+  1595→                <CardHeader className="pb-3">
+  1596→                  <div className="flex items-center gap-4">
+  1597→                    <CircularProgressRing size={56} strokeWidth={5} progress={subject.completionPercent}
+  1598→                      color={isComplete ? '#10b981' : color} trackColor="rgba(100,116,139,0.2)">
+  1599→                      <div className="text-center"><span className="text-xs font-bold text-slate-900 dark:text-slate-100">{subject.completionPercent}%</span></div>
+  1600→                    </CircularProgressRing>
+  1601→                    <div className="flex-1 min-w-0">
+  1602→                      <div className="flex items-center justify-between">
+  1603→                        <CardTitle className="text-base flex items-center gap-2">
+  1604→                          {subject.name}
+  1605→                          {isComplete && <CheckCircle2 className="w-5 h-5 text-emerald-500 pop-in" />}
+  1606→                        </CardTitle>
+  1607→                        <Badge variant="secondary" className={isComplete
+  1608→                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+  1609→                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+  1610→                        }>{subject.completedChapters}/{subject.totalChapters}</Badge>
+  1611→                      </div>
+  1612→                      <Progress value={subject.completionPercent} className="h-2 mt-2" />
+  1613→                    </div>
+  1614→                  </div>
+  1615→                </CardHeader>
+  1616→                <CardContent>
+  1617→                  <div className="space-y-1.5">
+  1618→                    {subject.chapters.map(chapter => (
+  1619→                      <div key={chapter.id}
+  1620→                        className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hover:translate-x-0.5">
+  1621→                        <div className="flex items-center gap-3 min-w-0">
+  1622→                          <button
+  1623→                            onClick={() => toggleChapter(chapter.id, chapter.completed, subject.id, subject.completionPercent)}
+  1624→                            disabled={togglingId === chapter.id}
+  1625→                            className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+  1626→                              chapter.completed
+  1627→                                ? 'bg-emerald-500 border-emerald-500 text-white'
+  1628→                                : 'border-slate-300 dark:border-slate-600 hover:border-slate-400'
+  1629→                            }`}>
+  1630→                            {chapter.completed && <CheckCircle2 className="w-3.5 h-3.5" />}
+  1631→                            {togglingId === chapter.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+  1632→                          </button>
+  1633→                          <span className={`text-sm truncate ${chapter.completed ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+  1634→                            {chapter.name}
+  1635→                          </span>
+  1636→                        </div>
+  1637→                        {chapter.completedAt && (
+  1638→                          <span className="text-[10px] text-slate-400 flex-shrink-0">
+  1639→                            {new Date(chapter.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+  1640→                          </span>
+  1641→                        )}
+  1642→                      </div>
+  1643→                    ))}
+  1644→                  </div>
+  1645→                </CardContent>
+  1646→              </Card>
+  1647→            </div>
+  1648→          )
+  1649→        })}
+  1650→      </div>
+  1651→    </div>
+  1652→  )
+  1653→}
+  1654→
+  1655→// ═══════════════════════════════════════════════════════════════════════
+  1656→// PAGE 6: EDIT PROFILE
+  1657→// ═══════════════════════════════════════════════════════════════════════
+  1658→
+  1659→function EditProfilePage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+  1660→  const [fullName, setFullName] = useState('')
+  1661→  const [email, setEmail] = useState('')
+  1662→  const [mobile, setMobile] = useState('')
+  1663→  const [courseId, setCourseId] = useState('')
+  1664→  const [courses, setCourses] = useState<{ id: string; title: string }[]>([])
+  1665→  const [loading, setLoading] = useState(false)
+  1666→  const [success, setSuccess] = useState(false)
+  1667→  const [error, setError] = useState('')
+  1668→  const [initialized, setInitialized] = useState(false)
+  1669→
+  1670→  useEffect(() => {
+  1671→    const init = async () => {
+  1672→      try {
+  1673→        const [profileData, coursesData] = await Promise.all([api.studentProfile(), api.publicCourses()])
+  1674→        const s = profileData.student
+  1675→        setFullName(s.fullName); setEmail(s.email); setMobile(s.mobile)
+  1676→        setCourseId(s.courseId); setCourses(coursesData.courses || []); setInitialized(true)
+  1677→      } catch (err) { console.error('Profile init error:', err) }
+  1678→    }
+  1679→    init()
+  1680→  }, [])
+  1681→
+  1682→  const handleSave = async () => {
+  1683→    if (!fullName) return
+  1684→    setLoading(true); setError(''); setSuccess(false)
+  1685→    try {
+  1686→      await api.studentUpdateProfile({ fullName, courseId })
+  1687→      setSuccess(true); onRefresh(); setTimeout(() => setSuccess(false), 3000)
+  1688→    } catch (err: any) { setError(err.message || 'Update failed') }
+  1689→    finally { setLoading(false) }
+  1690→  }
+  1691→
+  1692→  if (!initialized) return <LoadingSkeleton />
+  1693→
+  1694→  return (
+  1695→    <div className="space-y-6">
+  1696→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1697→        <UserCog className="w-5 h-5" /> Edit Profile
+  1698→      </h2>
+  1699→
+  1700→      <Card className="max-w-lg">
+  1701→        <CardContent className="pt-6 space-y-4">
+  1702→          {error && (
+  1703→            <Alert variant="destructive">
+  1704→              <AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription>
+  1705→            </Alert>
+  1706→          )}
+  1707→          {success && (
+  1708→            <Alert className="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 pop-in">
+  1709→              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+  1710→              <AlertDescription className="text-emerald-700 dark:text-emerald-400">Profile updated successfully!</AlertDescription>
+  1711→            </Alert>
+  1712→          )}
+  1713→
+  1714→          <div className="space-y-2">
+  1715→            <Label>Full Name</Label>
+  1716→            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="h-11" />
+  1717→          </div>
+  1718→          <div className="space-y-2">
+  1719→            <Label>Email <Badge variant="secondary" className="ml-2 text-[10px]">Read Only</Badge></Label>
+  1720→            <Input value={email} disabled className="h-11 bg-slate-50 dark:bg-slate-900" />
+  1721→          </div>
+  1722→          <div className="space-y-2">
+  1723→            <Label>Mobile <Badge variant="secondary" className="ml-2 text-[10px]">Read Only</Badge></Label>
+  1724→            <Input value={mobile} disabled className="h-11 bg-slate-50 dark:bg-slate-900" />
+  1725→          </div>
+  1726→          <div className="space-y-2">
+  1727→            <Label>Course</Label>
+  1728→            <Select value={courseId} onValueChange={setCourseId}>
+  1729→              <SelectTrigger className="h-11"><SelectValue placeholder="Select course" /></SelectTrigger>
+  1730→              <SelectContent>{courses.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}</SelectContent>
+  1731→            </Select>
+  1732→          </div>
+  1733→
+  1734→          <Button onClick={handleSave} disabled={loading || !fullName}
+  1735→            className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+  1736→            {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Save Changes
+  1737→          </Button>
+  1738→        </CardContent>
+  1739→      </Card>
+  1740→    </div>
+  1741→  )
+  1742→}
+  1743→

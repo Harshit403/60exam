@@ -1,0 +1,502 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useCallback } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Input } from '@/components/ui/input'
+     8→import { Textarea } from '@/components/ui/textarea'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import { Separator } from '@/components/ui/separator'
+    11→import { Skeleton } from '@/components/ui/skeleton'
+    12→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    13→import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+    14→import {
+    15→  BookOpen,
+    16→  Trophy,
+    17→  Clock,
+    18→  Users,
+    19→  Star,
+    20→  ChevronRight,
+    21→  GraduationCap,
+    22→  Target,
+    23→  CheckCircle2,
+    24→  ArrowRight,
+    25→  Download,
+    26→  ExternalLink,
+    27→  MessageCircle,
+    28→  Shield,
+    29→  Award,
+    30→  TrendingUp,
+    31→  FileText,
+    32→  Menu,
+    33→  X,
+    34→  Send,
+    35→  Zap,
+    36→  BarChart3,
+    37→  BookMarked,
+    38→  Calculator,
+    39→  Briefcase,
+    40→  Gavel,
+    41→  Landmark,
+    42→  Heart,
+    43→  Instagram,
+    44→  Youtube,
+    45→  Linkedin,
+    46→  Phone,
+    47→  Mail,
+    48→  MapPin,
+    49→  ChevronUp,
+    50→  CircleDot,
+    51→  XIcon,
+    52→  CheckIcon,
+    53→} from 'lucide-react'
+    54→import { motion, AnimatePresence, useInView } from 'framer-motion'
+    55→import { api } from '@/lib/api-client'
+    56→
+    57→interface LandingPageProps {
+    58→  onNavigate: (view: string) => void
+    59→  isLoggedIn: boolean
+    60→  userRole: 'admin' | 'student' | null
+    61→}
+    62→
+    63→interface Review {
+    64→  id: string
+    65→  authorName: string
+    66→  text: string
+    67→  rating: number
+    68→  course?: { title: string } | null
+    69→  courseId?: string | null
+    70→  createdAt: string
+    71→}
+    72→
+    73→interface Stats {
+    74→  totalStudents: number
+    75→  totalCourses: number
+    76→  totalSubjects: number
+    77→  totalChapters: number
+    78→  communitySize: string
+    79→  topRanks: string
+    80→  evaluationHours: string
+    81→}
+    82→
+    83→interface CourseData {
+    84→  id: string
+    85→  title: string
+    86→  slug: string
+    87→  subjects: { name: string; chapters: { name: string }[] }[]
+    88→  _count: { students: number }
+    89→}
+    90→
+    91→// Animated counter hook
+    92→function useAnimatedCounter(end: number, duration: number = 2000, startOnView: boolean = true) {
+    93→  const [count, setCount] = useState(0)
+    94→  const ref = useRef<HTMLSpanElement>(null)
+    95→  const isInView = useInView(ref, { once: true })
+    96→  const hasStarted = useRef(false)
+    97→
+    98→  useEffect(() => {
+    99→    if (startOnView && !isInView) return
+   100→    if (hasStarted.current) return
+   101→    hasStarted.current = true
+   102→
+   103→    let startTime: number | null = null
+   104→    const step = (timestamp: number) => {
+   105→      if (!startTime) startTime = timestamp
+   106→      const progress = Math.min((timestamp - startTime) / duration, 1)
+   107→      setCount(Math.floor(progress * end))
+   108→      if (progress < 1) {
+   109→        requestAnimationFrame(step)
+   110→      } else {
+   111→        setCount(end)
+   112→      }
+   113→    }
+   114→    requestAnimationFrame(step)
+   115→  }, [end, duration, isInView, startOnView])
+   116→
+   117→  return { count, ref }
+   118→}
+   119→
+   120→export default function LandingPage({ onNavigate, isLoggedIn, userRole }: LandingPageProps) {
+   121→  const [reviews, setReviews] = useState<Review[]>([])
+   122→  const [stats, setStats] = useState<Stats | null>(null)
+   123→  const [courses, setCourses] = useState<CourseData[]>([])
+   124→  const [loading, setLoading] = useState(true)
+   125→  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+   126→  const [reviewForm, setReviewForm] = useState({ text: '', rating: '5', courseId: '' })
+   127→  const [submittingReview, setSubmittingReview] = useState(false)
+   128→  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+   129→  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+   130→  const [showScrollTop, setShowScrollTop] = useState(false)
+   131→  const [activeCarouselIndex, setActiveCarouselIndex] = useState(0)
+   132→
+   133→  const cseetRef = useRef<HTMLElement>(null)
+   134→  const executiveRef = useRef<HTMLElement>(null)
+   135→  const professionalRef = useRef<HTMLElement>(null)
+   136→  const reviewsRef = useRef<HTMLElement>(null)
+   137→  const discussionRef = useRef<HTMLElement>(null)
+   138→  const coursesRef = useRef<HTMLElement>(null)
+   139→
+   140→  useEffect(() => {
+   141→    async function fetchData() {
+   142→      try {
+   143→        const [reviewsData, statsData, coursesData] = await Promise.all([
+   144→          api.publicReviews(),
+   145→          api.publicStats(),
+   146→          api.publicCourses(),
+   147→        ])
+   148→        setReviews(reviewsData.reviews || [])
+   149→        setStats(statsData)
+   150→        setCourses(coursesData.courses || [])
+   151→      } catch (err) {
+   152→        console.error('Failed to fetch landing data:', err)
+   153→      } finally {
+   154→        setLoading(false)
+   155→      }
+   156→    }
+   157→    fetchData()
+   158→  }, [])
+   159→
+   160→  // PWA install prompt
+   161→  useEffect(() => {
+   162→    const handler = (e: Event) => {
+   163→      e.preventDefault()
+   164→      setDeferredPrompt(e)
+   165→    }
+   166→    window.addEventListener('beforeinstallprompt', handler)
+   167→    return () => window.removeEventListener('beforeinstallprompt', handler)
+   168→  }, [])
+   169→
+   170→  // Scroll to top visibility
+   171→  useEffect(() => {
+   172→    const handleScroll = () => {
+   173→      setShowScrollTop(window.scrollY > 400)
+   174→    }
+   175→    window.addEventListener('scroll', handleScroll, { passive: true })
+   176→    return () => window.removeEventListener('scroll', handleScroll)
+   177→  }, [])
+   178→
+   179→  // Auto-scroll carousel for testimonials
+   180→  useEffect(() => {
+   181→    if (reviews.length <= 3) return
+   182→    const interval = setInterval(() => {
+   183→      setActiveCarouselIndex((prev) => (prev + 1) % reviews.length)
+   184→    }, 4000)
+   185→    return () => clearInterval(interval)
+   186→  }, [reviews.length])
+   187→
+   188→  const handleInstallApp = () => {
+   189→    if (deferredPrompt) {
+   190→      deferredPrompt.prompt()
+   191→      deferredPrompt.userChoice.then(() => setDeferredPrompt(null))
+   192→    }
+   193→  }
+   194→
+   195→  const scrollToSection = (ref: React.RefObject<HTMLElement | null>) => {
+   196→    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+   197→    setMobileMenuOpen(false)
+   198→  }
+   199→
+   200→  const scrollToTop = () => {
+   201→    window.scrollTo({ top: 0, behavior: 'smooth' })
+   202→  }
+   203→
+   204→  const handleSubmitReview = async () => {
+   205→    if (!isLoggedIn || userRole !== 'student') return
+   206→    if (!reviewForm.text.trim()) return
+   207→    setSubmittingReview(true)
+   208→    try {
+   209→      await api.studentSubmitReview({
+   210→        text: reviewForm.text,
+   211→        rating: parseInt(reviewForm.rating),
+   212→        courseId: reviewForm.courseId || undefined,
+   213→      })
+   214→      setReviewSubmitted(true)
+   215→      setReviewForm({ text: '', rating: '5', courseId: '' })
+   216→      setTimeout(() => setReviewSubmitted(false), 4000)
+   217→    } catch (err) {
+   218→      console.error('Failed to submit review:', err)
+   219→    } finally {
+   220→      setSubmittingReview(false)
+   221→    }
+   222→  }
+   223→
+   224→  const navLinks = [
+   225→    { label: 'Courses', ref: coursesRef },
+   226→    { label: 'Reviews', ref: reviewsRef },
+   227→    { label: 'Discussion', ref: discussionRef },
+   228→  ]
+   229→
+   230→  // Marquee reviews for hero
+   231→  const marqueeReviews = reviews.length > 0 ? reviews : [
+   232→    { id: '1', authorName: 'Priya Sharma', text: 'Mission CS Test Series helped me secure AIR 12 in CS Executive. The evaluation quality is unmatched!', rating: 5, course: { title: 'CS Executive' }, createdAt: '' },
+   233→    { id: '2', authorName: 'Rahul Verma', text: 'Best test series for CSEET preparation. Detailed feedback on every answer helped me improve tremendously.', rating: 5, course: { title: 'CSEET' }, createdAt: '' },
+   234→    { id: '3', authorName: 'Anjali Gupta', text: 'The 24-hour evaluation turnaround is real! I always got my checked papers on time with constructive feedback.', rating: 5, course: { title: 'CS Professional' }, createdAt: '' },
+   235→    { id: '4', authorName: 'Vikram Singh', text: 'I cleared all three levels with Mission CS. Their structured approach to answer writing is exceptional.', rating: 5, course: { title: 'CS Executive' }, createdAt: '' },
+   236→    { id: '5', authorName: 'Neha Agarwal', text: 'The mock tests are very close to actual ICSI exam pattern. Highly recommended for every CS aspirant!', rating: 5, course: { title: 'CSEET' }, createdAt: '' },
+   237→    { id: '6', authorName: 'Karan Patel', text: 'Faculty feedback changed my writing style completely. Now I know exactly how to present answers in exams.', rating: 5, course: { title: 'CS Professional' }, createdAt: '' },
+   238→  ]
+   239→
+   240→  // Animated counters
+   241→  const communityCounter = useAnimatedCounter(20, 2000)
+   242→  const ranksCounter = useAnimatedCounter(8, 1500)
+   243→  const hoursCounter = useAnimatedCounter(24, 1200)
+   244→  const studentsCounter = useAnimatedCounter(20000, 2500)
+   245→
+   246→  // Course tab data
+   247→  const courseTabs = [
+   248→    {
+   249→      value: 'cseet',
+   250→      label: 'CSEET',
+   251→      icon: <BookOpen className="h-4 w-4" />,
+   252→      badge: 'CSEET',
+   253→      title: 'CSEET Test Series',
+   254→      description: 'The Company Secretary Executive Entrance Test (CSEET) is the gateway to the Company Secretary course. Our CSEET test series is meticulously designed to help you clear this entrance examination with confidence and a strong foundation.',
+   255→      features: [
+   256→        'Business Communication — Master professional correspondence, letter writing, and presentation skills',
+   257→        'Legal Aptitude & Logical Reasoning — Build strong analytical thinking and legal interpretation abilities',
+   258→        'Economic & Business Environment — Understand macroeconomics, financial markets, and business dynamics',
+   259→        'Current Affairs — Stay updated with the latest national and international developments',
+   260→      ],
+   261→      seoText: 'The CSEET examination tests your foundational understanding of business, law, and communication. Unlike traditional examinations, CSEET evaluates your analytical skills through objective-type questions and viva-voce components. Mission CS CSEET Test Series prepares you for both components with equal rigor. Our mock tests replicate the actual CSEET pattern, including the computer-based test format and the presentation and communication skills assessment. Each test is followed by comprehensive performance analysis that helps you identify your strengths and areas needing improvement.',
+   262→      examPattern: [
+   263→        { subject: 'Business Communication', marks: '50 Marks' },
+   264→        { subject: 'Legal Aptitude & Logical Reasoning', marks: '50 Marks' },
+   265→        { subject: 'Economic & Business Environment', marks: '50 Marks' },
+   266→        { subject: 'Current Affairs', marks: '20 Marks' },
+   267→        { subject: 'Presentation & Communication', marks: '30 Marks' },
+   268→        { subject: 'Total', marks: '200 Marks', bold: true },
+   269→      ],
+   270→      seriesFeatures: [
+   271→        '10+ Full-length mock tests per session',
+   272→        'Subject-wise practice tests for targeted preparation',
+   273→        'Viva-voce practice sessions with feedback',
+   274→        'Current affairs weekly updates and tests',
+   275→        'Detailed performance analytics and improvement tips',
+   276→      ],
+   277→      ctaText: 'Start CSEET Preparation',
+   278→    },
+   279→    {
+   280→      value: 'executive',
+   281→      label: 'CS Executive',
+   282→      icon: <Briefcase className="h-4 w-4" />,
+   283→      badge: 'CS Executive',
+   284→      title: 'CS Executive Test Series',
+   285→      description: 'The CS Executive programme is the second level of the Company Secretary course, consisting of seven papers that test your knowledge of corporate law, accounting, securities regulation, and strategic management. Our Executive test series is designed to help you master each paper with focused preparation.',
+   286→      features: [
+   287→        'Company Law & Practice — In-depth coverage of Companies Act 2013, rules, and landmark case laws',
+   288→        'Jurisprudence & General Laws — Constitutional law, administrative law, and interpretation of statutes',
+   289→        'Corporate & Management Accounting — From balance sheets to ratio analysis and cost accounting',
+   290→        'Securities Law & Capital Markets — SEBI regulations, stock exchange operations, and investor protection',
+   291→      ],
+   292→      seoText: 'The CS Executive examination demands a thorough understanding of legal provisions combined with the ability to present answers in a structured, logical manner. Unlike CSEET, the Executive level features descriptive questions where your answer-writing skills play a crucial role. Mission CS Executive Test Series trains you specifically for this challenge. Our mock tests are designed to replicate the exact ICSI examination pattern, including the three-hour time constraint and the marking scheme. Each evaluated paper comes with comprehensive feedback highlighting the legal provisions you cited correctly, the case laws you could have referenced, and the structural improvements your answers need. This detailed evaluation methodology has helped thousands of students clear the Executive examination, many with distinctions and ranks.',
+   293→      examPattern: [
+   294→        { subject: 'Jurisprudence, Interpretation & General Laws', marks: '100 Marks' },
+   295→        { subject: 'Company Law', marks: '100 Marks' },
+   296→        { subject: 'Setting Up of Business Entities', marks: '100 Marks' },
+   297→        { subject: 'Corporate & Management Accounting', marks: '100 Marks' },
+   298→        { subject: 'Securities Law & Capital Markets', marks: '100 Marks' },
+   299→        { subject: 'Economic, Business & Commercial Laws', marks: '100 Marks' },
+   300→        { subject: 'Financial & Strategic Management', marks: '100 Marks' },
+   301→        { subject: 'Total (7 Papers)', marks: '700 Marks', bold: true },
+   302→      ],
+   303→      seriesFeatures: [
+   304→        'Paper-wise mock tests with ICSI pattern alignment',
+   305→        'Descriptive answer evaluation with line-by-line feedback',
+   306→        'Model answers with case law references',
+   307→        'Chapter-wise tests for granular preparation',
+   308→        'Comparative performance analysis with toppers',
+   309→      ],
+   310→      ctaText: 'Start Executive Preparation',
+   311→    },
+   312→    {
+   313→      value: 'professional',
+   314→      label: 'CS Professional',
+   315→      icon: <Gavel className="h-4 w-4" />,
+   316→      badge: 'CS Professional',
+   317→      title: 'CS Professional Test Series',
+   318→      description: 'The CS Professional programme is the final and most challenging level of the Company Secretary course. With nine papers covering advanced corporate law, governance, and practice, our Professional test series provides the rigorous preparation needed to clear this decisive examination.',
+   319→      features: [
+   320→        'Governance, Risk Management & Compliances — Master board dynamics, risk frameworks, and compliance management',
+   321→        'Advanced Company Law & Practice — Deep dive into corporate restructuring, insolvency, and cross-border mergers',
+   322→        'Secretarial Audit & Due Diligence — Learn the art of comprehensive audit and compliance verification',
+   323→        'Corporate Funding & Listings — Understand IPO processes, debt instruments, and listing obligations',
+   324→      ],
+   325→      seoText: 'The CS Professional examination tests your ability to handle complex, multi-faceted legal scenarios that a practicing Company Secretary encounters daily. Questions often require you to analyze a situation from multiple legal angles — combining provisions from the Companies Act, SEBI regulations, FEMA, and other statutes — and present a comprehensive, well-reasoned answer. Mission CS Professional Test Series is specifically designed to develop this multi-dimensional analytical thinking. Our test papers present realistic scenarios that challenge you to apply your knowledge holistically. The evaluation focuses on the depth of legal analysis, the accuracy of statutory references, and the professional quality of your recommendations — the very criteria that ICSI examiners use to award marks.',
+   326→      examPattern: [
+   327→        { subject: 'Governance, Risk Management & Compliances', marks: '100 Marks' },
+   328→        { subject: 'Advanced Company Law & Practice', marks: '100 Marks' },
+   329→        { subject: 'Secretarial Audit & Due Diligence', marks: '100 Marks' },
+   330→        { subject: 'Corporate Funding & Listings', marks: '100 Marks' },
+   331→        { subject: 'Multi-Disciplinary Case Studies', marks: '100 Marks' },
+   332→        { subject: 'Elective Paper (Choose 1)', marks: '100 Marks' },
+   333→        { subject: 'Total (9 Papers)', marks: '900 Marks', bold: true },
+   334→      ],
+   335→      seriesFeatures: [
+   336→        'Advanced scenario-based questions with multi-law coverage',
+   337→        'Case study practice with professional evaluation',
+   338→        'Rank-oriented feedback with improvement strategies',
+   339→        'Multi-disciplinary case study workshops',
+   340→        'Elective paper specialized tests',
+   341→      ],
+   342→      ctaText: 'Start Professional Preparation',
+   343→    },
+   344→  ]
+   345→
+   346→  // FAQ items
+   347→  const faqItems = [
+   348→    {
+   349→      question: 'What is CSEET and who is eligible to appear for it?',
+   350→      answer: 'CSEET (Company Secretary Executive Entrance Test) is the entrance examination for the Company Secretary course conducted by ICSI. Candidates who have passed or are appearing in 10+2 (any stream) are eligible. It is held four times a year — January, May, July, and November — in computer-based mode. The exam comprises Business Communication, Legal Aptitude & Logical Reasoning, Economic & Business Environment, Current Affairs, and a viva-voce component.',
+   351→    },
+   352→    {
+   353→      question: 'How is the CS Executive examination structured?',
+   354→      answer: 'CS Executive consists of 7 papers divided into two modules. Module 1 includes Jurisprudence, Interpretation & General Laws; Company Law; and Setting Up of Business Entities & Closure. Module 2 includes Corporate & Management Accounting; Securities Law & Capital Markets; Economic, Business & Commercial Laws; and Financial & Strategic Management. Each paper carries 100 marks, totaling 700 marks. The qualifying marks are 40% in each paper and 50% aggregate per module.',
+   355→    },
+   356→    {
+   357→      question: 'What are the subjects in CS Professional programme?',
+   358→      answer: 'CS Professional has 9 papers across 3 modules. Module 1: Governance, Risk Management & Compliances; Advanced Company Law & Practice; and Secretarial Audit, Due Diligence & Compliance Management. Module 2: Corporate Funding & Listings; Corporate Restructuring, Insolvency & Liquidation; and Resolution of Corporate Disputes. Module 3: Multi-Disciplinary Case Studies plus two elective papers from 5 options including Banking Law, Insurance Law, Intellectual Property Rights, Forensic Audit, and Valuation & Business Modelling.',
+   359→    },
+   360→    {
+   361→      question: 'How does Mission CS Test Series help in CS exam preparation?',
+   362→      answer: 'Mission CS provides ICSI-pattern aligned mock tests, expert faculty evaluation within 24 working hours, detailed feedback with model answers, performance analytics to track progress, and a community of 20,000+ aspirants. Our test series simulates real exam conditions and trains you specifically in answer-writing skills that ICSI examiners look for — content accuracy, legal reasoning, statutory references, and professional presentation.',
+   363→    },
+   364→    {
+   365→      question: 'What makes Mission CS evaluation different from other test series?',
+   366→      answer: 'Our evaluation is conducted by qualified Company Secretaries and experienced educators, not automated systems. Each answer receives line-by-line annotations highlighting correct legal provisions, missed case laws, structural improvements, and alternative approaches. We provide model answers demonstrating ideal content and presentation. This depth of feedback — combined with our 24 working hour turnaround — is unmatched in the industry.',
+   367→    },
+   368→    {
+   369→      question: 'Can I attempt the CS Executive exam without clearing CSEET?',
+   370→      answer: 'No, clearing CSEET is mandatory to register for CS Executive. However, certain categories are exempt from CSEET — candidates who have passed CA Final (old/new course) or CMA Final can directly register for CS Executive. Additionally, those with a post-graduate degree in any discipline (other than Fine Arts) from a recognized university are also exempt.',
+   371→    },
+   372→    {
+   373→      question: 'How many times can I attempt CS Executive and Professional exams?',
+   374→      answer: 'There is no limit on the number of attempts for CS Executive and Professional examinations. However, your registration is valid for a specific period — 5 years for Executive and 5 years for Professional — which can be renewed by paying a renewal fee. Each registration period allows you to appear for multiple exam sessions (held in June and December each year).',
+   375→    },
+   376→    {
+   377→      question: 'What is the passing criteria for CS examinations?',
+   378→      answer: 'For CSEET, you need to score a minimum of 40% in each paper and 50% aggregate overall. For CS Executive and Professional, the qualifying marks are 40% in each individual paper and 50% aggregate in each module. You can appear for one or both modules in a single session, and papers you have already cleared are credited for subsequent attempts.',
+   379→    },
+   380→    {
+   381→      question: 'Does Mission CS offer chapter-wise tests or only full mock tests?',
+   382→      answer: 'Mission CS offers both! Our test series includes chapter-wise tests for granular preparation, subject-wise tests for focused practice, and full-length mock tests that replicate the complete exam experience. This layered approach allows you to build confidence progressively — from individual chapters to full papers — ensuring comprehensive coverage of the entire ICSI syllabus.',
+   383→    },
+   384→    {
+   385→      question: 'How do I enroll in Mission CS Test Series?',
+   386→      answer: 'Enrolling is simple — create a free account on our platform, choose your course (CSEET, CS Executive, or CS Professional), and start attempting tests immediately. You can also visit our official website missioncstestseries.com for additional enrollment options and to download the complete test schedule. Our platform supports both online and offline test modes to suit your preparation style.',
+   387→    },
+   388→  ]
+   389→
+   390→  // Comparison table data
+   391→  const comparisonFeatures = [
+   392→    { feature: 'Expert Faculty Evaluation', missionCS: true, others: false },
+   393→    { feature: '24-Hour Evaluation Turnaround', missionCS: true, others: false },
+   394→    { feature: 'Line-by-Line Answer Feedback', missionCS: true, others: false },
+   395→    { feature: 'Model Answers with Case Laws', missionCS: true, others: false },
+   396→    { feature: 'ICSI Pattern-Aligned Tests', missionCS: true, others: 'partial' as const },
+   397→    { feature: 'Performance Analytics Dashboard', missionCS: true, others: 'partial' as const },
+   398→    { feature: 'Chapter-wise + Full Mock Tests', missionCS: true, others: 'partial' as const },
+   399→    { feature: 'Community of 20,000+ Aspirants', missionCS: true, others: false },
+   400→    { feature: 'Viva-Voce Practice (CSEET)', missionCS: true, others: false },
+   401→    { feature: 'Multi-Disciplinary Case Studies', missionCS: true, others: false },
+   402→    { feature: 'Affordable Pricing', missionCS: true, others: 'partial' as const },
+   403→    { feature: 'Proven AIR Results (AIR 8 & 9)', missionCS: true, others: false },
+   404→  ]
+   405→
+   406→  // How it works steps
+   407→  const howItWorksSteps = [
+   408→    {
+   409→      step: 1,
+   410→      icon: <BookMarked className="h-6 w-6" />,
+   411→      title: 'Choose Your Course',
+   412→      desc: 'Select from CSEET, CS Executive, or CS Professional test series based on your current level.',
+   413→    },
+   414→    {
+   415→      step: 2,
+   416→      icon: <FileText className="h-6 w-6" />,
+   417→      title: 'Take Mock Tests',
+   418→      desc: 'Attempt professionally designed mock tests that mirror the actual ICSI examination pattern.',
+   419→    },
+   420→    {
+   421→      step: 3,
+   422→      icon: <BarChart3 className="h-6 w-6" />,
+   423→      title: 'Get Expert Feedback',
+   424→      desc: 'Receive detailed, personalized evaluations from experienced CS faculty within 24 working hours.',
+   425→    },
+   426→    {
+   427→      step: 4,
+   428→      icon: <TrendingUp className="h-6 w-6" />,
+   429→      title: 'Improve & Succeed',
+   430→      desc: 'Apply feedback, track progress, and systematically improve your answer writing skills to clear exams.',
+   431→    },
+   432→  ]
+   433→
+   434→  // Why choose features
+   435→  const whyChooseFeatures = [
+   436→    {
+   437→      icon: <Shield className="h-6 w-6" />,
+   438→      title: 'ICSI-Aligned Curriculum',
+   439→      desc: 'Every test paper is meticulously aligned with the latest ICSI syllabus and examination pattern. We update our question bank regularly to reflect changes in laws, regulations, and examination trends, ensuring you always practice the most relevant content.',
+   440→    },
+   441→    {
+   442→      icon: <Award className="h-6 w-6" />,
+   443→      title: 'Expert Faculty Evaluation',
+   444→      desc: 'Our evaluation team comprises qualified Company Secretaries and experienced educators who understand exactly what ICSI examiners look for. Each answer is evaluated for content accuracy, presentation style, and legal reasoning — not just correctness.',
+   445→    },
+   446→    {
+   447→      icon: <Zap className="h-6 w-6" />,
+   448→      title: '24-Hour Evaluation Turnaround',
+   449→      desc: 'We pride ourselves on the fastest evaluation turnaround in the industry. Receive your evaluated papers within 24 working hours, complete with detailed annotations, suggestions for improvement, and model answers for comparison.',
+   450→    },
+   451→    {
+   452→      icon: <Target className="h-6 w-6" />,
+   453→      title: 'Performance Analytics & Tracking',
+   454→      desc: 'Our advanced tracking system monitors your progress across subjects, chapters, and test attempts. Identify weak areas, track improvement trends, and optimize your preparation strategy with data-driven insights.',
+   455→    },
+   456→    {
+   457→      icon: <Users className="h-6 w-6" />,
+   458→      title: 'Community of 20,000+ Aspirants',
+   459→      desc: 'Join a thriving community of CS aspirants across India. Engage in discussions, share strategies, and learn from peers who are on the same journey. Our discussion forums are actively moderated by faculty members for quality interactions.',
+   460→    },
+   461→    {
+   462→      icon: <Trophy className="h-6 w-6" />,
+   463→      title: 'Proven Track Record of Results',
+   464→      desc: 'Our students consistently achieve top ranks in CS examinations. With AIR 8 and AIR 9 achieved recently, Mission CS has established itself as the most result-oriented test series platform. Our success rate speaks for itself.',
+   465→    },
+   466→  ]
+   467→
+   468→  // Get visible carousel reviews
+   469→  const getCarouselSlice = useCallback((startIndex: number) => {
+   470→    const visible = []
+   471→    for (let i = 0; i < 3; i++) {
+   472→      const idx = (startIndex + i) % reviews.length
+   473→      visible.push({ ...reviews[idx], key: `carousel-${idx}-${i}` })
+   474→    }
+   475→    return visible
+   476→  }, [reviews])
+   477→
+   478→  const carouselReviews = reviews.length > 3 ? getCarouselSlice(activeCarouselIndex) : reviews
+   479→
+   480→  return (
+   481→    <div className="min-h-screen flex flex-col bg-background">
+   482→      {/* ============ HEADER ============ */}
+   483→      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+   484→        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+   485→          {/* Logo */}
+   486→          <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+   487→            <GraduationCap className="h-7 w-7 text-foreground" />
+   488→            <span className="font-bold text-lg tracking-tight text-foreground">MISSION CS</span>
+   489→            <Badge variant="secondary" className="hidden sm:inline-flex text-[10px] px-1.5">Test Series</Badge>
+   490→          </div>
+   491→
+   492→          {/* Desktop Nav */}
+   493→          <nav className="hidden lg:flex items-center gap-1">
+   494→            {navLinks.map((link) => (
+   495→              <button
+   496→                key={link.label}
+   497→                onClick={() => scrollToSection(link.ref)}
+   498→                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted"
+   499→              >
+   500→                {link.label}
+
+[showing lines 1-500 of 1558; use offset=501 with limit to continue reading]

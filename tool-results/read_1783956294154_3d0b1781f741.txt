@@ -1,0 +1,705 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback, useMemo } from 'react'
+     4→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     5→import { Badge } from '@/components/ui/badge'
+     6→import { Button } from '@/components/ui/button'
+     7→import { Skeleton } from '@/components/ui/skeleton'
+     8→import { Progress } from '@/components/ui/progress'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import {
+    11→  History, Brain, CheckCircle2, XCircle, TrendingUp, Trophy, Target,
+    12→  ChevronLeft, ChevronRight, BookOpen, Calendar, Sparkles, BarChart3,
+    13→} from 'lucide-react'
+    14→import { api } from '@/lib/api-client'
+    15→
+    16→// ─── Types ────────────────────────────────────────────────────────────
+    17→
+    18→interface QuizAttemptItem {
+    19→  id: string
+    20→  quizId: string
+    21→  quizTitle: string
+    22→  quizDifficulty: 'easy' | 'medium' | 'hard' | string
+    23→  courseTitle: string
+    24→  subjectTitle: string | null
+    25→  score: number
+    26→  totalQuestions: number
+    27→  percentage: number
+    28→  passed: boolean
+    29→  pointsEarned: number
+    30→  answers: string
+    31→  createdAt: string
+    32→}
+    33→
+    34→interface DifficultyStat {
+    35→  attempts: number
+    36→  passed: number
+    37→  avgScore: number
+    38→}
+    39→
+    40→interface QuizHistoryStats {
+    41→  totalAttempts: number
+    42→  totalPassed: number
+    43→  totalFailed: number
+    44→  passRate: number
+    45→  avgScore: number
+    46→  totalPointsEarned: number
+    47→  bestStreak: number
+    48→  byDifficulty: Record<string, DifficultyStat>
+    49→  recentTrend: { date: string; attempts: number; avgScore: number }[]
+    50→}
+    51→
+    52→interface QuizHistoryData {
+    53→  attempts: QuizAttemptItem[]
+    54→  stats: QuizHistoryStats
+    55→  totalPages: number
+    56→  currentPage: number
+    57→}
+    58→
+    59→// ─── Constants ────────────────────────────────────────────────────────
+    60→
+    61→const DIFFICULTY_CONFIG: Record<string, {
+    62→  label: string
+    63→  badge: string
+    64→  dot: string
+    65→  barFrom: string
+    66→  barTo: string
+    67→  text: string
+    68→  ring: string
+    69→}> = {
+    70→  easy: {
+    71→    label: 'Easy',
+    72→    badge: 'text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/40 border-emerald-200 dark:border-emerald-800',
+    73→    dot: 'bg-emerald-500',
+    74→    barFrom: 'from-emerald-500',
+    75→    barTo: 'to-emerald-400',
+    76→    text: 'text-emerald-600 dark:text-emerald-400',
+    77→    ring: 'ring-emerald-200 dark:ring-emerald-800',
+    78→  },
+    79→  medium: {
+    80→    label: 'Medium',
+    81→    badge: 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800',
+    82→    dot: 'bg-amber-500',
+    83→    barFrom: 'from-amber-500',
+    84→    barTo: 'to-amber-400',
+    85→    text: 'text-amber-600 dark:text-amber-400',
+    86→    ring: 'ring-amber-200 dark:ring-amber-800',
+    87→  },
+    88→  hard: {
+    89→    label: 'Hard',
+    90→    badge: 'text-rose-700 bg-rose-100 dark:text-rose-300 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800',
+    91→    dot: 'bg-rose-500',
+    92→    barFrom: 'from-rose-500',
+    93→    barTo: 'to-rose-400',
+    94→    text: 'text-rose-600 dark:text-rose-400',
+    95→    ring: 'ring-rose-200 dark:ring-rose-800',
+    96→  },
+    97→}
+    98→
+    99→// ─── Helpers ──────────────────────────────────────────────────────────
+   100→
+   101→const formatDateTime = (dateStr: string) => {
+   102→  const d = new Date(dateStr)
+   103→  return d.toLocaleDateString('en-US', {
+   104→    month: 'short',
+   105→    day: 'numeric',
+   106→    year: 'numeric',
+   107→    hour: 'numeric',
+   108→    minute: '2-digit',
+   109→    hour12: true,
+   110→  })
+   111→}
+   112→
+   113→const formatShortDate = (dateStr: string) => {
+   114→  const d = new Date(dateStr)
+   115→  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+   116→}
+   117→
+   118→// ─── Main Component ───────────────────────────────────────────────────
+   119→
+   120→export function QuizHistoryPage() {
+   121→  const [data, setData] = useState<QuizHistoryData | null>(null)
+   122→  const [loading, setLoading] = useState(true)
+   123→  const [courses, setCourses] = useState<{ id: string; title: string }[]>([])
+   124→
+   125→  // Filters
+   126→  const [courseId, setCourseId] = useState<string>('all')
+   127→  const [difficulty, setDifficulty] = useState<string>('all')
+   128→  const [passed, setPassed] = useState<string>('all')
+   129→  const [page, setPage] = useState<number>(1)
+   130→
+   131→  const PAGE_LIMIT = 10
+   132→
+   133→  // Fetch courses for the filter dropdown (public list)
+   134→  useEffect(() => {
+   135→    let mounted = true
+   136→    async function fetchCourses() {
+   137→      try {
+   138→        const result = await api.publicCourses()
+   139→        const list = (result.courses || []) as { id: string; title: string }[]
+   140→        if (mounted) setCourses(list)
+   141→      } catch (err) {
+   142→        console.error('Failed to fetch courses for filter:', err)
+   143→      }
+   144→    }
+   145→    fetchCourses()
+   146→    return () => { mounted = false }
+   147→  }, [])
+   148→
+   149→  const fetchHistory = useCallback(async () => {
+   150→    setLoading(true)
+   151→    try {
+   152→      const result = (await api.studentQuizHistory({
+   153→        courseId: courseId !== 'all' ? courseId : undefined,
+   154→        difficulty: difficulty !== 'all' ? difficulty : undefined,
+   155→        passed: passed !== 'all' ? passed : undefined,
+   156→        page,
+   157→        limit: PAGE_LIMIT,
+   158→      })) as QuizHistoryData
+   159→      setData(result)
+   160→    } catch (err) {
+   161→      console.error('Quiz history fetch error:', err)
+   162→      setData(null)
+   163→    } finally {
+   164→      setLoading(false)
+   165→    }
+   166→  }, [courseId, difficulty, passed, page])
+   167→
+   168→  useEffect(() => { fetchHistory() }, [fetchHistory])
+   169→
+   170→  // Reset to page 1 when filters change
+   171→  useEffect(() => { setPage(1) }, [courseId, difficulty, passed])
+   172→
+   173→  // ─── Loading state ─────────────────────────────────────────────────
+   174→  if (loading && !data) {
+   175→    return (
+   176→      <div className="space-y-6">
+   177→        <Skeleton className="h-28 rounded-2xl" />
+   178→        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   179→          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+   180→        </div>
+   181→        <Skeleton className="h-16 rounded-xl" />
+   182→        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   183→          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+   184→        </div>
+   185→        <Skeleton className="h-48 rounded-xl" />
+   186→        <div className="space-y-3">
+   187→          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+   188→        </div>
+   189→      </div>
+   190→    )
+   191→  }
+   192→
+   193→  const stats = data?.stats
+   194→  const attempts = data?.attempts || []
+   195→  const totalPages = data?.totalPages || 1
+   196→  const currentPage = data?.currentPage || 1
+   197→
+   198→  return (
+   199→    <div className="space-y-6">
+   200→      {/* Header */}
+   201→      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-100 dark:via-slate-200 dark:to-slate-300 p-6 shadow-lg">
+   202→        <div className="absolute top-0 right-0 w-40 h-40 bg-amber-400/10 dark:bg-amber-500/20 rounded-full -translate-y-1/3 translate-x-1/3 blur-2xl" />
+   203→        <div className="absolute bottom-0 left-1/3 w-32 h-32 bg-emerald-400/10 dark:bg-emerald-500/20 rounded-full translate-y-1/2 blur-2xl" />
+   204→        <div className="relative flex items-center gap-4">
+   205→          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 dark:from-amber-500 dark:to-amber-700 flex items-center justify-center shadow-md flex-shrink-0">
+   206→            <History className="w-6 h-6 text-white" />
+   207→          </div>
+   208→          <div>
+   209→            <h2 className="text-xl md:text-2xl font-bold text-white dark:text-slate-900 tracking-tight">
+   210→              Quiz History
+   211→            </h2>
+   212→            <p className="text-xs md:text-sm text-white/70 dark:text-slate-600 mt-0.5">
+   213→              Review your past attempts, track progress & find areas to improve
+   214→            </p>
+   215→          </div>
+   216→        </div>
+   217→      </div>
+   218→
+   219→      {/* Stats Summary Cards */}
+   220→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   221→        <StatCard
+   222→          icon={Brain}
+   223→          label="Total Attempts"
+   224→          value={stats ? String(stats.totalAttempts) : '—'}
+   225→          sub={stats ? `${stats.totalPassed} passed · ${stats.totalFailed} failed` : 'Loading…'}
+   226→          gradient="from-slate-500/15 to-slate-400/5"
+   227→          iconBg="bg-slate-500/20 text-slate-600 dark:text-slate-300"
+   228→        />
+   229→        <StatCard
+   230→          icon={CheckCircle2}
+   231→          label="Pass Rate"
+   232→          value={stats ? `${stats.passRate}%` : '—'}
+   233→          sub={stats && stats.totalAttempts > 0 ? `${stats.totalPassed}/${stats.totalAttempts} cleared` : 'No data yet'}
+   234→          gradient="from-emerald-500/15 to-emerald-400/5"
+   235→          iconBg="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+   236→        />
+   237→        <StatCard
+   238→          icon={TrendingUp}
+   239→          label="Average Score"
+   240→          value={stats ? `${stats.avgScore}%` : '—'}
+   241→          sub={stats && stats.bestStreak > 0 ? `Best streak: ${stats.bestStreak}✓` : 'Keep going!'}
+   242→          gradient="from-amber-500/15 to-amber-400/5"
+   243→          iconBg="bg-amber-500/20 text-amber-600 dark:text-amber-400"
+   244→        />
+   245→        <StatCard
+   246→          icon={Trophy}
+   247→          label="Points Earned"
+   248→          value={stats ? String(stats.totalPointsEarned) : '—'}
+   249→          sub="From quiz attempts"
+   250→          gradient="from-orange-500/15 to-orange-400/5"
+   251→          iconBg="bg-orange-500/20 text-orange-600 dark:text-orange-400"
+   252→        />
+   253→      </div>
+   254→
+   255→      {/* Filter Bar */}
+   256→      <Card className="border-slate-200 dark:border-slate-800">
+   257→        <CardContent className="p-4">
+   258→          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   259→            <FilterField label="Course">
+   260→              <Select value={courseId} onValueChange={setCourseId}>
+   261→                <SelectTrigger className="w-full">
+   262→                  <SelectValue placeholder="All Courses" />
+   263→                </SelectTrigger>
+   264→                <SelectContent>
+   265→                  <SelectItem value="all">All Courses</SelectItem>
+   266→                  {courses.map((c) => (
+   267→                    <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
+   268→                  ))}
+   269→                </SelectContent>
+   270→              </Select>
+   271→            </FilterField>
+   272→            <FilterField label="Difficulty">
+   273→              <Select value={difficulty} onValueChange={setDifficulty}>
+   274→                <SelectTrigger className="w-full">
+   275→                  <SelectValue placeholder="All Difficulties" />
+   276→                </SelectTrigger>
+   277→                <SelectContent>
+   278→                  <SelectItem value="all">All Difficulties</SelectItem>
+   279→                  <SelectItem value="easy">Easy</SelectItem>
+   280→                  <SelectItem value="medium">Medium</SelectItem>
+   281→                  <SelectItem value="hard">Hard</SelectItem>
+   282→                </SelectContent>
+   283→              </Select>
+   284→            </FilterField>
+   285→            <FilterField label="Result">
+   286→              <Select value={passed} onValueChange={setPassed}>
+   287→                <SelectTrigger className="w-full">
+   288→                  <SelectValue placeholder="All Results" />
+   289→                </SelectTrigger>
+   290→                <SelectContent>
+   291→                  <SelectItem value="all">All Results</SelectItem>
+   292→                  <SelectItem value="true">Passed Only</SelectItem>
+   293→                  <SelectItem value="false">Failed Only</SelectItem>
+   294→                </SelectContent>
+   295→              </Select>
+   296→            </FilterField>
+   297→          </div>
+   298→        </CardContent>
+   299→      </Card>
+   300→
+   301→      {/* Difficulty Breakdown + Recent Trend */}
+   302→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   303→        {/* Difficulty breakdown - spans 2 cols on lg */}
+   304→        <Card className="lg:col-span-2">
+   305→          <CardHeader className="pb-2">
+   306→            <CardTitle className="text-base flex items-center gap-2">
+   307→              <Target className="w-4 h-4 text-slate-500" />
+   308→              Performance by Difficulty
+   309→            </CardTitle>
+   310→            <CardDescription className="text-xs">
+   311→              Pass rate and average score across difficulty levels
+   312→            </CardDescription>
+   313→          </CardHeader>
+   314→          <CardContent>
+   315→            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   316→              {(['easy', 'medium', 'hard'] as const).map((diff) => {
+   317→                const d = stats?.byDifficulty?.[diff] || { attempts: 0, passed: 0, avgScore: 0 }
+   318→                const cfg = DIFFICULTY_CONFIG[diff]
+   319→                const passRate = d.attempts > 0 ? Math.round((d.passed / d.attempts) * 100) : 0
+   320→                return (
+   321→                  <div
+   322→                    key={diff}
+   323→                    className={`p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-900/50 hover:shadow-sm transition-shadow`}
+   324→                  >
+   325→                    <div className="flex items-center justify-between mb-2">
+   326→                      <span className="flex items-center gap-1.5 text-xs font-semibold capitalize text-slate-700 dark:text-slate-300">
+   327→                        <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+   328→                        {cfg.label}
+   329→                      </span>
+   330→                      <Badge variant="outline" className={`text-[10px] ${cfg.badge}`}>
+   331→                        {d.attempts} attempts
+   332→                      </Badge>
+   333→                    </div>
+   334→                    <p className={`text-2xl font-bold ${cfg.text}`}>
+   335→                      {d.attempts > 0 ? `${d.avgScore}%` : '—'}
+   336→                    </p>
+   337→                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+   338→                      {d.passed} passed · {d.attempts - d.passed} failed
+   339→                    </p>
+   340→                    <div className="mt-2.5">
+   341→                      <Progress value={passRate} className="h-1.5" />
+   342→                      <p className="text-[10px] text-slate-400 mt-1">{passRate}% pass rate</p>
+   343→                    </div>
+   344→                  </div>
+   345→                )
+   346→              })}
+   347→            </div>
+   348→          </CardContent>
+   349→        </Card>
+   350→
+   351→        {/* Recent Trend - last 7 days */}
+   352→        <Card>
+   353→          <CardHeader className="pb-2">
+   354→            <CardTitle className="text-base flex items-center gap-2">
+   355→              <BarChart3 className="w-4 h-4 text-emerald-500" />
+   356→              Last 7 Days
+   357→            </CardTitle>
+   358→            <CardDescription className="text-xs">Average score per day</CardDescription>
+   359→          </CardHeader>
+   360→          <CardContent>
+   361→            <RecentTrendChart trend={stats?.recentTrend || []} />
+   362→          </CardContent>
+   363→        </Card>
+   364→      </div>
+   365→
+   366→      {/* Attempts List */}
+   367→      <Card>
+   368→        <CardHeader className="pb-3">
+   369→          <div className="flex items-center justify-between gap-2 flex-wrap">
+   370→            <div>
+   371→              <CardTitle className="text-base flex items-center gap-2">
+   372→                <History className="w-4 h-4 text-slate-500" />
+   373→                Quiz Attempts
+   374→              </CardTitle>
+   375→              <CardDescription className="text-xs mt-0.5">
+   376→                Page {currentPage} of {totalPages} · showing {attempts.length} of{' '}
+   377→                {stats?.totalAttempts || 0} total
+   378→              </CardDescription>
+   379→            </div>
+   380→            {(courseId !== 'all' || difficulty !== 'all' || passed !== 'all') && (
+   381→              <Button
+   382→                variant="outline"
+   383→                size="sm"
+   384→                onClick={() => {
+   385→                  setCourseId('all')
+   386→                  setDifficulty('all')
+   387→                  setPassed('all')
+   388→                }}
+   389→                className="h-8 text-xs"
+   390→              >
+   391→                Clear Filters
+   392→              </Button>
+   393→            )}
+   394→          </div>
+   395→        </CardHeader>
+   396→        <CardContent className="p-0">
+   397→          {loading ? (
+   398→            <div className="p-4 space-y-3">
+   399→              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+   400→            </div>
+   401→          ) : attempts.length === 0 ? (
+   402→            <EmptyState />
+   403→          ) : (
+   404→            <div className="px-4 pb-4 space-y-3 max-h-[800px] overflow-y-auto custom-scrollbar">
+   405→              {attempts.map((a, idx) => (
+   406→                <AttemptCard key={a.id} attempt={a} index={idx} />
+   407→              ))}
+   408→            </div>
+   409→          )}
+   410→        </CardContent>
+   411→      </Card>
+   412→
+   413→      {/* Pagination */}
+   414→      {totalPages > 1 && !loading && attempts.length > 0 && (
+   415→        <div className="flex items-center justify-between gap-3 flex-wrap">
+   416→          <p className="text-xs text-slate-500 dark:text-slate-400">
+   417→            Page <span className="font-medium text-slate-700 dark:text-slate-300">{currentPage}</span> of{' '}
+   418→            <span className="font-medium text-slate-700 dark:text-slate-300">{totalPages}</span>
+   419→          </p>
+   420→          <div className="flex items-center gap-2">
+   421→            <Button
+   422→              variant="outline"
+   423→              size="sm"
+   424→              onClick={() => setPage(Math.max(1, currentPage - 1))}
+   425→              disabled={currentPage <= 1}
+   426→              className="h-8"
+   427→            >
+   428→              <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+   429→            </Button>
+   430→            <Button
+   431→              variant="outline"
+   432→              size="sm"
+   433→              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+   434→              disabled={currentPage >= totalPages}
+   435→              className="h-8"
+   436→            >
+   437→              Next <ChevronRight className="w-4 h-4 ml-1" />
+   438→            </Button>
+   439→          </div>
+   440→        </div>
+   441→      )}
+   442→    </div>
+   443→  )
+   444→}
+   445→
+   446→// ─── Sub Components ───────────────────────────────────────────────────
+   447→
+   448→function StatCard({
+   449→  icon: Icon,
+   450→  label,
+   451→  value,
+   452→  sub,
+   453→  gradient,
+   454→  iconBg,
+   455→}: {
+   456→  icon: React.ElementType
+   457→  label: string
+   458→  value: string
+   459→  sub: string
+   460→  gradient: string
+   461→  iconBg: string
+   462→}) {
+   463→  return (
+   464→    <Card className="overflow-hidden relative group">
+   465→      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-100`} />
+   466→      <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/3 translate-x-1/3 blur-md group-hover:scale-150 transition-transform duration-300" />
+   467→      <CardContent className="p-4 relative">
+   468→        <div className={`flex size-9 items-center justify-center rounded-xl ${iconBg} mb-2.5 shadow-sm`}>
+   469→          <Icon className="size-4" />
+   470→        </div>
+   471→        <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
+   472→        <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">{label}</p>
+   473→        <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-0.5">{sub}</p>
+   474→      </CardContent>
+   475→    </Card>
+   476→  )
+   477→}
+   478→
+   479→function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+   480→  return (
+   481→    <div className="space-y-1.5">
+   482→      <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+   483→        {label}
+   484→      </label>
+   485→      {children}
+   486→    </div>
+   487→  )
+   488→}
+   489→
+   490→function RecentTrendChart({ trend }: { trend: { date: string; attempts: number; avgScore: number }[] }) {
+   491→  const maxScore = 100
+   492→  const hasData = trend.some((d) => d.attempts > 0)
+   493→  const maxAttempts = Math.max(...trend.map((d) => d.attempts), 1)
+   494→
+   495→  if (!hasData) {
+   496→    return (
+   497→      <div className="py-8 text-center">
+   498→        <Calendar className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+   499→        <p className="text-xs text-slate-500 dark:text-slate-400">No quiz attempts in the last 7 days</p>
+   500→      </div>
+   501→    )
+   502→  }
+   503→
+   504→  return (
+   505→    <div className="space-y-2">
+   506→      <div className="flex items-end gap-1.5 h-32">
+   507→        {trend.map((d, i) => {
+   508→          const heightPct = (d.avgScore / maxScore) * 100
+   509→          const hasAttempts = d.attempts > 0
+   510→          const intensity = d.attempts / maxAttempts
+   511→          // Color intensity based on score: higher score = deeper emerald
+   512→          const barColor = !hasAttempts
+   513→            ? 'bg-slate-100 dark:bg-slate-800'
+   514→            : d.avgScore >= 75
+   515→              ? 'bg-gradient-to-t from-emerald-600 to-emerald-400'
+   516→              : d.avgScore >= 50
+   517→                ? 'bg-gradient-to-t from-amber-500 to-amber-400'
+   518→                : 'bg-gradient-to-t from-rose-500 to-rose-400'
+   519→          return (
+   520→            <div key={i} className="flex-1 group relative flex flex-col items-center">
+   521→              <div className="w-full h-full flex items-end">
+   522→                <div
+   523→                  className={`w-full rounded-t transition-all duration-300 ${barColor}`}
+   524→                  style={{
+   525→                    height: `${hasAttempts ? Math.max(heightPct, 8) : 0}%`,
+   526→                    minHeight: hasAttempts ? '6px' : '0',
+   527→                    opacity: hasAttempts ? 0.4 + intensity * 0.6 : 1,
+   528→                  }}
+   529→                />
+   530→              </div>
+   531→              {/* Tooltip */}
+   532→              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+   533→                {formatShortDate(d.date)}: {hasAttempts ? `${d.avgScore}% · ${d.attempts} attempt(s)` : 'No attempts'}
+   534→              </div>
+   535→            </div>
+   536→          )
+   537→        })}
+   538→      </div>
+   539→      <div className="flex justify-between text-[10px] text-slate-400">
+   540→        {trend.map((d, i) => (
+   541→          <span key={i} className="flex-1 text-center">
+   542→            {new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }).charAt(0)}
+   543→          </span>
+   544→        ))}
+   545→      </div>
+   546→      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+   547→        <span>Range: 0–100%</span>
+   548→        <span>{trend.reduce((s, d) => s + d.attempts, 0)} total attempts</span>
+   549→      </div>
+   550→    </div>
+   551→  )
+   552→}
+   553→
+   554→function AttemptCard({ attempt, index }: { attempt: QuizAttemptItem; index: number }) {
+   555→  const cfg = DIFFICULTY_CONFIG[attempt.quizDifficulty] || DIFFICULTY_CONFIG.medium
+   556→  const isPass = attempt.passed
+   557→
+   558→  // Parse answers for the breakdown preview
+   559→  const answers = useMemo(() => {
+   560→    try {
+   561→      const parsed = JSON.parse(attempt.answers)
+   562→      return Array.isArray(parsed) ? (parsed as number[]) : []
+   563→    } catch {
+   564→      return []
+   565→    }
+   566→  }, [attempt.answers])
+   567→
+   568→  const correctCount = attempt.score
+   569→  const incorrectCount = Math.max(0, attempt.totalQuestions - attempt.score)
+   570→
+   571→  return (
+   572→    <div
+   573→      className={`relative rounded-xl border transition-all slide-up hover:shadow-sm ${
+   574→        isPass
+   575→          ? 'border-emerald-200 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50/40 to-white dark:from-emerald-950/10 dark:to-slate-900'
+   576→          : 'border-rose-200 dark:border-rose-900/50 bg-gradient-to-br from-rose-50/40 to-white dark:from-rose-950/10 dark:to-slate-900'
+   577→      }`}
+   578→      style={{ animationDelay: `${index * 0.04}s` }}
+   579→    >
+   580→      {/* Pass/Fail indicator stripe */}
+   581→      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${isPass ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+   582→
+   583→      <div className="p-4 pl-5">
+   584→        <div className="flex items-start gap-3">
+   585→          {/* Pass/Fail icon badge */}
+   586→          <div
+   587→            className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
+   588→              isPass
+   589→                ? 'bg-emerald-100 dark:bg-emerald-900/40'
+   590→                : 'bg-rose-100 dark:bg-rose-900/40'
+   591→            }`}
+   592→          >
+   593→            {isPass ? (
+   594→              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   595→            ) : (
+   596→              <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+   597→            )}
+   598→          </div>
+   599→
+   600→          {/* Main content */}
+   601→          <div className="flex-1 min-w-0">
+   602→            <div className="flex items-start justify-between gap-2 flex-wrap">
+   603→              <div className="min-w-0 flex-1">
+   604→                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug truncate">
+   605→                  {attempt.quizTitle}
+   606→                </h3>
+   607→                {/* Breadcrumb */}
+   608→                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+   609→                  <BookOpen className="w-3 h-3 flex-shrink-0" />
+   610→                  <span className="truncate">{attempt.courseTitle}</span>
+   611→                  {attempt.subjectTitle && (
+   612→                    <>
+   613→                      <ChevronRight className="w-3 h-3 flex-shrink-0 opacity-50" />
+   614→                      <span className="truncate">{attempt.subjectTitle}</span>
+   615→                    </>
+   616→                  )}
+   617→                </div>
+   618→              </div>
+   619→
+   620→              {/* Percentage - large and color-coded */}
+   621→              <div className="text-right flex-shrink-0">
+   622→                <p
+   623→                  className={`text-2xl font-bold leading-none ${
+   624→                    isPass
+   625→                      ? 'text-emerald-600 dark:text-emerald-400'
+   626→                      : 'text-rose-600 dark:text-rose-400'
+   627→                  }`}
+   628→                >
+   629→                  {attempt.percentage}%
+   630→                </p>
+   631→                <p className="text-[10px] text-slate-400 mt-0.5">
+   632→                  {isPass ? 'Passed' : 'Failed'}
+   633→                </p>
+   634→              </div>
+   635→            </div>
+   636→
+   637→            {/* Badges row */}
+   638→            <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+   639→              <Badge variant="outline" className={`text-[10px] ${cfg.badge}`}>
+   640→                <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} mr-1`} />
+   641→                {cfg.label}
+   642→              </Badge>
+   643→              <Badge variant="outline" className="text-[10px] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700">
+   644→                Score: {attempt.score}/{attempt.totalQuestions}
+   645→              </Badge>
+   646→              {attempt.pointsEarned > 0 && (
+   647→                <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-800">
+   648→                  <Trophy className="w-3 h-3 mr-0.5" /> +{attempt.pointsEarned} pts
+   649→                </Badge>
+   650→              )}
+   651→            </div>
+   652→
+   653→            {/* Answer breakdown mini-bar */}
+   654→            {answers.length > 0 && (
+   655→              <div className="mt-3">
+   656→                <div className="flex items-center gap-2 mb-1">
+   657→                  <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+   658→                    <div
+   659→                      className="bg-emerald-500 transition-all"
+   660→                      style={{ width: `${(correctCount / attempt.totalQuestions) * 100}%` }}
+   661→                    />
+   662→                    <div
+   663→                      className="bg-rose-400/70 dark:bg-rose-500/60 transition-all"
+   664→                      style={{ width: `${(incorrectCount / attempt.totalQuestions) * 100}%` }}
+   665→                    />
+   666→                  </div>
+   667→                  <span className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+   668→                    {correctCount}✓ · {incorrectCount}✗
+   669→                  </span>
+   670→                </div>
+   671→              </div>
+   672→            )}
+   673→
+   674→            {/* Date */}
+   675→            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+   676→              <Calendar className="w-3 h-3 flex-shrink-0" />
+   677→              <span>{formatDateTime(attempt.createdAt)}</span>
+   678→            </div>
+   679→          </div>
+   680→        </div>
+   681→      </div>
+   682→    </div>
+   683→  )
+   684→}
+   685→
+   686→function EmptyState() {
+   687→  return (
+   688→    <div className="py-16 text-center px-4">
+   689→      <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 mb-4">
+   690→        <History className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+   691→      </div>
+   692→      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1">
+   693→        No quiz attempts found
+   694→      </h3>
+   695→      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+   696→        {`You haven't taken any quizzes matching these filters yet. Head over to the Quizzes tab to start practicing and your attempts will appear here.`}
+   697→      </p>
+   698→      <div className="mt-4 inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+   699→        <Sparkles className="w-3.5 h-3.5" />
+   700→        <span>Tip: Try clearing filters to see all attempts</span>
+   701→      </div>
+   702→    </div>
+   703→  )
+   704→}
+   705→

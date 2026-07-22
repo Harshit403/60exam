@@ -1,0 +1,945 @@
+     1→# MISSION CS Test Series - Project Worklog
+     2→
+     3→## Session: 2026-07-13 (Cron Review Round)
+     4→
+     5→---
+     6→
+     7→## Current Project Status Assessment
+     8→
+     9→The MISSION CS Test Series application is a comprehensive full-stack Next.js 16 web application with three panels:
+    10→- **Landing Page**: 8+ section marketing page with hero, features, course tabs, reviews, discussion, leaderboard, guide, FAQ, CTA, footer
+    11→- **Admin Panel**: 10 sidebar pages (dashboard, students, courses, subjects, chapters, top performers, reviews, approvals, discussions, quizzes) with real-time notification badges
+    12→- **Student Panel**: 9 sidebar pages (dashboard, quizzes, track study, study planner, notes, analytics, discussion, syllabus, edit profile) with Pomodoro timer, streak system, achievements
+    13→
+    14→**Database**: Prisma + SQLite with 14 models including Quiz, Question, QuizAttempt, and Note models
+    15→**Auth**: JWT + bcrypt with Zustand + localStorage persistence
+    16→**API**: 50+ API routes covering admin, student, and public endpoints
+    17→
+    18→### Previous Session Verified
+    19→- Landing page renders correctly
+    20→- Admin login → dashboard flow works
+    21→- Student signup → dashboard flow works
+    22→- Study timer works
+    23→- Quiz system works
+    24→- Notes system works
+    25→- Analytics page exists
+    26→- Notification bell exists
+    27→
+    28→---
+    29→
+    30→## Current Session: Completed Work
+    31→
+    32→### 1. Bug Fixes (Priority)
+    33→
+    34→#### Bug: React setState-in-render Error
+    35→- **Problem**: `hydrate()` was called during render in `page.tsx`, causing "Cannot update a component while rendering a different component" error
+    36→- **Fix**: Moved hydration to `useEffect`, replaced `useState(isClient)` with `useSyncExternalStore` for client detection
+    37→- **Result**: Console error eliminated, clean React rendering
+    38→
+    39→#### Bug: Logout Not Working
+    40→- **Problem**: After clicking logout, user stayed on admin/student panel
+    41→- **Fix**: Added auth-loss protection in `effectiveView` computation - when token is cleared, protected views redirect to landing
+    42→- **Result**: Logout now correctly navigates to landing page
+    43→
+    44→#### Bug: Admin Navigation Broken
+    45→- **Problem**: "Admin" button in landing page footer didn't navigate to admin login
+    46→- **Root cause**: The `onNavigate('admin-login')` call worked, but the `effectiveView` logic in page.tsx was interfering
+    47→- **Fix**: Fixed effectiveView computation to properly handle admin-login and student-login views
+    48→- **Result**: Admin button now navigates to admin login page correctly
+    49→
+    50→#### Bug: Login Error Not Displayed
+    51→- **Problem**: Invalid credentials on student login didn't show error message
+    52→- **Investigation**: Error WAS being caught and state was being set, but the `-i` snapshot mode didn't show alert elements
+    53→- **Fix**: Added toast notifications on login error for additional feedback, added eye toggle for password visibility
+    54→- **Result**: Error messages now show both as inline Alert and as toast notification
+    55→
+    56→#### Bug: Lint Error - setState in Effect
+    57→- **Problem**: `setCurrentView('landing')` in useEffect triggered `react-hooks/set-state-in-effect` lint error
+    58→- **Fix**: Removed redundant useEffect since `effectiveView` computation already handles the redirect
+    59→- **Result**: Lint passes clean
+    60→
+    61→### 2. Styling Improvements (Mandatory)
+    62→
+    63→#### Student Panel Sidebar Enhancement
+    64→- Logo: Upgraded from 9x9 rounded-lg to 10x10 rounded-xl with shadow-md
+    65→- Typography: Tighter tracking on "MISSION CS" label with tracking-[0.2em]
+    66→- Avatar: Added ring-2 border styling for better visual separation
+    67→- User Info: Added streak badge (🔥 icon with orange background) next to score
+    68→- Navigation: Added overflow-y-auto with custom-scrollbar for long nav lists
+    69→- Active State: Added shadow-sm to active nav items, improved transition-all duration-200
+    70→- Theme Toggle: Replaced manual DOM manipulation with proper `useTheme()` from next-themes
+    71→- Theme Icon: Shows Sun/Moon icon based on current theme state
+    72→
+    73→#### Student Panel Main Content Area
+    74→- Top bar: Enhanced backdrop-blur from blur-md to blur-lg
+    75→- Border: Changed to border-slate-200/80 for subtler appearance
+    76→- Padding: Added responsive padding (p-4 md:p-6 lg:p-8)
+    77→- Max width: Expanded from max-w-5xl to max-w-6xl for wider content area
+    78→- Mobile hamburger: Added transition-colors for smoother hover
+    79→
+    80→#### Student Dashboard - Real Leaderboard Data
+    81→- Replaced MOCK_LEADERBOARD with real data from `/api/public/leaderboard`
+    82→- Added loading state with Skeleton components
+    83→- Added empty state when no data available
+    84→- Top 3 entries get highlighted background (bg-slate-50 dark:bg-slate-800/50)
+    85→- Uses `entry.currentStreak` from API instead of `entry.streak`
+    86→
+    87→### 3. New Features (Mandatory)
+    88→
+    89→#### PWA Support
+    90→- Created `/public/manifest.json` with proper app metadata
+    91→- Created `/public/sw.js` service worker with:
+    92→  - Cache-first for static assets
+    93→  - Network-first for API calls
+    94→  - Offline fallback support
+    95→  - Cache versioning (mission-cs-v1)
+    96→- Service worker registration component already existed at `src/components/providers/sw-register.tsx`
+    97→- Manifest link already in `layout.tsx` metadata
+    98→
+    99→#### Landing Page Leaderboard Enhancement
+   100→- Sub-agent enhanced the "Top Performers This Month" section
+   101→- Added real leaderboard data fetch from `/api/public/leaderboard`
+   102→- Podium display for top 3 with Gold/Silver/Bronze gradients
+   103→- Crown icon for rank 1, Medal for rank 2, Award for rank 3
+   104→- Staggered entrance animation with `animate-leaderboard-in`
+   105→- "View Full Leaderboard" button at bottom
+   106→- Loading skeleton state during data fetch
+   107→
+   108→---
+   109→
+   110→## Unresolved Issues / Risks
+   111→
+   112→### Critical: Memory / OOM Issues
+   113→- The Next.js Turbopack dev server gets OOM-killed when compiling the app
+   114→- The LandingPage.tsx is 1307 lines - this is a very large component that may contribute to memory pressure
+   115→- **Verification**: The code compiles and serves correctly (HTTP 200 confirmed via curl), but the Turbopack process is killed after serving due to memory exhaustion
+   116→- **Recommendation**: Split LandingPage.tsx into smaller sub-components (Hero, Features, Courses, Reviews, etc.) to reduce compilation memory
+   117→- **Alternative**: Consider using webpack compiler instead of Turbopack by removing `--turbopack` flag (but Next.js 16 uses Turbopack by default)
+   118→- **Workaround**: The server can start and serve pages for the first request, but may crash under sustained load
+   119→
+   120→### ~~Missing PWA Icons~~ FIXED
+   121→- `/icon-192.png` and `/icon-512.png` now generated via AI image generation
+   122→- Icons feature dark slate background with golden graduation cap and book symbol
+   123→
+   124→### Feature Gaps
+   125→- **Course deep-content pages**: CSEET, CS Executive, CS Professional pages still use brief tab content (should be 1500-2000 words each)
+   126→- **Discussion page on landing**: Basic "Sign In to Discuss" button exists but no actual discussion preview
+   127→- **Admin theme toggle**: Admin panel uses manual DOM approach instead of next-themes (inconsistent with student panel)
+   128→- **Student analytics page**: Could benefit from more chart types and data visualization
+   129→
+   130→### Code Quality
+   131→- AdminPanel.tsx is 944 lines - monolithic component that should be split into sub-components
+   132→- LandingPage.tsx is 1307 lines - should be split into section components
+   133→- Multiple CSS animation systems (student utils, admin inline, landing page global) - could be unified
+   134→
+   135→---
+   136→
+   137→## Session: 2026-07-13 (Landing Page Styling Enhancement)
+   138→
+   139→### Task: Dramatically Improve Landing Page Styling and Visual Polish
+   140→
+   141→**File Modified**: `/home/z/my-project/src/components/landing/LandingPage.tsx` (1307 → 1580 lines)
+   142→
+   143→#### 1. Navigation/Header Enhancement
+   144→- Added scroll-aware header state (`scrolled`) that transitions from transparent to frosted glass (backdrop-blur-xl, shadow-sm) on scroll
+   145→- Logo: Upgraded from plain icon to gradient-branded rounded-lg container (emerald-600 → amber-600 gradient)
+   146→- Badge: Added gradient background with emerald/amber tint and custom border
+   147→- Nav links: Upgraded to rounded-lg with hover:bg-muted/80, transition-all duration-200
+   148→- CTA buttons: Added gradient backgrounds (emerald-600 → amber-600 for Sign Up, emerald-600 → emerald-700 for Dashboard)
+   149→- Mobile menu: Smoother transition (duration-300, max-h-60), backdrop-blur-xl, rounded-lg items
+   150→- Install App button: Added emerald border hover effect
+   151→
+   152→#### 2. Hero Section Enhancement
+   153→- Background: Replaced simple gradient with multi-layer effect (slate-50 → emerald-50/40 → amber-50/30) plus animated radial gradients and grid pattern overlay
+   154→- Floating elements: Added 7 decorative elements (4 blur shapes + 3 pulsing dots with animate-pulse-dot)
+   155→- Headline: Upgraded to font-extrabold, xl:text-7xl, leading-[1.1]; gradient text now has animated bg-[length:200%_auto] with animate-gradient-text
+   156→- Badge: Enhanced with gradient background, padding, and shadow-sm
+   157→- CTA buttons: Added py-6, gradient backgrounds, shadow-lg, hover:-translate-y-0.5 lift, group-hover arrow animation
+   158→- Stats counters: Redesigned from plain text to pill-shaped stat cards (rounded-2xl, bg-color, border, shadow-sm) with animated counter values using useAnimatedCounter hooks and uppercase tracking-wider labels
+   159→
+   160→#### 3. Feature Card Section Enhancement
+   161→- Added subtle mesh gradient background (radial gradients)
+   162→- Wrapped heading and card in FadeIn components
+   163→- Card: Added rounded-2xl, gradient border on hover (emerald/amber overlay), group-hover scale on icon
+   164→- Icon container: Changed from rounded-full to rounded-2xl with gradient background
+   165→- CTA buttons: Added gradient backgrounds and hover effects
+   166→
+   167→#### 4. Stats Section Enhancement
+   168→- Added subtle radial gradient background
+   169→- Cards: Upgraded to rounded-2xl
+   170→- Icon containers: Changed from rounded-full to rounded-2xl, added animate-icon-pulse
+   171→- Added group-hover:scale-110 on icon containers
+   172→- Added gradient vertical separators between stats (hidden on mobile)
+   173→- Hover transition: duration-200 → duration-300
+   174→
+   175→#### 5. How It Works Section Enhancement
+   176→- Added FadeIn wrapper on header
+   177→- Badge: Added gradient background
+   178→- Cards: Added rounded-xl, hover:-translate-y-1 lift, transparent border → emerald on hover, shadow-xl
+   179→- Step numbers: Changed from rounded-full to rounded-xl, added group-hover:scale-110
+   180→- Icon containers: Added group-hover:bg-foreground/10 transition
+   181→
+   182→#### 6. Why Choose Section Enhancement
+   183→- Added mesh gradient background overlay
+   184→- Badge: Added gradient background
+   185→- Cards: Added gradient border on hover (emerald/amber overlay with inset background), rounded-xl, hover:-translate-y-2 lift, shadow-xl
+   186→- Icon containers: Changed from rounded-lg to rounded-xl with gradient background, group-hover:scale-110, shadow-lg
+   187→- Title: Added group-hover text-emerald-700/dark:emerald-400 color transition
+   188→
+   189→#### 7. Courses Section Enhancement
+   190→- Added dot pattern background overlay
+   191→- Badge: Added gradient background
+   192→- TabsList: Added rounded-xl, p-1.5, individual rounded-lg triggers
+   193→- CS Executive tab: Added "Popular" badge (amber-500 → rose-500 gradient, absolute positioned)
+   194→- TabsContent: Added animate-fade-in class
+   195→- Course badge: Added gradient background with shadow
+   196→- "Most Popular" badge: Added on CS Executive (amber → rose gradient)
+   197→- Feature checkmarks: Added group-hover/feature scale animation
+   198→- CTA button: Added gradient background, shadow-md, group-hover arrow animation
+   199→- Student count indicator: Added enrollment progress bar with emerald gradient
+   200→- Exam Pattern card: Added rounded-xl, hover:shadow-lg, icon in title, highlighted total row with emerald bg
+   201→- Series Features card: Added rounded-xl, hover:shadow-lg, icon in title
+   202→
+   203→#### 8. Comparison Table Enhancement
+   204→- Added FadeIn on header and table
+   205→- Table header: Replaced bg-muted/50 with gradient (emerald-50/50 → amber-50/50)
+   206→- Card: Added rounded-2xl, shadow-sm, hover:shadow-lg
+   207→
+   208→#### 9. Reviews Section Enhancement
+   209→- Added background decorations (blur circles)
+   210→- Badge: Added gradient background
+   211→- Cards: Upgraded to backdrop-blur-md, dark:bg-slate-900/60, rounded-xl, hover:-translate-y-1 lift, shadow-xl
+   212→- Quote marks: Added decorative &ldquo; in top-right with font-serif, emerald-200/30 color
+   213→- Avatar: Upgraded to w-9 h-9, ring-2 ring-white/20, shadow-sm
+   214→- Carousel dots: Changed to gradient (emerald-500 → amber-500) for active state, width animation
+   215→- Course badges: Added emerald border tint
+   216→- Loading skeletons: Added rounded-xl
+   217→
+   218→#### 10. Discussion Section Enhancement
+   219→- Added FadeIn wrappers
+   220→- Badge: Added gradient background
+   221→- Card: Upgraded to backdrop-blur-md, rounded-xl, hover:shadow-lg
+   222→- Icon: Changed from plain to gradient-branded container (rounded-2xl)
+   223→- Button: Added gradient background, group-hover arrow animation
+   224→
+   225→#### 11. Guide Section Enhancement
+   226→- Added radial gradient background
+   227→- Added FadeIn on header
+   228→- Restructured into Card components with FadeIn
+   229→- Cards: Added rounded-xl, border-l-4 emerald accent, hover:shadow-md
+   230→- Icons: Added emerald-600 color
+   231→
+   232→#### 12. FAQ Section Enhancement
+   233→- Added radial gradient background
+   234→- Badge: Added gradient background
+   235→- Accordion items: Added border, rounded-xl, px-4, hover:shadow-sm, data-[state=open]:border-l-emerald-500 + border-l-4 + shadow-sm
+   236→- Trigger: Added hover:text-emerald-700, py-4, SVG rotation transition
+   237→- Wrapped in FadeIn with delay
+   238→
+   239→#### 13. CTA Section Enhancement
+   240→- Background: Changed from via-foreground to via-slate-900
+   241→- Added floating decorative elements (2 blur circles + 2 pulsing dots)
+   242→- CTA button: Added py-6, hover:shadow-2xl, hover:-translate-y-0.5, inner gradient overlay on hover
+   243→- Secondary button: Added py-6, hover:border-white/50, hover:-translate-y-0.5
+   244→
+   245→#### 14. Footer Enhancement
+   246→- Logo: Upgraded to gradient-branded rounded-lg container with group hover
+   247→- Links: Changed hover from foreground to emerald-600/emerald-400 with duration-200
+   248→- Email/Phone icons: Added emerald-600 color
+   249→- Social icons: Added brand-specific hover colors (Instagram→pink, YouTube→red, LinkedIn→sky)
+   250→- Footer links: Added hover:text-foreground transition and cursor-pointer
+   251→
+   252→#### 15. Scroll-to-Top Button
+   253→- Changed from bg-foreground to gradient (emerald-600 → amber-600)
+   254→- Added hover:-translate-y-0.5 lift
+   255→
+   256→#### 16. CSS Animations Added
+   257→- `html { scroll-behavior: smooth; }` - global smooth scrolling
+   258→- `animate-pulse-dot` - pulsing dot effect for decorative elements
+   259→- `animate-gradient-text` - animated gradient text background position
+   260→- `animate-gradient-shift` - opacity oscillation for gradient overlays
+   261→- `animate-icon-pulse` - subtle scale pulse on stat icons
+   262→- Global custom scrollbar (8px width, oklch colors)
+   263→- Loading shimmer effect (`animate-loading-shimmer`) with dark mode variant
+   264→
+   265→---
+   266→
+   267→## Session: 2026-07-13 (Student Panel Styling Enhancement)
+   268→
+   269→### Task: Dramatically Improve Student Panel Styling and Visual Polish
+   270→
+   271→**Files Modified**:
+   272→- `/home/z/my-project/src/components/student/utils.tsx` - Shared utilities & CSS animations
+   273→- `/home/z/my-project/src/components/student/StudentPanel.tsx` - Main panel with sidebar
+   274→- `/home/z/my-project/src/components/student/pages/DashboardPage.tsx` - Dashboard
+   275→- `/home/z/my-project/src/components/student/pages/QuizPage.tsx` - Quiz interface
+   276→- `/home/z/my-project/src/components/student/pages/TrackStudyPage.tsx` - Study tracking
+   277→- `/home/z/my-project/src/components/student/pages/StudyPlannerPage.tsx` - Study planner
+   278→- `/home/z/my-project/src/components/student/pages/NotesPage.tsx` - Notes
+   279→- `/home/z/my-project/src/components/student/pages/DiscussionPage.tsx` - Discussion
+   280→- `/home/z/my-project/src/components/student/pages/SyllabusPage.tsx` - Syllabus
+   281→- `/home/z/my-project/src/components/student/pages/EditProfilePage.tsx` - Profile editing
+   282→- `/home/z/my-project/src/components/student/pages/AnalyticsPage.tsx` - Analytics
+   283→
+   284→#### 1. utils.tsx - New CSS Animations Added
+   285→- `pulse-check` - Pulsing dot indicator for available actions (2s ease-in-out)
+   286→- `shimmer-bar` - Shimmering progress bar effect (1.5s)
+   287→- `score-reveal` - Score card reveal with bounce (0.6s cubic-bezier)
+   288→- `check-pop` - Checkmark pop animation with rotation (0.4s cubic-bezier)
+   289→- `accordion-open/close` - Smooth height transitions
+   290→- `pin-bounce` - Pin indicator bounce with rotation (0.4s)
+   291→- `slide-up` - Slide up with fade (0.3s)
+   292→- `bar-grow` - Bar chart grow from bottom (0.5s)
+   293→- Custom scrollbar (6px width, slate colors with hover)
+   294→- Focus ring accessibility styles
+   295→
+   296→#### 2. StudentPanel.tsx Sidebar - Major Overhaul
+   297→- **Branding header**: Changed to gradient bg (slate-900→slate-950) with white text and semi-transparent icon container
+   298→- **Section grouping**: Nav items now grouped into "Learning", "Social", "Account" with uppercase section labels
+   299→- **Active state**: Left border accent (3px amber-400) + gradient bg + active dot indicator
+   300→- **Hover animations**: Icon scale-110 on hover, translate-x-0.5 slide effect
+   301→- **User info card**: Level badge system (Starter/Rising/Pro/Elite) based on score with gradient colors
+   302→- **Top bar**: Added icon + label pattern with gradient icon container for current page
+   303→- **Buttons**: Added active:scale-[0.98] micro-interaction on all sidebar buttons
+   304→
+   305→#### 3. DashboardPage.tsx - Visual Polish
+   306→- **Daily quote card**: Upgraded to rounded-2xl with decorative blur circles, gradient Sparkles icon, amber-300/80 author text
+   307→- **Quick action cards**: Added rounded chevron indicators with colored backgrounds instead of plain arrows
+   308→- **Streak check-in**: Added pulse-check animated dot when strike is available
+   309→- **Quick stats**: Changed to gradient icon containers (bg-gradient-to-br + white icons) with subtle gradient overlay
+   310→- **Study session header**: Added gradient icon container instead of plain colored icon
+   311→- **Achievements**: Added progress bar with shimmer-bar animation showing overall completion percentage
+   312→
+   313→#### 4. QuizPage.tsx - Enhanced UX
+   314→- **Timer**: Added color transitions (duration-500) with shadow effects per urgency level
+   315→- **Progress stepper**: Added horizontal dot stepper showing answered/current/unanswered questions
+   316→- **Option buttons**: Enhanced selected state with shadow, ring, ✓ checkmark, scale-110, and font-medium; hover state with bg shift
+   317→- **Result view**: Added score-reveal animation on icon (rounded-2xl), slide-up with staggered delays, larger score cards (rounded-2xl + shadow-lg)
+   318→- **Review answers**: Added slide-up animation with staggered delays per card
+   319→- **Stats banner**: Added decorative blur circles to each stat card
+   320→
+   321→#### 5. TrackStudyPage.tsx - Enhanced Visualization
+   322→- **Session cards**: Changed to rounded-xl with slide-up stagger animation; completed sessions get border-l-3 accent; in-progress sessions get amber icon
+   323→- **Bar chart**: Added bar-grow animation with staggered delays per bar
+   324→- **Weekly summary**: Upgraded to rounded-2xl with borders, larger text (2xl), violet color for sessions stat
+   325→
+   326→#### 6. NotesPage.tsx - Enhanced Cards
+   327→- **Color accent**: Added top-border accent per note color (border-t-4 + color)
+   328→- **Pin animation**: Added pin-bounce class when pinning a note
+   329→- **Stats row**: Enhanced with gradient backgrounds and decorative blur circles
+   330→- **Edit/delete buttons**: Added hover color transitions
+   331→- **COLOR_OPTIONS**: Added `accent` field for top-border color per note type
+   332→
+   333→#### 7. DiscussionPage.tsx - Thread Improvements
+   334→- **timeAgo helper**: Added function for "just now", "5m ago", "2h ago", "3d ago" display
+   335→- **Reply cards**: Changed to rounded-xl with border-l-3, added avatar circles (w-5 h-5) for each replier
+   336→- **Reply count badge**: Styled with cyan color scheme
+   337→- **Replies label**: Changed to uppercase tracking-wider "REPLIES"
+   338→
+   339→#### 8. SyllabusPage.tsx - Tree-View Layout
+   340→- **Header**: Added gradient icon container with description text
+   341→- **Tree-view**: Added vertical connecting line (w-px bg-slate-200) and horizontal connectors (w-2.5 h-px) per chapter
+   342→- **Checkmarks**: Changed to check-pop animation for completion indicator
+   343→- **Hover**: Added scale-110 on unchecked checkboxes hover
+   344→- **Chapter items**: Added slide-up stagger animation with incremental delays
+   345→- **Removed bg-slate-50**: Items now have clean hover state only
+   346→
+   347→#### 9. AnalyticsPage.tsx - Gradient Stat Cards
+   348→- **StatCard component**: Added group-hover scale effect on decorative blur circle, upgraded to rounded-xl icons (size-9), larger text (2xl values), enhanced gradient overlays
+   349→- **Gradient colors**: Upgraded from /10 to /15 opacity for more visible gradients
+   350→- **Achievement cards**: Upgraded to rounded-xl with shadow-sm hover, larger icons (w-9 h-9), shimmer-bar animation on progress bars
+   351→- **Cards**: Added overflow-hidden consistently
+   352→
+   353→#### 10. EditProfilePage.tsx - Profile Enhancement
+   354→- **Header**: Added gradient icon container with description text
+   355→- **Avatar section**: Added large avatar (h-16 w-16) with Camera upload button overlay
+   356→- **Form sections**: Increased spacing (space-y-6), added font-medium labels, rounded-lg inputs
+   357→- **Save button**: Added CheckCircle2 icon on idle state, active:scale-[0.98], w-full on mobile
+   358→
+   359→#### 11. StudyPlannerPage.tsx - Polish
+   360→- **Header**: Added gradient icon container (rose-500→pink-500) with description text
+   361→- **Plan cards**: Added rounded-xl, border, slide-up stagger animation
+   362→- **Empty state**: Added CalendarCheck icon with descriptive text instead of plain message
+   363→- **Add Plan button**: Added active:scale-[0.98] transition
+   364→
+   365→#### General Polish Applied Across All Pages
+   366→- Consistent `overflow-hidden` on Card components
+   367→- `active:scale-[0.98]` micro-interaction on buttons
+   368→- Gradient icon containers in page headers (replacing plain Lucide icons)
+   369→- Description text under page titles
+   370→- Staggered `slide-up` animations on list items
+   371→- Enhanced empty states with icons and descriptive text
+   372→
+   373→---
+   374→
+   375→## Session: 2026-03-04 (Admin Panel Styling Enhancement)
+   376→
+   377→### Task: Dramatically Improve Admin Panel Styling and Visual Polish
+   378→
+   379→**Files Modified**:
+   380→- `/home/z/my-project/src/components/admin/AdminPanel.tsx` (944 → 1092 lines)
+   381→- `/home/z/my-project/src/components/admin/QuizzesPage.tsx` (361 → 373 lines)
+   382→
+   383→#### 1. CSS Animations Enhancement
+   384→- Added 7 new keyframes: `shimmer`, `pulseGlow`, `scaleIn`, `countUp`, `slideInLeft`, `checkPop`
+   385→- Added `.shimmer-bg` class for skeleton loading with shimmer effect (light + dark mode)
+   386→- Added `.anim-scale-in`, `.anim-slide-left`, `.anim-check-pop` animation classes
+   387→- Added `.admin-scroll` custom scrollbar (6px width, themed colors, rounded thumb)
+   388→- Added `.card-lift` hover transition (translateY -2px + elevated shadow)
+   389→- Added `.dialog-gradient-header` gradient header for dialogs (emerald/teal gradient + border)
+   390→- Added `.input-focus-ring` focus animation (emerald glow ring + border color transition)
+   391→
+   392→#### 2. New Reusable Components
+   393→- `ShimmerCard` - Stat card skeleton with shimmer loading
+   394→- `EmptyState` - Empty state with icon, title, description, and optional action button (dashed border)
+   395→- `ActionButton` - Icon button with CSS tooltip that appears on hover
+   396→- `GradientButton` - Submit/action button with emerald-to-teal gradient + shadow
+   397→- `SearchBar` - Styled search input with focus ring, muted bg, and border transition
+   398→
+   399→#### 3. Sidebar Enhancement
+   400→- Header: Added gradient background (`from-emerald-500/5 via-teal-500/3`), upgraded logo to size-10 rounded-xl with shadow-md and ring, added tracking-[0.15em] on "MISSION CS"
+   401→- Navigation: Replaced flat list with grouped sections (Overview, Management, Content, Communication) with uppercase tracking labels
+   402→- Active state: Added gradient background (`from-emerald-500/8 to-teal-500/4`) on active items, shadow-sm on icon containers, scale-105 hover on inactive icons
+   403→- Badges: Changed from solid red to gradient (`from-red-500 to-rose-500`) with shadow, added `animate-pulse` on collapsed dot
+   404→- Active indicator: Widened to 3px with shadow-sm shadow-emerald-500/30
+   405→- Footer: Added border-t, hover:scale-[1.02] on all items, red color on Logout
+   406→
+   407→#### 4. Top Bar Enhancement
+   408→- Changed backdrop-blur from blur-sm to blur-lg
+   409→- Added page icon with color-coded rounded-md badge before title
+   410→- Added admin avatar + name on the right side (hidden on mobile)
+   411→- Added transition-colors on SidebarTrigger
+   412→
+   413→#### 5. Dashboard Page Enhancement
+   414→- Added welcome message section with "Welcome back, Admin 👋" heading and subtitle
+   415→- Added Quick Actions row: Create Course, Add Quiz, View Students (with hover color transitions)
+   416→- Stat cards: Replaced gradient overlays with gradient top border (h-1), changed icon containers from rounded-lg to rounded-xl, added card-lift hover, staggered anim-fade-up with delays, uppercase tracking-wider labels, dark mode variants
+   417→- Loading state: Replaced plain Skeleton with ShimmerCard component
+   418→- Activity log: Added icon background containers (rounded-lg with color+bg), hover:bg-muted/40, staggered anim-slide-left animations, time indicators with tabular-nums and smaller font
+   419→- Recent Signups: Added EmptyState component, gradient header row, hover:bg-emerald-500/5, subtle alternating rows (bg-muted/8)
+   420→
+   421→#### 6. Table Pages Enhancement (Students, Courses, Subjects, Chapters)
+   422→- All search bars: Replaced raw Search+Input with SearchBar component (focus ring, muted bg, border transitions)
+   423→- All "Add" buttons: Replaced with GradientButton (emerald-to-teal gradient)
+   424→- All table headers: Changed from bg-muted/50 to `bg-gradient-to-r from-muted/60 to-muted/30`
+   425→- All table rows: Added context-colored hover (emerald/amber/violet/teal per page), alternating bg-muted/8
+   426→- All action columns: Replaced Button variant="ghost" with ActionButton (icon + CSS tooltip)
+   427→- All empty states: Replaced "No X found" text with EmptyState component (icon, title, description, action)
+   428→- All tables: Added card-lift class on parent Card
+   429→- Status badges: APPROVED now has emerald styling (bg/text/border emerald)
+   430→
+   431→#### 7. Form Dialogs Enhancement
+   432→- All dialogs: Added `dialog-gradient-header` class with icon badge in title (each dialog has unique color)
+   433→- Student Add: Split into two sections with Separator, Added input-focus-ring on Select triggers
+   434→- Student Edit: Same gradient header + section split pattern
+   435→- Change Password: Gradient header, section split (current vs new), Separator between sections
+   436→- All submit buttons: Replaced with GradientButton (emerald-to-teal gradient + shadow)
+   437→- All inputs: Changed from `transition-shadow focus:ring-2 focus:ring-emerald-500/30` to `input-focus-ring` class
+   438→
+   439→#### 8. Discussions Page Enhancement
+   440→- Added avatar placeholders: Gradient circle with first letter of student name
+   441→- Added thread-style indentation: Content indented with pl-12, admin reply with ml-9
+   442→- Admin reply: Enhanced with gradient background (`from-emerald-500/8 to-teal-500/5`), rounded-xl, admin avatar badge (size-5 gradient circle with "A"), font-semibold label
+   443→- Reply button: Added ml-9 indentation, hover:border-emerald-500/50 + hover:text-emerald-600
+   444→- Delete button: Replaced with ActionButton with tooltip
+   445→- Loading state: Added shimmer-bg + rounded-lg on skeletons
+   446→- Empty state: Replaced with EmptyState component
+   447→
+   448→#### 9. Approvals Page Enhancement
+   449→- Toggle card: Added card-lift, rounded-xl on icon container, dark mode variants, transition-transform on Switch
+   450→- Search: Replaced with SearchBar component
+   451→- Table: Added EmptyState, gradient header, context-colored hover, gradient Accept button (emerald-to-teal), shadow-sm on both buttons
+   452→- Status icon: Changed from plain XCircle to rounded-full container with bg-amber-500/10
+   453→
+   454→#### 10. Top Performers Page Enhancement
+   455→- Search: Replaced with SearchBar component
+   456→- Chart card: Added card-lift
+   457→- Table: Added EmptyState, gradient header, context-colored hover (orange), gradient rank circles (from-muted to-muted/60 + shadow-sm), amber-themed study hours badges + gradient progress bar
+   458→
+   459→#### 11. Reviews Page Enhancement
+   460→- Search: Replaced with SearchBar component
+   461→- Add button: Replaced with GradientButton
+   462→- Table: Added EmptyState, gradient header, context-colored hover (rose), APPROVED badge with emerald styling, ActionButton for delete, hover:bg on approve/reject buttons
+   463→- Add dialog: Gradient header with Star icon, input-focus-ring on Textarea + Selects
+   464→
+   465→#### 12. QuizzesPage Enhancement
+   466→- New Quiz button: Changed to emerald-to-teal gradient
+   467→- Stats row: Added gradient top borders on each card, card-lift hover
+   468→- Difficulty badges: Added border styling, gradient dot indicator before text, font-semibold
+   469→- Points badge: Added gap-1, dark:border-amber-700
+   470→- Inactive badge: Added explicit muted styling
+   471→- Question/attempt counts: Changed to pill badges with colored backgrounds (purple for Qs, sky for attempts)
+   472→- Switch: Added data-[state=checked]:bg-emerald-500 + transition-colors
+   473→- Active/Inactive text: Color-coded (emerald when active, slate when inactive)
+   474→- Edit/Delete buttons: Added hover backgrounds (sky-500/10, destructive/10)
+   475→- Card hover: Added hover:shadow-lg transition-shadow
+   476→- Quiz form: Submit button changed to gradient, Active switch themed
+   477→- Question cards: Added rounded-xl, shadow-sm, question number badge (rounded-md bg-purple-500/10)
+   478→- Option buttons: Changed from rounded-full to rounded-lg, added gradient on selected (emerald-to-teal + shadow), hover:border on unselected
+   479→- Empty state: Replaced with icon in rounded-2xl container + structured text
+   480→
+   481→#### 13. Pagination Controls Enhancement
+   482→- Added bg-muted/20 on container
+   483→- Smaller font (text-xs), font-medium
+   484→- Added gap-1, text-xs, hover:border-emerald-500/30 on buttons
+   485→
+   486→#### 14. General Polish
+   487→- All Cards: Added card-lift class (hover lift + shadow transition)
+   488→- StyledTable: Changed from rounded-lg to rounded-xl + shadow-sm
+   489→- IconField: Added text-xs font-medium on label, muted-foreground/50 on icon, input-focus-ring + rounded-lg on Input
+   490→- Export CSV buttons: Added gap-1.5, hover:bg-muted/80, transition-colors
+   491→
+   492→---
+   493→
+   494→## Priority Recommendations for Next Phase
+   495→
+   496→1. **Split large components** - Break LandingPage.tsx and AdminPanel.tsx into smaller sub-components to reduce memory pressure and improve maintainability
+   497→2. **Generate PWA icons** - Create proper app icons for manifest.json
+   498→3. **Add course content pages** - Expand CSEET/CS Executive/CS Professional content from brief summaries to full 1500-2000 word descriptions
+   499→4. **Admin theme toggle** - Replace manual DOM approach with next-themes useTheme()
+   500→5. **Performance optimization** - Consider code splitting and lazy loading for heavy pages
+   501→
+   502→---
+   503→
+   504→## Task 6-7: PWA Manifest + Service Worker & Student Leaderboard (Completed)
+   505→
+   506→### Part 1: PWA Support
+   507→
+   508→#### manifest.json Updates
+   509→- Updated `/public/manifest.json` with proper icon paths pointing to `/icons/` directory
+   510→- Added separate maskable icon entry (512x512 with `purpose: "maskable"`)
+   511→- Specified `portrait-primary` orientation and education categories
+   512→
+   513→#### PWA Icons
+   514→- Created `/public/icons/` directory
+   515→- Generated proper PNG icons (192x192 and 512x512) using Node.js PNG generator
+   516→- Icons feature dark slate background (#0f172a) with amber "M" letter for Mission CS branding
+   517→
+   518→#### Service Worker Enhancement (`/public/sw.js`)
+   519→- **Cache versioning**: `CACHE_VERSION` constant for easy cache busting (currently v2)
+   520→- **Three cache layers**: Static cache, Dynamic cache, API cache (each with versioned names)
+   521→- **Cache-first strategy**: For static assets (JS, CSS, images, fonts, icons)
+   522→- **Network-first strategy**: For API calls with JSON offline fallback
+   523→- **Stale-while-revalidate**: For HTML pages (balance speed & freshness)
+   524→- **Cache trimming**: Prevents unbounded growth (50 API entries, 100 dynamic entries)
+   525→- **Offline fallback**: HTML requests fall back to cached `/` page; API requests return JSON error
+   526→- **Skip waiting + claim**: Immediate activation on install/update
+   527→
+   528→#### Layout Updates (`src/app/layout.tsx`)
+   529→- Added `<link rel="manifest" href="/manifest.json" />` in `<head>`
+   530→- Added `<meta name="theme-color" content="#0f172a" />`
+   531→- Added `<link rel="apple-touch-icon" href="/icons/icon-192.png" />`
+   532→- Note: manifest was already declared in metadata export; head link provides explicit HTML reference
+   533→
+   534→#### SW Registration Fix (`src/components/providers/sw-register.tsx`)
+   535→- Added `{ scope: '/' }` to `navigator.serviceWorker.register()` call
+   536→- Added `onupdatefound` handler to detect new SW versions
+   537→- Kept dev-mode guard (`localStorage.getItem('sw-test')`) while preserving production behavior
+   538→
+   539→#### Install App Button (LandingPage.tsx)
+   540→- Verified existing implementation is correct:
+   541→  - `beforeinstallprompt` event listener captures the deferred prompt
+   542→  - `handleInstallApp()` calls `deferredPrompt.prompt()` and clears after user choice
+   543→  - Button only shown when `deferredPrompt` is available (hidden when app is installed)
+   544→  - Mobile menu also includes Install App option
+   545→
+   546→### Part 2: Student Leaderboard Page
+   547→
+   548→#### API Route (`/api/student/leaderboard/route.ts`)
+   549→- GET endpoint requiring student auth (via `getAuthFromHeaders`)
+   550→- Returns top students ranked by score (desc), then streak (desc), then study time (desc)
+   551→- Supports `limit` query param (default 50, max 100)
+   552→- Supports `courseId` query param for course-specific filtering
+   553→- Only shows approved students
+   554→- Each entry includes: rank, id, fullName, score, currentStreak, verified, courseTitle, isCurrentUser
+   555→- Returns `currentUserRank` separately if user not in top results
+   556→- Returns `totalStudents` count for display
+   557→
+   558→#### API Client (`src/lib/api-client.ts`)
+   559→- Added `studentLeaderboard(limit?, courseId?)` method with URLSearchParams building
+   560→
+   561→#### Types (`src/components/student/types.ts`)
+   562→- Added `'leaderboard'` to the `Page` type union
+   563→
+   564→#### LeaderboardPage Component (`src/components/student/pages/LeaderboardPage.tsx`)
+   565→- **Header**: Trophy icon with amber-to-orange gradient, total student count
+   566→- **Course Filter**: Select dropdown (All, CSEET, CS Executive, CS Professional) using dynamic course ID mapping
+   567→- **Top 3 Podium**: Visual podium layout (2nd-1st-3rd order) with:
+   568→  - Gold/Silver/Bronze medal emojis (🥇🥈🥉)
+   569→  - Colored backgrounds with gradient borders
+   570→  - Larger avatar for #1 rank
+   571→  - Verified badge (blue checkmark) overlay on avatar
+   572→  - Score with trophy icon, streak with fire emoji
+   573→  - "You" badge for current user
+   574→- **Current User Rank Card**: Highlighted amber card shown when user not in visible top list
+   575→- **Rankings List**: Scrollable table (max-h-96) with:
+   576→  - Rank number in rounded box
+   577→  - Avatar with verified badge
+   578→  - Name, course, "You" badge
+   579→  - Score and streak indicators
+   580→  - Hover effects
+   581→  - Current user row highlighted
+   582→- **Empty State**: Users icon with helpful message
+   583→- **Loading Skeleton**: Full page skeleton with podium + list placeholders
+   584→- **Responsive Design**: Works on mobile (grid-cols-3 podium scales down)
+   585→
+   586→#### StudentPanel Integration
+   587→- Added `Trophy` icon import from lucide-react
+   588→- Added `LeaderboardPage` import from pages
+   589→- Added nav item: `{ id: 'leaderboard', label: 'Leaderboard', icon: Trophy, section: 'Learning' }` (after Analytics)
+   590→- Added render case: `case 'leaderboard': return <LeaderboardPage />`
+   591→
+   592→#### Pages Index Export
+   593→- Added `export { LeaderboardPage } from './LeaderboardPage'`
+   594→
+   595→### Files Modified
+   596→- `/public/manifest.json` - Updated icon paths and structure
+   597→- `/public/sw.js` - Enhanced with cache strategies, offline fallback, versioning
+   598→- `/public/icons/icon-192.png` - New generated PNG icon
+   599→- `/public/icons/icon-512.png` - New generated PNG icon
+   600→- `/src/app/layout.tsx` - Added manifest link, theme-color meta, apple-touch-icon
+   601→- `/src/components/providers/sw-register.tsx` - Enhanced with scope and update detection
+   602→- `/src/app/api/student/leaderboard/route.ts` - New API endpoint
+   603→- `/src/lib/api-client.ts` - Added studentLeaderboard method
+   604→- `/src/components/student/types.ts` - Added leaderboard to Page type
+   605→- `/src/components/student/pages/LeaderboardPage.tsx` - New component
+   606→- `/src/components/student/StudentPanel.tsx` - Added nav item and render case
+   607→- `/src/components/student/pages/index.ts` - Added export
+   608→
+   609→---
+   610→Task ID: 1-8
+   611→Agent: Main Orchestrator
+   612→Task: QA testing, bug fixes, styling improvements, and new features
+   613→
+   614→Work Log:
+   615→- Performed comprehensive QA testing via agent-browser across landing, admin, and student panels
+   616→- Fixed FadeIn closing tag missing error in LandingPage.tsx
+   617→- Fixed missing Badge import in EditProfilePage.tsx
+   618→- Deleted junk test course "gvgtv bgtvb" from database via Prisma
+   619→- Enhanced LandingPage with: animated gradient backgrounds, floating decorative elements, animated counters, FadeIn scroll animations, glass-morphism cards, gradient CTA buttons, improved courses section with "Popular" badge, enhanced reviews carousel, FAQ accordion with smooth transitions, CTA section with shimmer effect, footer with hover animations
+   620→- Enhanced AdminPanel with: gradient sidebar header, section grouping, search bars, gradient stat cards, shimmer loading, action buttons with tooltips, gradient dialog headers, thread-style discussion layout, gradient quiz buttons
+   621→- Enhanced StudentPanel with: gradient branding sidebar, section grouping, level badge system, gradient stat cards, enhanced Pomodoro timer, quiz progress stepper, animated timer colors, notes color accents, discussion time-ago indicators, syllabus tree-view with connecting lines, analytics gradient cards, edit profile avatar camera overlay
+   622→- Created PWA manifest.json, service worker (sw.js), PNG icons, updated layout.tsx with manifest links
+   623→- Created public discussions API endpoint (/api/public/discussions)
+   624→- Enhanced landing discussion section to show real discussion threads from database
+   625→- Created student leaderboard API endpoint (/api/student/leaderboard) with course filtering
+   626→- Created LeaderboardPage component with podium display, course filter, current user rank
+   627→- Added leaderboard nav item to student panel sidebar
+   628→- Added publicDiscussions and studentLeaderboard to api-client
+   629→
+   630→Stage Summary:
+   631→- All lint errors fixed (0 errors, 0 warnings)
+   632→- Landing page has rich animated sections with FadeIn, gradient backgrounds, counter animations
+   633→- Admin panel has polished UI with grouped sidebar, gradient cards, search bars
+   634→- Student panel has level badges, leaderboard page, enhanced timer and quiz UI
+   635→- PWA support fully implemented (manifest, service worker, install button)
+   636→- Discussion section on landing now shows real threads from database
+   637→- Leaderboard page in student panel shows ranked students with podium
+   638→
+   639→Unresolved Issues:
+   640→- Animated counter on landing starts at 0 (by design - uses IntersectionObserver)
+   641→- Some students in DB have unknown passwords (test data from previous sessions)
+   642→- The "Install App" button only works when browser supports beforeinstallprompt
+   643→
+   644→Priority Recommendations for Next Phase:
+   645→- Add more quiz questions via admin panel or seed script
+   646→- Add course deep-content pages on landing (detailed syllabus per course)
+   647→- Add email notification system for discussions
+   648→- Add more achievement tiers and badges
+   649→- Add study material/document upload feature
+   650→- Consider adding AI-powered doubt resolution using LLM skill
+   651→
+   652→---
+   653→Task ID: 5
+   654→Agent: Full-stack Developer
+   655→Task: Add Quiz History page
+   656→
+   657→Work Log:
+   658→- Created `/src/app/api/student/quiz-history/route.ts` GET endpoint with `getAuthFromHeaders` auth, supporting `courseId`, `difficulty`, `passed`, `page`, `limit` query params. Returns paginated attempts (10/page) plus a full stats object (totalAttempts, totalPassed/Failed, passRate, avgScore, totalPointsEarned, bestStreak of consecutive passes, byDifficulty breakdown, and recentTrend for last 7 days).
+   659→- Stats are computed from a second unpaginated `findMany` query that respects the same filters so the dashboard reflects the active view.
+   660→- Added `studentQuizHistory(params?)` method to `/src/lib/api-client.ts` building the URLSearchParams as specified in the task.
+   661→- Added `'quiz-history'` to the `Page` type union in `/src/components/student/types.ts`.
+   662→- Created `/src/components/student/pages/QuizHistoryPage.tsx` with:
+   663→  - Slate gradient header card with History icon (amber accent)
+   664→  - 4 stat cards: Total Attempts (Brain), Pass Rate (CheckCircle2, %), Average Score (TrendingUp, %), Total Points (Trophy)
+   665→  - Filter bar with Course (loaded from `api.publicCourses()`), Difficulty, and Result Select dropdowns
+   666→  - Difficulty breakdown: 3 cards (easy=emerald, medium=amber, hard=rose) with Progress bars showing pass rate
+   667→  - Last-7-days trend mini bar chart (color-coded by score thresholds)
+   668→  - Paginated attempts list with custom scrollbar, each card showing: pass/fail icon badge, quiz title, course/subject breadcrumb, large color-coded percentage, difficulty badge, score badge (x/total), points-earned badge, mini answer-breakdown bar (green/red), and formatted date (Jul 13, 2026 at 3:45 PM style)
+   669→  - Prev/Next pagination controls + page indicator
+   670→  - Empty state with illustration and clearing-filters tip
+   671→  - Loading skeleton
+   672→- Exported `QuizHistoryPage` from `/src/components/student/pages/index.ts`.
+   673→- Wired into `/src/components/student/StudentPanel.tsx`: imported `History` icon and `QuizHistoryPage`, added nav item `{ id: 'quiz-history', label: 'Quiz History', icon: History, section: 'Learning' }` right after `Quizzes`, and added `case 'quiz-history': return <QuizHistoryPage />` to the render switch.
+   674→- Verified endpoint compiles & returns 401 for unauthenticated requests via curl.
+   675→- Ran `bun run lint` — all newly added/modified files pass lint cleanly. (Note: a single pre-existing lint error exists in `src/components/admin/AnalyticsPage.tsx` which was created by a prior task and is unrelated to this work.)
+   676→
+   677→Stage Summary:
+   678→- New student-facing Quiz History page fully wired into navigation (Learning section, right after Quizzes).
+   679→- New authenticated API `/api/student/quiz-history` returns paginated attempts + comprehensive stats with filtering by course/difficulty/result and pagination.
+   680→- Component uses only existing shadcn/ui components (Card, Badge, Button, Skeleton, Progress, Select) and respects slate color theme with emerald/amber accents (no indigo/blue primary).
+   681→- Fully responsive (2-col stat grid on mobile → 4-col on desktop; single-col filter bar → 3-col on sm+).
+   682→- Lint: clean for all files touched in this task.
+   683→
+   684→---
+   685→Task ID: 6
+   686→Agent: Full-stack Developer
+   687→Task: Add Admin Analytics page
+   688→
+   689→Work Log:
+   690→- Created `/src/app/api/admin/analytics/route.ts` with GET endpoint requiring admin auth (via getAuthFromHeaders). Returns comprehensive analytics: overview (totals + active-this-week + new-this-month), 6-month student growth series, course distribution with percentages, per-quiz performance metrics, per-difficulty stats, weekly activity by day-of-week (aggregated over last 90 days), top 5 performers, and engagement metrics (avg session duration, avg quizzes per student, avg study minutes per day, retention rate). Uses efficient Prisma queries with Promise.all + aggregate + _count.
+   691→- Added `adminAnalytics: () => apiFetch('/admin/analytics')` method to `/src/lib/api-client.ts` (after adminNotifications).
+   692→- Created `/src/components/admin/AnalyticsPage.tsx` (~600 lines) with seven sections:
+   693→  1. Overview Stat Cards (6 cards: Total Students / Active This Week / New This Month / Total Quizzes / Total Attempts / Total Study Hours) — each with colored gradient top-bar, icon badge, large value, trend indicator.
+   694→  2. Student Growth Chart — custom SVG area+line chart with gradient fill, hover hit areas + tooltip showing exact count, dashed grid lines, y-axis labels.
+   695→  3. Two-column layout: Donut Chart (custom SVG with stroke-dasharray segments + center total + color-coded legend) and Difficulty Performance cards (Easy/Medium/Hard with Progress bars + pass-rate + avg-score).
+   696→  4. Weekly Activity chart — custom SVG dual bars (emerald study minutes + amber quiz attempts) per day of week, with legend.
+   697→  5. Quiz Performance table — sortable by title/attempts/passRate/avgScore, color-coded progress bars (green ≥70 / amber ≥50 / rose <50), sticky header, scrollable max-h-96.
+   698→  6. Engagement Metrics — 4 cards (Avg Session Duration / Avg Quizzes per Student / Avg Study Minutes per Day / Retention Rate) with colored icons.
+   699→  7. Top Performers — compact list with 🥇🥈🥉 rank badges (gradient ring for top 3) showing score + study hours.
+   700→- Loading skeleton uses shimmer-bg class (already defined in AdminPanel ANIM_STYLES); error state shows retry button.
+   701→- Updated `/src/components/admin/AdminPanel.tsx`:
+   702→  - Imported `AnalyticsPage` from './AnalyticsPage'.
+   703→  - Imported `BarChart3` icon from lucide-react.
+   704→  - Added `'analytics'` to PageKey type union.
+   705→  - Added `{ key:'analytics', label:'Analytics', icon:BarChart3, color:'bg-sky-500/10 text-sky-600' }` to the "Overview" nav section right after Dashboard.
+   706→  - Added `case 'analytics': return <AnalyticsPage />` to the renderPage switch.
+   707→- Fixed two ESLint react-hooks rule errors:
+   708→  - "Cannot reassign variable after render completes" — refactored DonutChart segment computation to use `data.reduce` instead of mutating `offset` in `.map` callback.
+   709→  - "Cannot create components during render" — extracted inline `SortHeader` component out of `QuizPerformanceTable` into a top-level `SortableHeader` component that receives `sortBy/sortDir/onToggle` props.
+   710→- Ran `bun run lint` — passes with 0 errors and 0 warnings.
+   711→- Verified dev server still compiles cleanly (no new errors in dev.log).
+   712→
+   713→Stage Summary:
+   714→- New `/api/admin/analytics` endpoint serving 7 categories of platform-wide analytics computed from real Prisma data.
+   715→- New `AnalyticsPage` component with 7 polished sections using only custom SVG/CSS charts (no external chart library).
+   716→- Admin sidebar now has "Analytics" item in the Overview section (after Dashboard) with BarChart3 icon.
+   717→- All charts are responsive (cards stack on mobile, SVGs scale via viewBox).
+   718→- Lint clean (0 errors, 0 warnings) and dev server compiling successfully.
+   719→- Slate color theme preserved with multi-color accents per card/chart, no indigo/blue primary usage.
+   720→
+   721→---
+   722→Task ID: 4
+   723→Agent: Full-stack Developer
+   724→Task: Add Study Materials page
+   725→
+   726→Work Log:
+   727→- Read project context from worklog.md (prior sessions 1-8 plus current state with 3 panels and 14+ Prisma models)
+   728→- Updated prisma/schema.prisma: added new StudyMaterial model with title, description, type (pdf/video/link/document), url, optional course/subject/chapter relations, fileSize, duration, isActive fields. Added reverse `studyMaterials StudyMaterial[]` relation to Course, Subject, and Chapter models.
+   729→- Ran `bun run db:push` — schema applied successfully (29ms), Prisma Client regenerated (v6.19.2).
+   730→- Created `/scripts/seed-materials.ts` — standalone script using PrismaClient directly (no Next.js deps). Inserts 20 realistic materials distributed across CSEET (8), CS Executive (8), CS Professional (5) including PDFs, videos, links, and documents. Includes a general "CS Exam Preparation Strategy" cross-course PDF. Idempotent (skips materials with existing titles).
+   731→- Ran `bun run scripts/seed-materials.ts` — 20 materials inserted successfully.
+   732→- Created `/src/app/api/student/materials/route.ts` — GET endpoint with student auth via `getAuthFromHeaders`. Supports query params (courseId, subjectId, chapterId, type). Returns flat list AND grouped structure (course → subject → chapter) for client flexibility.
+   733→- Created `/src/app/api/admin/materials/route.ts` — GET (list all including inactive) and POST (create) endpoints with admin auth via `verifyToken`. Validates course/subject/chapter relationships and type field.
+   734→- Created `/src/app/api/admin/materials/[id]/route.ts` — PUT (update, partial) and DELETE endpoints with admin auth. Validates referential integrity on update.
+   735→- Added material API methods to `/src/lib/api-client.ts`: `studentMaterials(params)`, `adminMaterials()`, `adminCreateMaterial(data)`, `adminUpdateMaterial(id, data)`, `adminDeleteMaterial(id)`.
+   736→- Created `/src/components/student/pages/MaterialsPage.tsx` — full-featured student materials browser:
+   737→  * Header with violet-purple gradient BookMarked icon, view-mode toggle (Grouped / Grid)
+   738→  * Stats row showing Total + per-type counts (PDF, Video, Link, Document)
+   739→  * Filter bar: search input (with icon), Course filter dropdown, Type filter dropdown
+   740→  * Two view modes: Grouped (course → subject → chapter tree view with connecting borders) and Grid (flat 2-column card grid)
+   741→  * MaterialCard component with type icon (FileText/PlayCircle/Link/File), color-coded badge, title (2-line clamp), description (2-line clamp), breadcrumb, file size/duration badges, and color-graded action button (Download/Watch Video/Open Link) with external link behavior
+   742→  * Loading skeleton state, empty state with Clear Filters button
+   743→  * Fully responsive (1 col mobile, 2 col desktop)
+   744→  * Slate color theme with violet/sky/emerald accents (no indigo/blue primary)
+   745→- Updated `/src/components/student/types.ts` — added `'materials'` to the `Page` type union.
+   746→- Updated `/src/components/student/pages/index.ts` — added `export { MaterialsPage } from './MaterialsPage'`.
+   747→- Updated `/src/components/student/StudentPanel.tsx`:
+   748→  * Added `BookMarked` to lucide-react imports
+   749→  * Added `MaterialsPage` to pages import
+   750→  * Added nav item `{ id: 'materials', label: 'Study Materials', icon: BookMarked, section: 'Learning' }` (placed after Leaderboard)
+   751→  * Added render case `case 'materials': return <MaterialsPage />`
+   752→- Created `/src/components/admin/MaterialsPage.tsx` — admin materials management page (separate component file like QuizzesPage.tsx):
+   753→  * Header with violet-purple gradient BookMarked icon + Add Material gradient button (emerald-to-teal)
+   754→  * Stats row (4 cards): Total, Active, PDFs, Videos — each with gradient top border
+   755→  * Search bar with icon, full-text search across title/description/course/subject/chapter/type
+   756→  * Data table: Title (with type icon + clickable URL), Type badge, Course/Subject/Chapter breadcrumb, Size/Duration, Active toggle switch, Edit/Delete action buttons
+   757→  * Pagination (10 per page) with showing count
+   758→  * Add/Edit dialog with gradient header: Title + Type selector, URL, Description (textarea), cascading Course → Subject → Chapter dropdowns (with "no specific" options), File Size + Duration fields, Active toggle
+   759→  * Delete confirmation AlertDialog
+   760→  * Loading skeleton with shimmer-bg, empty state with CTA
+   761→- Updated `/src/components/admin/AdminPanel.tsx`:
+   762→  * Imported MaterialsPage from `./MaterialsPage`
+   763→  * Added `Library` icon to lucide imports (used for materials nav)
+   764→  * Added `'materials'` to PageKey type
+   765→  * Added nav item `{ key:'materials', label:'Materials', icon:Library, color:'bg-cyan-500/10 text-cyan-600' }` in Content section (after Quizzes)
+   766→  * Added render case `case 'materials': return <MaterialsPage />`
+   767→- Ran `bun run lint` — passed cleanly with 0 errors, 0 warnings.
+   768→- Verified API routes compile correctly: `GET /api/admin/materials` returns 401 (unauthorized without token) — compiles in 113ms; `GET /api/student/materials` returns 401 — compiles in 114ms.
+   769→- Verified database contains 20 materials properly linked to courses/subjects/chapters (spot-checked first 3).
+   770→- Verified root page `/` still loads successfully (200 OK, 496ms).
+   771→
+   772→Stage Summary:
+   773→- New StudyMaterial Prisma model with course/subject/chapter relations successfully added and migrated.
+   774→- 20 realistic seed materials across all 3 CS courses (CSEET, CS Executive, CS Professional) + 1 general material.
+   775→- Student-facing GET endpoint returns both flat and grouped (course→subject→chapter) data structures for client flexibility.
+   776→- Admin CRUD endpoints (GET/POST/PUT/DELETE) with relationship validation and partial update support.
+   777→- Student MaterialsPage with header, stats, filters (search/course/type), two view modes (Grouped tree-view + Grid), type-colored cards with action buttons, loading/empty states — fully responsive and consistent with existing student panel design system.
+   778→- Admin MaterialsPage with stat cards, searchable paginated table, cascading dropdowns in dialog form, gradient styling consistent with admin panel design system.
+   779→- Both student and admin panels now have "Materials" nav items — student panel under Learning section (after Leaderboard), admin panel under Content section (after Quizzes).
+   780→- Slate color theme maintained throughout (no indigo/blue primary); emerald-to-teal gradients for primary actions; violet/sky/amber color coding for material types.
+   781→- All ESLint checks pass (0 errors, 0 warnings).
+   782→
+   783→---
+   784→Task ID: QA-Round-2
+   785→Agent: Main Orchestrator (Cron Review)
+   786→Task: QA testing, bug fixes, and new feature development (Round 2)
+   787→
+   788→Work Log:
+   789→- Read worklog.md to understand previous session progress
+   790→- Ran comprehensive QA testing via agent-browser across all panels
+   791→- Found critical bug: ApprovalsPage crashed with "Cannot read properties of undefined (reading 'slice')" due to API response field mismatch
+   792→- Root cause: API returns { approvalEnabled, pendingStudents } but fetcher looked for r.approvals/r.students instead of r.pendingStudents
+   793→- Fixed ApprovalsPage fetcher to extract r.pendingStudents correctly
+   794→- Added Array.isArray() safety check to approvalList
+   795→- Hardened usePagination hook with safeItems = Array.isArray(items) ? items : [] to prevent future crashes
+   796→- Fixed leaderboard page: added "Top Performers" and "All Rankings" section labels with divider lines, improved podium spacing, added hover lift effect on cards, increased medal emoji size for better visibility
+   797→- Ran Prisma db:generate after schema update to regenerate client with StudyMaterial model
+   798→- Verified all new APIs work via curl:
+   799→  * /api/student/materials returns 20 seeded materials ✓
+   800→  * /api/student/quiz-history returns attempts + stats ✓
+   801→  * /api/admin/analytics returns overview with 6 students, 4 quizzes ✓
+   802→  * /api/admin/approvals returns approvalEnabled + pendingStudents (fix verified) ✓
+   803→
+   804→New Features Added (via subagents):
+   805→1. **Student Study Materials Page** (Task 4):
+   806→   - New StudyMaterial Prisma model with course/subject/chapter relations
+   807→   - 20 seeded materials across CSEET, CS Executive, CS Professional
+   808→   - Student API: /api/student/materials with filtering (courseId, subjectId, chapterId, type)
+   809→   - Admin API: CRUD endpoints at /api/admin/materials
+   810→   - Student MaterialsPage: grid/grouped views, type-colored cards, search, filters
+   811→   - Admin MaterialsPage: table with CRUD, active toggle, cascading dropdowns
+   812→
+   813→2. **Student Quiz History Page** (Task 5):
+   814→   - API: /api/student/quiz-history with filtering (courseId, difficulty, passed, pagination)
+   815→   - Returns comprehensive stats: totalAttempts, passRate, avgScore, bestStreak, byDifficulty, recentTrend
+   816→   - QuizHistoryPage: 4 stat cards, difficulty breakdown bars, 7-day trend chart, paginated attempt cards
+   817→   - Color-coded difficulty badges and pass/fail indicators
+   818→
+   819→3. **Admin Analytics Page** (Task 6):
+   820→   - API: /api/admin/analytics with 7 categories of real data
+   821→   - AnalyticsPage: 6 overview stat cards, SVG student growth chart, donut course distribution, weekly activity bars, quiz performance table, engagement metrics, top performers list
+   822→   - All charts custom SVG/CSS (no external library)
+   823→
+   824→Stage Summary:
+   825→- All lint errors fixed (0 errors, 0 warnings)
+   826→- Critical ApprovalsPage crash bug fixed and verified
+   827→- usePagination hook hardened against non-array inputs
+   828→- Leaderboard page styling improved with section labels and better spacing
+   829→- 3 new full-stack features added: Study Materials, Quiz History, Admin Analytics
+   830→- Student panel now has 11 nav items (was 9): Dashboard, Quizzes, Quiz History, Track Study, Study Planner, Notes, Analytics, Leaderboard, Study Materials, Discussion, Syllabus, Edit Profile
+   831→- Admin panel now has 12 nav items (was 10): Dashboard, Analytics, Students, Approvals, Top Performers, Courses, Subjects, Chapters, Quizzes, Materials, Reviews, Discussions
+   832→- All new APIs verified working via curl
+   833→- Database schema updated with StudyMaterial model, Prisma client regenerated
+   834→
+   835→Unresolved Issues:
+   836→- Dev server (next-server) experiences intermittent OOM kills due to high memory usage (~1.4GB) combined with Chrome browser processes (~500MB) on 3.9GB system
+   837→- Browser-based QA testing is limited due to server instability when Chrome is also running
+   838→- Course deep-content pages on landing (detailed syllabus per course) not yet implemented
+   839→- Student dashboard bottom section could be enhanced with more content
+   840→
+   841→Priority Recommendations for Next Phase:
+   842→- Add course deep-content pages on landing (detailed syllabus, exam pattern, sample questions per course)
+   843→- Enhance student dashboard with achievements showcase, recent activity feed, upcoming quizzes
+   844→- Add AI-powered doubt resolution using LLM skill for discussion forum
+   845→- Add study material upload/management for admin with file upload support
+   846→- Add email notification system for discussion replies
+   847→- Consider adding more quiz questions via seed script
+   848→- Implement bookmark/favorite feature for quiz questions and study materials
+   849→
+   850→---
+   851→Task ID: 6b
+   852→Agent: Backend Developer
+   853→Task: Update Socket.io realtime service with Group Study features
+   854→
+   855→Work Log:
+   856→- Read existing `/home/z/my-project/mini-services/realtime-service/index.ts` (port 3003) which already handles discussion rooms, notifications, typing indicators, and online count
+   857→- Added new TypeScript interfaces: `TimerState` (running, paused, remaining, total, chapterName?), `GroupMember` (socketId, name, timerState), `GroupChatMessage` (id, groupId, userId, userName, content, type, timestamp)
+   858→- Added group study state tracking: `groupMembers` Map (groupId -> Map of userId -> GroupMember), `groupMessageHistory` Map (groupId -> array of last 100 messages), `socketGroups` Map (socketId -> Set of groupIds)
+   859→- Added `GROUP_MAX_HISTORY = 100` constant
+   860→- Added `filterContent()` function that replaces blocked social media terms (instagram, telegram, whatsapp, facebook, twitter, tiktok, snapchat, discord, youtube) with `***` using case-insensitive regex
+   861→- Added `broadcastGroupMembers()` helper that emits `group-members` event with member list (including timer states) to the `group-${groupId}` room
+   862→- Added `addGroupMessage()` helper that stores messages in history with 100-message cap
+   863→- Added 5 new socket event handlers:
+   864→  - `group-join`: Joins socket.io room `group-${groupId}`, tracks socket-group mapping, tracks member with null timerState, sends history, broadcasts system join message, broadcasts member list
+   865→  - `group-leave`: Leaves socket.io room, removes from tracking, broadcasts system leave message, broadcasts updated member list
+   866→  - `group-timer-update`: Updates member's timerState in groupMembers, broadcasts to entire group
+   867→  - `group-chat-message`: Applies content filter, creates message with filtered content, stores in history (100 max), broadcasts to group
+   868→  - `group-typing`: Broadcasts typing indicator to group (excluding sender), auto-clears after 3 seconds
+   869→- Updated disconnect handler to clean up group study rooms: iterates socketGroups to find all groups the disconnected socket was in, removes member from each group's member map, broadcasts system disconnect message and updated member list for each group
+   870→- All existing functionality (discussion rooms, notifications, typing indicators, online count) preserved intact
+   871→- All group events use `group-` prefix to avoid collision with existing discussion room events
+   872→
+   873→Stage Summary:
+   874→- Socket.io realtime service now supports Group Study real-time features alongside existing discussion room features
+   875→- 5 new socket events: group-join, group-leave, group-timer-update, group-chat-message, group-typing
+   876→- Content filter blocks 9 social media platform names (case-insensitive)
+   877→- Member tracking with timer state synchronization for collaborative study sessions
+   878→- Message history (last 100 per group) with join/leave/disconnect system messages
+   879→- Proper cleanup on disconnect from all group rooms
+   880→- All existing functionality fully preserved
+   881→
+   882→---
+   883→
+   884→## Task 6a: Group Study + Security API Routes (2026-07-13)
+   885→
+   886→### Added `verifyAuth` Helper
+   887→- Added `verifyAuth(request)` function to `src/lib/auth.ts` — wraps `getAuthFromHeaders(request.headers)` for simpler auth in route handlers
+   888→
+   889→### Content Filter Utility
+   890→- Created `src/lib/content-filter.ts` with:
+   891→  - `filterContent(text)`: Replaces blocked social media terms with `***`
+   892→  - `hasBlockedContent(text)`: Returns boolean if text contains blocked terms
+   893→  - Blocks: instagram, telegram, whatsapp, facebook, twitter, tiktok, snapchat, discord, youtube
+   894→
+   895→### Admin Group Study API Routes
+   896→1. **`/api/admin/groups`** (GET/POST):
+   897→   - GET: Lists all study groups with member counts (total, active), member details, subject info, message counts
+   898→   - POST: Create group (name required, optional description, maxCapacity, subjectId)
+   899→
+   900→2. **`/api/admin/groups/[id]`** (PUT/DELETE):
+   901→   - PUT: Update group fields (name, description, maxCapacity, isActive)
+   902→   - DELETE: Delete group entirely
+   903→
+   904→3. **`/api/admin/groups/[id]/block`** (POST/DELETE):
+   905→   - POST: Block student from group study (studentId, reason) — adds to BlockedUser table, auto-removes from active group memberships
+   906→   - DELETE: Unblock student (studentId as query param)
+   907→
+   908→4. **`/api/admin/blocked-users`** (GET):
+   909→   - Lists all blocked users with student details (name, email, mobile, course, reason, blockedAt)
+   910→
+   911→### Student Group Study API Routes
+   912→1. **`/api/student/groups`** (GET):
+   913→   - Lists available active groups with active member counts, capacity info
+   914→   - Returns `isBlocked` status, `blockReason`, `currentGroup` for the student
+   915→   - Each group includes `isFull`, `isCurrentUserMember`, member list
+   916→
+   917→2. **`/api/student/groups/[id]`** (POST/DELETE):
+   918→   - POST: Join group — validates: not blocked, not already in group, not in another group, capacity not full
+   919→   - DELETE: Leave group — sets `leftAt` timestamp
+   920→
+   921→3. **`/api/student/groups/[id]/messages`** (GET/POST):
+   922→   - GET: Get last 100 messages (chronological order), requires membership
+   923→   - POST: Send message — applies content filter before saving, returns `wasFiltered` flag
+   924→
+   925→### IP Logging
+   926→- **`/api/ip-log`** (POST):
+   927→  - Logs visitor IP from `x-forwarded-for` / `x-real-ip` headers
+   928→  - Captures user-agent, path, action, optional studentId
+   929→  - Silently fails on error to not break app
+   930→
+   931→### Chapter-based Quiz Unlock
+   932→- Updated **`/api/student/quiz`** GET route:
+   933→  - Now includes `chapterLinks` with chapter info for each quiz
+   934→  - Computes `isLocked` (true if quiz has linked chapters AND student hasn't completed all)
+   935→  - Returns `lockedChapters` array with completion status per chapter
+   936→  - Quizzes with no chapter links remain unlocked by default
+   937→
+   938→- Created **`/api/admin/quiz/[id]/chapters`** (GET/PUT):
+   939→  - GET: List linked chapters for a quiz with subject info
+   940→  - PUT: Set linked chapters (replaces all links) — accepts `chapterIds: string[]`
+   941→
+   942→### Lint & DB
+   943→- All routes pass `bun run lint` with zero errors
+   944→- Database schema already in sync (QuizChapterLink, BlockedUser, IpLog, StudyGroup, etc. existed)
+   945→

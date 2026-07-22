@@ -1,0 +1,2002 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+     4→import { Button } from '@/components/ui/button'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Label } from '@/components/ui/label'
+     7→import { Textarea } from '@/components/ui/textarea'
+     8→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     9→import { Badge } from '@/components/ui/badge'
+    10→import { Progress } from '@/components/ui/progress'
+    11→import { Separator } from '@/components/ui/separator'
+    12→import { Skeleton } from '@/components/ui/skeleton'
+    13→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    14→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    15→import { Alert, AlertDescription } from '@/components/ui/alert'
+    16→import { Calendar } from '@/components/ui/calendar'
+    17→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    18→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    19→import { ScrollArea } from '@/components/ui/scroll-area'
+    20→import { motion, AnimatePresence } from 'framer-motion'
+    21→import {
+    22→  LayoutDashboard,
+    23→  BookOpen,
+    24→  CalendarDays,
+    25→  CalendarCheck,
+    26→  MessageCircle,
+    27→  ListChecks,
+    28→  UserCog,
+    29→  LogOut,
+    30→  Flame,
+    31→  Settings,
+    32→  CheckCircle2,
+    33→  Clock,
+    34→  Play,
+    35→  Pause,
+    36→  RotateCcw,
+    37→  ChevronRight,
+    38→  Trophy,
+    39→  Star,
+    40→  Target,
+    41→  Zap,
+    42→  TrendingUp,
+    43→  GraduationCap,
+    44→  AlertCircle,
+    45→  Send,
+    46→  Loader2,
+    47→  X,
+    48→  Menu,
+    49→  Lock,
+    50→  Crown,
+    51→  Medal,
+    52→  ArrowRight,
+    53→  Sparkles,
+    54→  Rocket,
+    55→} from 'lucide-react'
+    56→import { api } from '@/lib/api-client'
+    57→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    58→
+    59→// ─── Types ──────────────────────────────────────────────────────────────
+    60→
+    61→interface StudentPanelProps {
+    62→  onLogout: () => void
+    63→}
+    64→
+    65→type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'syllabus' | 'profile'
+    66→
+    67→interface Subject {
+    68→  id: string
+    69→  name: string
+    70→  orderNum: number
+    71→  chapters: Chapter[]
+    72→}
+    73→
+    74→interface Chapter {
+    75→  id: string
+    76→  name: string
+    77→  subjectId: string
+    78→  orderNum?: number
+    79→}
+    80→
+    81→interface DashboardData {
+    82→  student: {
+    83→    id: string
+    84→    fullName: string
+    85→    email: string
+    86→    mobile: string
+    87→    score: number
+    88→    totalStudyMin: number
+    89→    currentStreak: number
+    90→    verified: boolean
+    91→    lastStrikeAt?: string
+    92→    course: { id: string; title: string; subjects: Subject[] }
+    93→  }
+    94→  subjects: Subject[]
+    95→  totalSubjects: number
+    96→  totalChapters: number
+    97→  completedChapters: number
+    98→  completionPercent: number
+    99→  todayStudyMin: number
+   100→  achievements: { achievement: { id: string; name: string; icon: string; threshold: number }; unlockedAt: string }[]
+   101→}
+   102→
+   103→interface StudySession {
+   104→  id: string
+   105→  durationMin: number
+   106→  completed: boolean
+   107→  date: string
+   108→  chapter?: { id: string; name: string; subject: { name: string } } | null
+   109→}
+   110→
+   111→interface StudyPlan {
+   112→  id: string
+   113→  chapterId: string | null
+   114→  notes: string | null
+   115→  plannedDate: string
+   116→  chapter?: { id: string; name: string; subject: { name: string } } | null
+   117→}
+   118→
+   119→interface Discussion {
+   120→  id: string
+   121→  title: string
+   122→  content: string
+   123→  createdAt: string
+   124→  replies: { id: string; content: string; createdAt: string; student?: { fullName: string } | null; adminReply?: boolean }[]
+   125→}
+   126→
+   127→interface SyllabusSubject {
+   128→  id: string
+   129→  name: string
+   130→  totalChapters: number
+   131→  completedChapters: number
+   132→  completionPercent: number
+   133→  chapters: { id: string; name: string; completed: boolean; completedAt: string | null }[]
+   134→}
+   135→
+   136→// ─── CSS Animations ─────────────────────────────────────────────────────
+   137→
+   138→const ENHANCED_STYLES = `
+   139→@keyframes firePulse {
+   140→  0% { transform: scale(1); filter: brightness(1); }
+   141→  25% { transform: scale(1.3); filter: brightness(1.5) drop-shadow(0 0 8px #f97316); }
+   142→  50% { transform: scale(1.1); filter: brightness(1.8) drop-shadow(0 0 16px #ef4444); }
+   143→  75% { transform: scale(1.25); filter: brightness(1.3) drop-shadow(0 0 12px #f59e0b); }
+   144→  100% { transform: scale(1); filter: brightness(1); }
+   145→}
+   146→.fire-animate {
+   147→  animation: firePulse 0.8s ease-in-out;
+   148→}
+   149→@keyframes shimmer {
+   150→  0% { background-position: -200% 0; }
+   151→  100% { background-position: 200% 0; }
+   152→}
+   153→.badge-shimmer {
+   154→  background-size: 200% 100%;
+   155→  animation: shimmer 3s ease-in-out infinite;
+   156→}
+   157→@keyframes confetti-fall {
+   158→  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+   159→  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+   160→}
+   161→.confetti-piece {
+   162→  position: fixed;
+   163→  width: 10px;
+   164→  height: 10px;
+   165→  z-index: 9999;
+   166→  pointer-events: none;
+   167→  animation: confetti-fall 2.5s ease-in forwards;
+   168→}
+   169→@keyframes screen-flash {
+   170→  0% { opacity: 0; }
+   171→  15% { opacity: 0.4; }
+   172→  100% { opacity: 0; }
+   173→}
+   174→.strike-flash {
+   175→  animation: screen-flash 0.6s ease-out forwards;
+   176→}
+   177→@keyframes glow-pulse {
+   178→  0%, 100% { box-shadow: 0 0 8px rgba(59,130,246,0.4), 0 0 16px rgba(59,130,246,0.2); }
+   179→  50% { box-shadow: 0 0 16px rgba(59,130,246,0.6), 0 0 32px rgba(59,130,246,0.3); }
+   180→}
+   181→.verified-glow {
+   182→  animation: glow-pulse 2s ease-in-out infinite;
+   183→}
+   184→@keyframes celebration-burst {
+   185→  0% { transform: scale(0.5); opacity: 0; }
+   186→  50% { transform: scale(1.2); opacity: 1; }
+   187→  100% { transform: scale(1); opacity: 1; }
+   188→}
+   189→.celebration-burst {
+   190→  animation: celebration-burst 0.6s ease-out forwards;
+   191→}
+   192→@keyframes float-particle {
+   193→  0% { transform: translateY(0) scale(1); opacity: 1; }
+   194→  100% { transform: translateY(-40px) scale(0); opacity: 0; }
+   195→}
+   196→.flame-particle {
+   197→  position: absolute;
+   198→  width: 6px;
+   199→  height: 6px;
+   200→  border-radius: 50%;
+   201→  animation: float-particle 0.8s ease-out forwards;
+   202→  pointer-events: none;
+   203→}
+   204→`
+   205→
+   206→// ─── Motivational Quotes ────────────────────────────────────────────────
+   207→
+   208→const MOTIVATIONAL_QUOTES = [
+   209→  { text: "The expert in anything was once a beginner.", author: "Helen Hayes" },
+   210→  { text: "Success is the sum of small efforts repeated day in and day out.", author: "Robert Collier" },
+   211→  { text: "Don't watch the clock; do what it does. Keep going.", author: "Sam Levenson" },
+   212→  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+   213→  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+   214→  { text: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+   215→  { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+   216→  { text: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" },
+   217→  { text: "Strive for progress, not perfection.", author: "Unknown" },
+   218→  { text: "Your limitation—it's only your imagination.", author: "Unknown" },
+   219→  { text: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+   220→  { text: "Great things never come from comfort zones.", author: "Unknown" },
+   221→  { text: "Dream it. Wish it. Do it.", author: "Unknown" },
+   222→  { text: "The harder you work for something, the greater you'll feel when you achieve it.", author: "Unknown" },
+   223→  { text: "Don't stop when you're tired. Stop when you're done.", author: "Unknown" },
+   224→]
+   225→
+   226→const SESSION_QUOTES = [
+   227→  "Let's crush this study session! 💪",
+   228→  "Focus mode: ACTIVATED 🎯",
+   229→  "One chapter at a time, you've got this! 📚",
+   230→  "Today's effort = Tomorrow's success ⭐",
+   231→  "Deep breath. Let's begin. 🧘",
+   232→  "Knowledge is power - let's power up! ⚡",
+   233→  "Small steps lead to big results 🚀",
+   234→  "Your future self will thank you 🌟",
+   235→]
+   236→
+   237→// ─── Mock Leaderboard Data ──────────────────────────────────────────────
+   238→
+   239→const MOCK_LEADERBOARD = [
+   240→  { rank: 1, name: 'Arjun Sharma', score: 2840, streak: 14 },
+   241→  { rank: 2, name: 'Priya Patel', score: 2360, streak: 11 },
+   242→  { rank: 3, name: 'Rahul Verma', score: 1920, streak: 8 },
+   243→  { rank: 4, name: 'Ananya Singh', score: 1650, streak: 7 },
+   244→  { rank: 5, name: 'Vikram Joshi', score: 1480, streak: 5 },
+   245→]
+   246→
+   247→// ─── Helper: format time ────────────────────────────────────────────────
+   248→
+   249→function formatTimer(seconds: number): string {
+   250→  const h = Math.floor(seconds / 3600)
+   251→  const m = Math.floor((seconds % 3600) / 60)
+   252→  const s = seconds % 60
+   253→  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   254→  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   255→}
+   256→
+   257→function formatMinutes(min: number): string {
+   258→  if (min < 60) return `${min}m`
+   259→  const h = Math.floor(min / 60)
+   260→  const m = min % 60
+   261→  return m > 0 ? `${h}h ${m}m` : `${h}h`
+   262→}
+   263→
+   264→function formatDate(date: Date): string {
+   265→  return date.toISOString().split('T')[0]
+   266→}
+   267→
+   268→// ─── Circular Progress Ring Component ───────────────────────────────────
+   269→
+   270→function CircularProgressRing({
+   271→  size = 120,
+   272→  strokeWidth = 8,
+   273→  progress = 0,
+   274→  color = '#10b981',
+   275→  trackColor = 'rgba(100,116,139,0.2)',
+   276→  children,
+   277→  className = '',
+   278→}: {
+   279→  size?: number
+   280→  strokeWidth?: number
+   281→  progress?: number
+   282→  color?: string
+   283→  trackColor?: string
+   284→  children?: React.ReactNode
+   285→  className?: string
+   286→}) {
+   287→  const radius = (size - strokeWidth) / 2
+   288→  const circumference = radius * 2 * Math.PI
+   289→  const offset = circumference - (Math.min(progress, 100) / 100) * circumference
+   290→  const center = size / 2
+   291→
+   292→  return (
+   293→    <div className={`relative inline-flex items-center justify-center ${className}`}>
+   294→      <svg width={size} height={size} className="transform -rotate-90">
+   295→        <circle
+   296→          cx={center}
+   297→          cy={center}
+   298→          r={radius}
+   299→          stroke={trackColor}
+   300→          strokeWidth={strokeWidth}
+   301→          fill="none"
+   302→        />
+   303→        <circle
+   304→          cx={center}
+   305→          cy={center}
+   306→          r={radius}
+   307→          stroke={color}
+   308→          strokeWidth={strokeWidth}
+   309→          fill="none"
+   310→          strokeDasharray={circumference}
+   311→          strokeDashoffset={offset}
+   312→          strokeLinecap="round"
+   313→          style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+   314→        />
+   315→      </svg>
+   316→      <div className="absolute inset-0 flex items-center justify-center">
+   317→        {children}
+   318→      </div>
+   319→    </div>
+   320→  )
+   321→}
+   322→
+   323→// ─── SVG Countdown Ring for Timer ───────────────────────────────────────
+   324→
+   325→function TimerCountdownRing({
+   326→  size = 240,
+   327→  strokeWidth = 10,
+   328→  totalSeconds = 0,
+   329→  remainingSeconds = 0,
+   330→}: {
+   331→  size?: number
+   332→  strokeWidth?: number
+   333→  totalSeconds?: number
+   334→  remainingSeconds?: number
+   335→}) {
+   336→  const radius = (size - strokeWidth) / 2
+   337→  const circumference = radius * 2 * Math.PI
+   338→  const progress = totalSeconds > 0 ? remainingSeconds / totalSeconds : 0
+   339→  const offset = circumference - progress * circumference
+   340→  const center = size / 2
+   341→
+   342→  // Color transitions: green → yellow → red
+   343→  let ringColor = '#10b981' // emerald
+   344→  let glowColor = 'rgba(16,185,129,0.3)'
+   345→  if (progress < 0.25) {
+   346→    ringColor = '#ef4444' // red
+   347→    glowColor = 'rgba(239,68,68,0.4)'
+   348→  } else if (progress < 0.5) {
+   349→    ringColor = '#f59e0b' // amber
+   350→    glowColor = 'rgba(245,158,11,0.3)'
+   351→  }
+   352→
+   353→  return (
+   354→    <svg width={size} height={size} className="transform -rotate-90">
+   355→      {/* Outer glow */}
+   356→      <circle
+   357→        cx={center}
+   358→        cy={center}
+   359→        r={radius + 4}
+   360→        stroke={glowColor}
+   361→        strokeWidth={strokeWidth + 8}
+   362→        fill="none"
+   363→        className="blur-sm"
+   364→      />
+   365→      {/* Track */}
+   366→      <circle
+   367→        cx={center}
+   368→        cy={center}
+   369→        r={radius}
+   370→        stroke="rgba(100,116,139,0.15)"
+   371→        strokeWidth={strokeWidth}
+   372→        fill="none"
+   373→      />
+   374→      {/* Progress ring */}
+   375→      <circle
+   376→        cx={center}
+   377→        cy={center}
+   378→        r={radius}
+   379→        stroke={ringColor}
+   380→        strokeWidth={strokeWidth}
+   381→        fill="none"
+   382→        strokeDasharray={circumference}
+   383→        strokeDashoffset={offset}
+   384→        strokeLinecap="round"
+   385→        style={{
+   386→          transition: 'stroke-dashoffset 1s linear, stroke 2s ease',
+   387→          filter: `drop-shadow(0 0 8px ${glowColor})`,
+   388→        }}
+   389→      />
+   390→      {/* Tick marks */}
+   391→      {Array.from({ length: 60 }).map((_, i) => {
+   392→        const angle = (i / 60) * 360
+   393→        const isMajor = i % 5 === 0
+   394→        const innerR = radius - (isMajor ? 18 : 14)
+   395→        const outerR = radius - 12
+   396→        const x1 = center + innerR * Math.cos((angle * Math.PI) / 180)
+   397→        const y1 = center + innerR * Math.sin((angle * Math.PI) / 180)
+   398→        const x2 = center + outerR * Math.cos((angle * Math.PI) / 180)
+   399→        const y2 = center + outerR * Math.sin((angle * Math.PI) / 180)
+   400→        return (
+   401→          <line
+   402→            key={i}
+   403→            x1={x1}
+   404→            y1={y1}
+   405→            x2={x2}
+   406→            y2={y2}
+   407→            stroke={isMajor ? 'rgba(100,116,139,0.3)' : 'rgba(100,116,139,0.15)'}
+   408→            strokeWidth={isMajor ? 2 : 1}
+   409→            transform={`rotate(90, ${center}, ${center})`}
+   410→          />
+   411→        )
+   412→      })}
+   413→    </svg>
+   414→  )
+   415→}
+   416→
+   417→// ─── Confetti Component ─────────────────────────────────────────────────
+   418→
+   419→function Confetti({ active }: { active: boolean }) {
+   420→  const [pieces, setPieces] = useState<Array<{ id: number; x: number; color: string; delay: number; size: number }>>([])
+   421→
+   422→  useEffect(() => {
+   423→    if (active) {
+   424→      const newPieces = Array.from({ length: 40 }).map((_, i) => ({
+   425→        id: i,
+   426→        x: Math.random() * 100,
+   427→        color: ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#ec4899', '#14b8a6'][Math.floor(Math.random() * 7)],
+   428→        delay: Math.random() * 0.8,
+   429→        size: Math.random() * 8 + 5,
+   430→      }))
+   431→      setPieces(newPieces)
+   432→      const timeout = setTimeout(() => setPieces([]), 3000)
+   433→      return () => clearTimeout(timeout)
+   434→    } else {
+   435→      setPieces([])
+   436→    }
+   437→  }, [active])
+   438→
+   439→  if (!active || pieces.length === 0) return null
+   440→
+   441→  return (
+   442→    <div className="fixed inset-0 pointer-events-none z-[9999]">
+   443→      {pieces.map((p) => (
+   444→        <div
+   445→          key={p.id}
+   446→          className="confetti-piece"
+   447→          style={{
+   448→            left: `${p.x}%`,
+   449→            backgroundColor: p.color,
+   450→            width: `${p.size}px`,
+   451→            height: `${p.size}px`,
+   452→            borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+   453→            animationDelay: `${p.delay}s`,
+   454→          }}
+   455→        />
+   456→      ))}
+   457→    </div>
+   458→  )
+   459→}
+   460→
+   461→// ─── Celebration Component ──────────────────────────────────────────────
+   462→
+   463→function CelebrationOverlay({ active, onDone }: { active: boolean; onDone: () => void }) {
+   464→  useEffect(() => {
+   465→    if (active) {
+   466→      const timeout = setTimeout(onDone, 3000)
+   467→      return () => clearTimeout(timeout)
+   468→    }
+   469→  }, [active, onDone])
+   470→
+   471→  if (!active) return null
+   472→
+   473→  return (
+   474→    <div className="fixed inset-0 pointer-events-none z-[9998] flex items-center justify-center">
+   475→      <motion.div
+   476→        initial={{ scale: 0, opacity: 0 }}
+   477→        animate={{ scale: 1, opacity: 1 }}
+   478→        exit={{ scale: 0, opacity: 0 }}
+   479→        className="text-6xl"
+   480→      >
+   481→        🎉
+   482→      </motion.div>
+   483→    </div>
+   484→  )
+   485→}
+   486→
+   487→// ─── Study Heatmap Component ────────────────────────────────────────────
+   488→
+   489→function StudyHeatmap({ data }: { data: Record<string, number> }) {
+   490→  const today = new Date()
+   491→  const days = Array.from({ length: 30 }).map((_, i) => {
+   492→    const d = new Date()
+   493→    d.setDate(today.getDate() - (29 - i))
+   494→    return formatDate(d)
+   495→  })
+   496→
+   497→  const maxMin = Math.max(...Object.values(data), 1)
+   498→
+   499→  const getColor = (minutes: number) => {
+   500→    if (minutes === 0) return 'bg-slate-100 dark:bg-slate-800'
+   501→    const intensity = minutes / maxMin
+   502→    if (intensity < 0.25) return 'bg-emerald-200 dark:bg-emerald-900'
+   503→    if (intensity < 0.5) return 'bg-emerald-300 dark:bg-emerald-700'
+   504→    if (intensity < 0.75) return 'bg-emerald-400 dark:bg-emerald-600'
+   505→    return 'bg-emerald-500 dark:bg-emerald-500'
+   506→  }
+   507→
+   508→  // Group into weeks (rows of 7 or fewer)
+   509→  const weeks: string[][] = []
+   510→  // First partial week
+   511→  const firstDayOfWeek = new Date(days[0] + 'T00:00:00').getDay()
+   512→  let currentWeek: string[] = []
+   513→  // Pad first week
+   514→  for (let i = 0; i < firstDayOfWeek; i++) currentWeek.push('')
+   515→  for (const day of days) {
+   516→    currentWeek.push(day)
+   517→    if (currentWeek.length === 7) {
+   518→      weeks.push(currentWeek)
+   519→      currentWeek = []
+   520→    }
+   521→  }
+   522→  if (currentWeek.length > 0) weeks.push(currentWeek)
+   523→
+   524→  return (
+   525→    <div className="space-y-2">
+   526→      <div className="flex gap-0.5 overflow-x-auto pb-2">
+   527→        {/* Simple grid: 30 cells in 5 rows of 6 (cols) */}
+   528→        <div className="flex flex-col gap-0.5">
+   529→          {days.map((day, i) => {
+   530→            const minutes = data[day] || 0
+   531→            return (
+   532→              <TooltipProvider key={i}>
+   533→                <Tooltip>
+   534→                  <TooltipTrigger asChild>
+   535→                    <div
+   536→                      className={`w-4 h-4 rounded-[2px] ${getColor(minutes)} cursor-pointer transition-colors hover:ring-1 hover:ring-slate-400`}
+   537→                    />
+   538→                  </TooltipTrigger>
+   539→                  <TooltipContent side="top" className="text-xs">
+   540→                    <p className="font-medium">{new Date(day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+   541→                    <p className="text-slate-400">{minutes > 0 ? formatMinutes(minutes) : 'No study'}</p>
+   542→                  </TooltipContent>
+   543→                </Tooltip>
+   544→              </TooltipProvider>
+   545→            )
+   546→          })}
+   547→        </div>
+   548→      </div>
+   549→      {/* Legend */}
+   550→      <div className="flex items-center gap-1 text-[10px] text-slate-400">
+   551→        <span>Less</span>
+   552→        <div className="w-3 h-3 rounded-[2px] bg-slate-100 dark:bg-slate-800" />
+   553→        <div className="w-3 h-3 rounded-[2px] bg-emerald-200 dark:bg-emerald-900" />
+   554→        <div className="w-3 h-3 rounded-[2px] bg-emerald-300 dark:bg-emerald-700" />
+   555→        <div className="w-3 h-3 rounded-[2px] bg-emerald-400 dark:bg-emerald-600" />
+   556→        <div className="w-3 h-3 rounded-[2px] bg-emerald-500 dark:bg-emerald-500" />
+   557→        <span>More</span>
+   558→      </div>
+   559→    </div>
+   560→  )
+   561→}
+   562→
+   563→// ─── Main Component ─────────────────────────────────────────────────────
+   564→
+   565→export default function StudentPanel({ onLogout }: StudentPanelProps) {
+   566→  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+   567→  const [sidebarOpen, setSidebarOpen] = useState(false)
+   568→  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+   569→  const [loading, setLoading] = useState(true)
+   570→
+   571→  // Fetch dashboard on mount
+   572→  const fetchDashboard = useCallback(async () => {
+   573→    try {
+   574→      setLoading(true)
+   575→      const data = await api.studentDashboard()
+   576→      setDashboardData(data as DashboardData)
+   577→    } catch (err) {
+   578→      console.error('Dashboard fetch error:', err)
+   579→    } finally {
+   580→      setLoading(false)
+   581→    }
+   582→  }, [])
+   583→
+   584→  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+   585→
+   586→  const navItems = [
+   587→    { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
+   588→    { id: 'track' as Page, label: 'Track Study', icon: CalendarDays },
+   589→    { id: 'planner' as Page, label: 'Study Planner', icon: CalendarCheck },
+   590→    { id: 'discussion' as Page, label: 'Discussion', icon: MessageCircle },
+   591→    { id: 'syllabus' as Page, label: 'Syllabus', icon: ListChecks },
+   592→    { id: 'profile' as Page, label: 'Edit Profile', icon: UserCog },
+   593→  ]
+   594→
+   595→  const handleNavClick = (page: Page) => {
+   596→    setCurrentPage(page)
+   597→    setSidebarOpen(false)
+   598→  }
+   599→
+   600→  // ─── Sidebar ──────────────────────────────────────────────────────────
+   601→
+   602→  const SidebarContent = () => (
+   603→    <div className="flex flex-col h-full">
+   604→      {/* Logo */}
+   605→      <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   606→        <div className="flex items-center gap-3">
+   607→          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-800 to-slate-950 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center flex-shrink-0 shadow-sm">
+   608→            <GraduationCap className="w-5 h-5 text-white dark:text-slate-900" />
+   609→          </div>
+   610→          <div>
+   611→            <h2 className="font-bold text-sm text-slate-900 dark:text-slate-100">MISSION CS</h2>
+   612→            <p className="text-[10px] text-slate-500 dark:text-slate-400 tracking-wider">TEST SERIES</p>
+   613→          </div>
+   614→        </div>
+   615→      </div>
+   616→
+   617→      {/* Student Info */}
+   618→      {dashboardData && (
+   619→        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   620→          <div className="flex items-center gap-3">
+   621→            <div className="relative">
+   622→              <Avatar className="h-9 w-9">
+   623→                <AvatarFallback className="bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 text-slate-700 dark:text-slate-300 text-sm font-semibold">
+   624→                  {dashboardData.student.fullName.charAt(0).toUpperCase()}
+   625→                </AvatarFallback>
+   626→              </Avatar>
+   627→              {dashboardData.student.verified && (
+   628→                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center ring-2 ring-white dark:ring-slate-900">
+   629→                  <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+   630→                </div>
+   631→              )}
+   632→            </div>
+   633→            <div className="min-w-0 flex-1">
+   634→              <div className="flex items-center gap-1">
+   635→                <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+   636→                  {dashboardData.student.fullName}
+   637→                </p>
+   638→              </div>
+   639→              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+   640→                Score: {dashboardData.student.score}
+   641→              </p>
+   642→            </div>
+   643→          </div>
+   644→        </div>
+   645→      )}
+   646→
+   647→      {/* Nav Items */}
+   648→      <nav className="flex-1 p-3 space-y-1">
+   649→        {navItems.map((item) => {
+   650→          const isActive = currentPage === item.id
+   651→          return (
+   652→            <motion.button
+   653→              key={item.id}
+   654→              onClick={() => handleNavClick(item.id)}
+   655→              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+   656→                isActive
+   657→                  ? 'text-white dark:text-slate-900'
+   658→                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+   659→              }`}
+   660→              whileTap={{ scale: 0.98 }}
+   661→            >
+   662→              {isActive && (
+   663→                <motion.div
+   664→                  layoutId="activeNav"
+   665→                  className="absolute inset-0 rounded-lg bg-gradient-to-r from-slate-800 to-slate-950 dark:from-slate-200 dark:to-slate-100 shadow-sm"
+   666→                  transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
+   667→                />
+   668→              )}
+   669→              <item.icon className="w-4 h-4 flex-shrink-0 relative z-10" />
+   670→              <span className="relative z-10">{item.label}</span>
+   671→            </motion.button>
+   672→          )
+   673→        })}
+   674→      </nav>
+   675→
+   676→      {/* Logout */}
+   677→      <div className="p-3 border-t border-slate-200 dark:border-slate-800">
+   678→        <button
+   679→          onClick={onLogout}
+   680→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+   681→        >
+   682→          <LogOut className="w-4 h-4 flex-shrink-0" />
+   683→          Logout
+   684→        </button>
+   685→      </div>
+   686→    </div>
+   687→  )
+   688→
+   689→  // ─── Render Page ──────────────────────────────────────────────────────
+   690→
+   691→  const renderPage = () => {
+   692→    if (loading) return <LoadingSkeleton />
+   693→
+   694→    switch (currentPage) {
+   695→      case 'dashboard': return <DashboardPage data={dashboardData} onRefresh={fetchDashboard} />
+   696→      case 'track': return <TrackStudyPage subjects={dashboardData?.subjects || []} />
+   697→      case 'planner': return <StudyPlannerPage subjects={dashboardData?.subjects || []} />
+   698→      case 'discussion': return <DiscussionPage />
+   699→      case 'syllabus': return <SyllabusPage />
+   700→      case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />
+   701→    }
+   702→  }
+   703→
+   704→  return (
+   705→    <>
+   706→      <style>{ENHANCED_STYLES}</style>
+   707→      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+   708→        {/* Desktop Sidebar */}
+   709→        <aside className="hidden md:flex w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col fixed inset-y-0 z-40">
+   710→          <SidebarContent />
+   711→        </aside>
+   712→
+   713→        {/* Mobile Sidebar Overlay */}
+   714→        <AnimatePresence>
+   715→          {sidebarOpen && (
+   716→            <>
+   717→              <motion.div
+   718→                initial={{ opacity: 0 }}
+   719→                animate={{ opacity: 1 }}
+   720→                exit={{ opacity: 0 }}
+   721→                className="fixed inset-0 z-50 md:hidden bg-black/50"
+   722→                onClick={() => setSidebarOpen(false)}
+   723→              />
+   724→              <motion.aside
+   725→                initial={{ x: -256 }}
+   726→                animate={{ x: 0 }}
+   727→                exit={{ x: -256 }}
+   728→                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+   729→                className="fixed left-0 top-0 bottom-0 w-64 z-50 md:hidden bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"
+   730→              >
+   731→                <SidebarContent />
+   732→              </motion.aside>
+   733→            </>
+   734→          )}
+   735→        </AnimatePresence>
+   736→
+   737→        {/* Main Content */}
+   738→        <main className="flex-1 md:ml-64">
+   739→          {/* Mobile Header */}
+   740→          <div className="md:hidden sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
+   741→            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+   742→              <Menu className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+   743→            </button>
+   744→            <h1 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+   745→              {navItems.find(n => n.id === currentPage)?.label || 'Dashboard'}
+   746→            </h1>
+   747→          </div>
+   748→
+   749→          <div className="p-4 md:p-6 max-w-5xl mx-auto">
+   750→            <AnimatePresence mode="wait">
+   751→              <motion.div
+   752→                key={currentPage}
+   753→                initial={{ opacity: 0, y: 8 }}
+   754→                animate={{ opacity: 1, y: 0 }}
+   755→                exit={{ opacity: 0, y: -8 }}
+   756→                transition={{ duration: 0.2 }}
+   757→              >
+   758→                {renderPage()}
+   759→              </motion.div>
+   760→            </AnimatePresence>
+   761→          </div>
+   762→        </main>
+   763→      </div>
+   764→    </>
+   765→  )
+   766→}
+   767→
+   768→// ─── Loading Skeleton ────────────────────────────────────────────────────
+   769→
+   770→function LoadingSkeleton() {
+   771→  return (
+   772→    <div className="space-y-6">
+   773→      <div className="grid gap-4 md:grid-cols-3">
+   774→        {[1, 2, 3].map(i => (
+   775→          <Skeleton key={i} className="h-32 rounded-xl" />
+   776→        ))}
+   777→      </div>
+   778→      <Skeleton className="h-64 rounded-xl" />
+   779→      <Skeleton className="h-48 rounded-xl" />
+   780→    </div>
+   781→  )
+   782→}
+   783→
+   784→// ═══════════════════════════════════════════════════════════════════════
+   785→// PAGE 1: DASHBOARD
+   786→// ═══════════════════════════════════════════════════════════════════════
+   787→
+   788→function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+   789→  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('')
+   790→  const [selectedChapterId, setSelectedChapterId] = useState<string>('')
+   791→  const [timerPreset, setTimerPreset] = useState<number>(0)
+   792→  const [customMinutes, setCustomMinutes] = useState<string>('')
+   793→  const [timerRunning, setTimerRunning] = useState(false)
+   794→  const [timerPaused, setTimerPaused] = useState(false)
+   795→  const [timerSeconds, setTimerSeconds] = useState(0)
+   796→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+   797→  const [timerCompleted, setTimerCompleted] = useState(false)
+   798→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+   799→  const [strikeLoading, setStrikeLoading] = useState(false)
+   800→  const [strikeFlash, setStrikeFlash] = useState(false)
+   801→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+   802→  const [resetLoading, setResetLoading] = useState(false)
+   803→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+   804→  const [achievementsData, setAchievementsData] = useState<any>(null)
+   805→  const [showConfetti, setShowConfetti] = useState(false)
+   806→  const [sessionQuote, setSessionQuote] = useState('')
+   807→  const [dailyGoalMin] = useState(120) // 2 hours daily goal
+   808→  const [celebrationSubject, setCelebrationSubject] = useState<string | null>(null)
+   809→
+   810→  // Daily motivational quote (changes daily)
+   811→  const dailyQuote = useMemo(() => {
+   812→    const dayIndex = new Date().getDate() % MOTIVATIONAL_QUOTES.length
+   813→    return MOTIVATIONAL_QUOTES[dayIndex]
+   814→  }, [])
+   815→
+   816→  const student = data?.student
+   817→  const subjects = data?.subjects || []
+   818→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+   819→  const chapters = selectedSubject?.chapters || []
+   820→
+   821→  // Fetch achievements
+   822→  useEffect(() => {
+   823→    const fetchAchievements = async () => {
+   824→      try {
+   825→        const data = await api.studentAchievements()
+   826→        setAchievementsData(data)
+   827→      } catch (err) {
+   828→        console.error('Achievements fetch error:', err)
+   829→      }
+   830→    }
+   831→    fetchAchievements()
+   832→  }, [data?.student?.score])
+   833→
+   834→  // Timer logic
+   835→  useEffect(() => {
+   836→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+   837→      timerInterval.current = setInterval(() => {
+   838→        setTimerSeconds(prev => {
+   839→          if (prev <= 1) {
+   840→            setTimerRunning(false)
+   841→            setTimerCompleted(true)
+   842→            setShowConfetti(true)
+   843→            if (timerInterval.current) clearInterval(timerInterval.current)
+   844→            return 0
+   845→          }
+   846→          return prev - 1
+   847→        })
+   848→      }, 1000)
+   849→    }
+   850→    return () => {
+   851→      if (timerInterval.current) clearInterval(timerInterval.current)
+   852→    }
+   853→  }, [timerRunning, timerPaused, timerSeconds])
+   854→
+   855→  const startTimer = () => {
+   856→    let minutes = timerPreset
+   857→    if (timerPreset === -1) {
+   858→      minutes = parseInt(customMinutes) || 0
+   859→    }
+   860→    if (minutes <= 0 || !selectedChapterId) return
+   861→    setTimerTotalSeconds(minutes * 60)
+   862→    setTimerSeconds(minutes * 60)
+   863→    setTimerRunning(true)
+   864→    setTimerPaused(false)
+   865→    setTimerCompleted(false)
+   866→    // Set a random motivational quote for this session
+   867→    setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+   868→  }
+   869→
+   870→  const pauseResumeTimer = () => setTimerPaused(prev => !prev)
+   871→
+   872→  const resetTimer = () => {
+   873→    setTimerRunning(false)
+   874→    setTimerPaused(false)
+   875→    setTimerSeconds(0)
+   876→    setTimerTotalSeconds(0)
+   877→    setTimerCompleted(false)
+   878→    setSessionQuote('')
+   879→    if (timerInterval.current) clearInterval(timerInterval.current)
+   880→  }
+   881→
+   882→  const chooseAnotherChapter = () => {
+   883→    resetTimer()
+   884→    setSelectedChapterId('')
+   885→  }
+   886→
+   887→  const handleTimerComplete = async (completed: boolean) => {
+   888→    const durationMin = Math.round(timerTotalSeconds / 60)
+   889→    try {
+   890→      await api.studentStartSession({
+   891→        chapterId: selectedChapterId,
+   892→        durationMin,
+   893→        completed
+   894→      })
+   895→      if (completed) {
+   896→        await api.studentMarkChapter(selectedChapterId, true)
+   897→      }
+   898→    } catch (err) {
+   899→      console.error('Session save error:', err)
+   900→    }
+   901→    setTimerCompleted(false)
+   902→    setShowConfetti(false)
+   903→    resetTimer()
+   904→    onRefresh()
+   905→  }
+   906→
+   907→  // Strike
+   908→  const handleStrike = async () => {
+   909→    setStrikeLoading(true)
+   910→    setStrikeAnimating(true)
+   911→    setStrikeFlash(true)
+   912→    try {
+   913→      await api.studentSendStrike()
+   914→      setTimeout(() => {
+   915→        setStrikeAnimating(false)
+   916→        setStrikeFlash(false)
+   917→      }, 800)
+   918→      onRefresh()
+   919→    } catch (err: any) {
+   920→      setStrikeAnimating(false)
+   921→      setStrikeFlash(false)
+   922→    } finally {
+   923→      setStrikeLoading(false)
+   924→    }
+   925→  }
+   926→
+   927→  // Reset stats
+   928→  const handleResetStats = async () => {
+   929→    setResetLoading(true)
+   930→    try {
+   931→      await api.studentResetStats()
+   932→      setResetDialogOpen(false)
+   933→      onRefresh()
+   934→    } catch (err) {
+   935→      console.error('Reset error:', err)
+   936→    } finally {
+   937→      setResetLoading(false)
+   938→    }
+   939→  }
+   940→
+   941→  if (!data || !student) return <LoadingSkeleton />
+   942→
+   943→  const canStrike = !(student as any).lastStrikeAt ||
+   944→    new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
+   945→
+   946→  const timerPresets = [
+   947→    { label: '30m', value: 30 },
+   948→    { label: '45m', value: 45 },
+   949→    { label: '1h', value: 60 },
+   950→    { label: '1.5h', value: 90 },
+   951→    { label: '2h', value: 120 },
+   952→  ]
+   953→
+   954→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   955→  const totalAchievements = achievementsData?.totalAchievements || 12
+   956→
+   957→  // Daily goal progress
+   958→  const dailyGoalProgress = Math.min((data.todayStudyMin / dailyGoalMin) * 100, 100)
+   959→  const dailyGoalReached = data.todayStudyMin >= dailyGoalMin
+   960→
+   961→  // Score progress for avatar ring (max 10000 for visual)
+   962→  const scoreProgress = Math.min((student.score / 1000) * 100, 100)
+   963→
+   964→  // Timer progress for color
+   965→  const timerProgress = timerTotalSeconds > 0 ? (timerSeconds / timerTotalSeconds) : 1
+   966→
+   967→  // Find last studied chapter for quick action
+   968→  const lastChapter = data.subjects
+   969→    .flatMap(s => s.chapters)
+   970→    .find((_: any, i: number) => i === 0) // placeholder - in real app, track last studied
+   971→
+   972→  return (
+   973→    <div className="space-y-6">
+   974→      <Confetti active={showConfetti} />
+   975→
+   976→      {/* Strike flash overlay */}
+   977→      {strikeFlash && (
+   978→        <div className="fixed inset-0 bg-orange-400/20 dark:bg-orange-500/10 strike-flash pointer-events-none z-[999]" />
+   979→      )}
+   980→
+   981→      {/* Daily Motivational Quote Banner */}
+   982→      <motion.div
+   983→        initial={{ opacity: 0, y: -10 }}
+   984→        animate={{ opacity: 1, y: 0 }}
+   985→        className="rounded-xl bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 dark:from-slate-700 dark:via-slate-600 dark:to-slate-800 p-4 shadow-lg"
+   986→      >
+   987→        <div className="flex items-center gap-3">
+   988→          <Sparkles className="w-5 h-5 text-amber-400 flex-shrink-0" />
+   989→          <div className="min-w-0 flex-1">
+   990→            <p className="text-white text-sm font-medium italic">&ldquo;{dailyQuote.text}&rdquo;</p>
+   991→            <p className="text-slate-400 text-xs mt-0.5">— {dailyQuote.author}</p>
+   992→          </div>
+   993→        </div>
+   994→      </motion.div>
+   995→
+   996→      {/* Profile Card */}
+   997→      <Card className="overflow-hidden">
+   998→        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 dark:from-slate-800 dark:via-slate-700 dark:to-slate-900 p-6 relative">
+   999→          {/* Decorative circles */}
+  1000→          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+  1001→          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/3 rounded-full translate-y-1/3 -translate-x-1/4" />
+  1002→
+  1003→          <div className="relative flex items-start justify-between">
+  1004→            <div className="flex items-center gap-5">
+  1005→              {/* Avatar with circular score progress ring */}
+  1006→              <CircularProgressRing
+  1007→                size={80}
+  1008→                strokeWidth={5}
+  1009→                progress={scoreProgress}
+  1010→                color="#f59e0b"
+  1011→                trackColor="rgba(255,255,255,0.15)"
+  1012→              >
+  1013→                <Avatar className="h-14 w-14 border-2 border-white/20">
+  1014→                  <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+  1015→                    {student.fullName.charAt(0).toUpperCase()}
+  1016→                  </AvatarFallback>
+  1017→                </Avatar>
+  1018→              </CircularProgressRing>
+  1019→              <div>
+  1020→                <div className="flex items-center gap-2">
+  1021→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+  1022→                  {student.verified && (
+  1023→                    <TooltipProvider>
+  1024→                      <Tooltip>
+  1025→                        <TooltipTrigger>
+  1026→                          <div className="verified-glow rounded-full p-0.5">
+  1027→                            <CheckCircle2 className="w-5 h-5 text-blue-400" />
+  1028→                          </div>
+  1029→                        </TooltipTrigger>
+  1030→                        <TooltipContent>
+  1031→                          <p>Verified - 7 Day Streak! 🔥</p>
+  1032→                        </TooltipContent>
+  1033→                      </Tooltip>
+  1034→                    </TooltipProvider>
+  1035→                  )}
+  1036→                </div>
+  1037→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+  1038→                <div className="flex items-center gap-4 mt-2">
+  1039→                  <div className="flex items-center gap-1.5">
+  1040→                    <Trophy className="w-4 h-4 text-amber-400" />
+  1041→                    <span className="text-white font-semibold">{student.score}</span>
+  1042→                    <span className="text-slate-400 text-xs">points</span>
+  1043→                  </div>
+  1044→                  <div className="flex items-center gap-1.5">
+  1045→                    <Flame className="w-4 h-4 text-orange-400" />
+  1046→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+  1047→                    <span className="text-slate-400 text-xs">day streak</span>
+  1048→                  </div>
+  1049→                </div>
+  1050→              </div>
+  1051→            </div>
+  1052→            <div className="flex items-center gap-2">
+  1053→              {/* Strike Button - Enhanced */}
+  1054→              <TooltipProvider>
+  1055→                <Tooltip>
+  1056→                  <TooltipTrigger asChild>
+  1057→                    <Button
+  1058→                      size="icon"
+  1059→                      variant="ghost"
+  1060→                      className={`h-11 w-11 text-orange-400 hover:text-orange-300 hover:bg-white/10 relative ${strikeAnimating ? 'fire-animate' : ''}`}
+  1061→                      onClick={handleStrike}
+  1062→                      disabled={!canStrike || strikeLoading}
+  1063→                    >
+  1064→                      <Flame className="w-6 h-6" />
+  1065→                      {/* Flame particles */}
+  1066→                      {strikeAnimating && (
+  1067→                        <>
+  1068→                          <div className="flame-particle bg-orange-500" style={{ top: '-8px', left: '6px' }} />
+  1069→                          <div className="flame-particle bg-red-500" style={{ top: '-12px', left: '14px', animationDelay: '0.1s' }} />
+  1070→                          <div className="flame-particle bg-amber-500" style={{ top: '-6px', left: '22px', animationDelay: '0.2s' }} />
+  1071→                          <div className="flame-particle bg-yellow-400" style={{ top: '-14px', left: '10px', animationDelay: '0.15s' }} />
+  1072→                          <div className="flame-particle bg-orange-400" style={{ top: '-10px', left: '18px', animationDelay: '0.25s' }} />
+  1073→                        </>
+  1074→                      )}
+  1075→                    </Button>
+  1076→                  </TooltipTrigger>
+  1077→                  <TooltipContent>
+  1078→                    {canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}
+  1079→                  </TooltipContent>
+  1080→                </Tooltip>
+  1081→              </TooltipProvider>
+  1082→
+  1083→              {/* Settings - Reset */}
+  1084→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+  1085→                <DialogTrigger asChild>
+  1086→                  <Button size="icon" variant="ghost" className="h-11 w-11 text-slate-400 hover:text-white hover:bg-white/10">
+  1087→                    <Settings className="w-5 h-5" />
+  1088→                  </Button>
+  1089→                </DialogTrigger>
+  1090→                <DialogContent>
+  1091→                  <DialogHeader>
+  1092→                    <DialogTitle>Reset All Stats?</DialogTitle>
+  1093→                    <DialogDescription>
+  1094→                      This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.
+  1095→                    </DialogDescription>
+  1096→                  </DialogHeader>
+  1097→                  <DialogFooter>
+  1098→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+  1099→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+  1100→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+  1101→                      Reset Stats
+  1102→                    </Button>
+  1103→                  </DialogFooter>
+  1104→                </DialogContent>
+  1105→              </Dialog>
+  1106→            </div>
+  1107→          </div>
+  1108→        </div>
+  1109→      </Card>
+  1110→
+  1111→      {/* Quick Actions Row */}
+  1112→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+  1113→        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+  1114→          <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-amber-500" onClick={() => {
+  1115→            // Find first incomplete chapter
+  1116→            for (const s of subjects) {
+  1117→              if (s.chapters.length > 0) {
+  1118→                setSelectedSubjectId(s.id)
+  1119→                setSelectedChapterId(s.chapters[0].id)
+  1120→                break
+  1121→              }
+  1122→            }
+  1123→          }}>
+  1124→            <CardContent className="pt-4 pb-4">
+  1125→              <div className="flex items-center gap-3">
+  1126→                <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+  1127→                  <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+  1128→                </div>
+  1129→                <div>
+  1130→                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resume Last Chapter</p>
+  1131→                  <p className="text-xs text-slate-500">Continue where you left off</p>
+  1132→                </div>
+  1133→                <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+  1134→              </div>
+  1135→            </CardContent>
+  1136→          </Card>
+  1137→        </motion.div>
+  1138→
+  1139→        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+  1140→          <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-orange-500" onClick={handleStrike}>
+  1141→            <CardContent className="pt-4 pb-4">
+  1142→              <div className="flex items-center gap-3">
+  1143→                <div className="p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+  1144→                  <Flame className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+  1145→                </div>
+  1146→                <div>
+  1147→                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Continue Streak</p>
+  1148→                  <p className="text-xs text-slate-500">{canStrike ? 'Send your daily strike!' : 'Already struck today ✓'}</p>
+  1149→                </div>
+  1150→                <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+  1151→              </div>
+  1152→            </CardContent>
+  1153→          </Card>
+  1154→        </motion.div>
+  1155→
+  1156→        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+  1157→          <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-emerald-500">
+  1158→            <CardContent className="pt-4 pb-4">
+  1159→              <div className="flex items-center gap-3">
+  1160→                <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+  1161→                  <Target className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+  1162→                </div>
+  1163→                <div>
+  1164→                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">View Study Plan</p>
+  1165→                  <p className="text-xs text-slate-500">Check today's schedule</p>
+  1166→                </div>
+  1167→                <ChevronRight className="w-4 h-4 text-slate-400 ml-auto" />
+  1168→              </div>
+  1169→            </CardContent>
+  1170→          </Card>
+  1171→        </motion.div>
+  1172→      </div>
+  1173→
+  1174→      {/* Daily Goal + Study Session Area - Two Column */}
+  1175→      <div className="grid md:grid-cols-[1fr_280px] gap-6">
+  1176→        {/* Study Session Area */}
+  1177→        <Card>
+  1178→          <CardHeader className="pb-3">
+  1179→            <CardTitle className="text-lg flex items-center gap-2">
+  1180→              <BookOpen className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+  1181→              Study Session
+  1182→            </CardTitle>
+  1183→            <CardDescription>Which chapter do you want to study today?</CardDescription>
+  1184→          </CardHeader>
+  1185→          <CardContent className="space-y-4">
+  1186→            {/* Session quote */}
+  1187→            <AnimatePresence>
+  1188→              {sessionQuote && timerRunning && (
+  1189→                <motion.div
+  1190→                  initial={{ opacity: 0, height: 0 }}
+  1191→                  animate={{ opacity: 1, height: 'auto' }}
+  1192→                  exit={{ opacity: 0, height: 0 }}
+  1193→                  className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800"
+  1194→                >
+  1195→                  <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium text-center">{sessionQuote}</p>
+  1196→                </motion.div>
+  1197→              )}
+  1198→            </AnimatePresence>
+  1199→
+  1200→            {!timerRunning && !timerCompleted ? (
+  1201→              <>
+  1202→                {/* Subject Select */}
+  1203→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1204→                  <div className="space-y-1.5">
+  1205→                    <Label className="text-xs font-medium text-slate-500">Subject</Label>
+  1206→                    <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+  1207→                      <SelectTrigger>
+  1208→                        <SelectValue placeholder="Choose subject" />
+  1209→                      </SelectTrigger>
+  1210→                      <SelectContent>
+  1211→                        {subjects.map(s => (
+  1212→                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+  1213→                        ))}
+  1214→                      </SelectContent>
+  1215→                    </Select>
+  1216→                  </div>
+  1217→                  <div className="space-y-1.5">
+  1218→                    <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+  1219→                    <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+  1220→                      <SelectTrigger>
+  1221→                        <SelectValue placeholder="Choose chapter" />
+  1222→                      </SelectTrigger>
+  1223→                      <SelectContent>
+  1224→                        {chapters.map(c => (
+  1225→                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+  1226→                        ))}
+  1227→                      </SelectContent>
+  1228→                    </Select>
+  1229→                  </div>
+  1230→                </div>
+  1231→
+  1232→                {/* Timer Presets */}
+  1233→                <div className="space-y-2">
+  1234→                  <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+  1235→                  <div className="flex flex-wrap gap-2">
+  1236→                    {timerPresets.map(p => (
+  1237→                      <Button
+  1238→                        key={p.value}
+  1239→                        variant={timerPreset === p.value ? 'default' : 'outline'}
+  1240→                        size="sm"
+  1241→                        className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+  1242→                        onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}
+  1243→                      >
+  1244→                        {p.label}
+  1245→                      </Button>
+  1246→                    ))}
+  1247→                    <div className="flex items-center gap-1.5">
+  1248→                      <Input
+  1249→                        type="number"
+  1250→                        placeholder="Custom (min)"
+  1251→                        className="w-28 h-8 text-sm"
+  1252→                        value={customMinutes}
+  1253→                        onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }}
+  1254→                        min={1}
+  1255→                      />
+  1256→                      <span className="text-xs text-slate-400">min</span>
+  1257→                    </div>
+  1258→                  </div>
+  1259→                </div>
+  1260→
+  1261→                <Button
+  1262→                  onClick={startTimer}
+  1263→                  disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || timerPreset === -1 && !customMinutes}
+  1264→                  className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+  1265→                >
+  1266→                  <Play className="w-4 h-4 mr-2" />
+  1267→                  Start Session
+  1268→                </Button>
+  1269→              </>
+  1270→            ) : timerCompleted ? (
+  1271→              /* Completion Prompt */
+  1272→              <div className="text-center py-6 space-y-4">
+  1273→                <motion.div
+  1274→                  initial={{ scale: 0 }}
+  1275→                  animate={{ scale: 1 }}
+  1276→                  className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center celebration-burst"
+  1277→                >
+  1278→                  <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+  1279→                </motion.div>
+  1280→                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+  1281→                  Session Complete! 🎉
+  1282→                </h3>
+  1283→                <p className="text-slate-500 dark:text-slate-400">
+  1284→                  Have you completed this chapter?
+  1285→                </p>
+  1286→                <div className="flex items-center justify-center gap-3">
+  1287→                  <Button
+  1288→                    onClick={() => handleTimerComplete(true)}
+  1289→                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+  1290→                  >
+  1291→                    <CheckCircle2 className="w-4 h-4 mr-2" />
+  1292→                    Yes, Done!
+  1293→                  </Button>
+  1294→                  <Button variant="outline" onClick={() => handleTimerComplete(false)}>
+  1295→                    Not Yet
+  1296→                  </Button>
+  1297→                </div>
+  1298→              </div>
+  1299→            ) : (
+  1300→              /* Timer Running - Enhanced with SVG countdown ring */
+  1301→              <div className="text-center py-6 space-y-4">
+  1302→                <div>
+  1303→                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+  1304→                  <p className="font-medium text-slate-900 dark:text-slate-100">
+  1305→                    {chapters.find(c => c.id === selectedChapterId)?.name}
+  1306→                  </p>
+  1307→                </div>
+  1308→                {/* SVG Countdown Ring with Timer */}
+  1309→                <div className="relative inline-flex items-center justify-center">
+  1310→                  <TimerCountdownRing
+  1311→                    size={200}
+  1312→                    strokeWidth={8}
+  1313→                    totalSeconds={timerTotalSeconds}
+  1314→                    remainingSeconds={timerSeconds}
+  1315→                  />
+  1316→                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+  1317→                    <span className="text-4xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+  1318→                      {formatTimer(timerSeconds)}
+  1319→                    </span>
+  1320→                    <span className="text-xs text-slate-400 mt-1">
+  1321→                      {timerPaused ? 'PAUSED' : 'remaining'}
+  1322→                    </span>
+  1323→                  </div>
+  1324→                </div>
+  1325→                {/* Controls */}
+  1326→                <div className="flex items-center justify-center gap-3">
+  1327→                  <Button
+  1328→                    variant="outline"
+  1329→                    size="icon"
+  1330→                    onClick={pauseResumeTimer}
+  1331→                    className="h-12 w-12 rounded-full"
+  1332→                  >
+  1333→                    {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+  1334→                  </Button>
+  1335→                  <Button
+  1336→                    variant="outline"
+  1337→                    size="icon"
+  1338→                    onClick={resetTimer}
+  1339→                    className="h-12 w-12 rounded-full"
+  1340→                  >
+  1341→                    <RotateCcw className="w-5 h-5" />
+  1342→                  </Button>
+  1343→                </div>
+  1344→                <Button
+  1345→                  variant="ghost"
+  1346→                  onClick={chooseAnotherChapter}
+  1347→                  className="text-sm text-slate-500"
+  1348→                >
+  1349→                  Choose Another
+  1350→                </Button>
+  1351→              </div>
+  1352→            )}
+  1353→          </CardContent>
+  1354→        </Card>
+  1355→
+  1356→        {/* Right Column: Daily Goal + Mini Leaderboard */}
+  1357→        <div className="space-y-6">
+  1358→          {/* Daily Study Goal */}
+  1359→          <Card>
+  1360→            <CardHeader className="pb-3">
+  1361→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+  1362→                <Target className="w-4 h-4 text-emerald-500" />
+  1363→                Daily Goal
+  1364→              </CardTitle>
+  1365→            </CardHeader>
+  1366→            <CardContent className="flex flex-col items-center">
+  1367→              <CircularProgressRing
+  1368→                size={100}
+  1369→                strokeWidth={8}
+  1370→                progress={dailyGoalProgress}
+  1371→                color={dailyGoalReached ? '#10b981' : '#f59e0b'}
+  1372→                trackColor="rgba(100,116,139,0.2)"
+  1373→              >
+  1374→                <div className="text-center">
+  1375→                  <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+  1376→                    {formatMinutes(data.todayStudyMin)}
+  1377→                  </p>
+  1378→                  <p className="text-[10px] text-slate-400">of {formatMinutes(dailyGoalMin)}</p>
+  1379→                </div>
+  1380→              </CircularProgressRing>
+  1381→              <div className="mt-3 text-center">
+  1382→                {dailyGoalReached ? (
+  1383→                  <motion.p
+  1384→                    initial={{ scale: 0.8 }}
+  1385→                    animate={{ scale: 1 }}
+  1386→                    className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1"
+  1387→                  >
+  1388→                    <CheckCircle2 className="w-3.5 h-3.5" />
+  1389→                    Goal Reached!
+  1390→                  </motion.p>
+  1391→                ) : (
+  1392→                  <p className="text-xs text-slate-500">
+  1393→                    {formatMinutes(dailyGoalMin - data.todayStudyMin)} more to go
+  1394→                  </p>
+  1395→                )}
+  1396→              </div>
+  1397→            </CardContent>
+  1398→          </Card>
+  1399→
+  1400→          {/* Mini Leaderboard */}
+  1401→          <Card>
+  1402→            <CardHeader className="pb-3">
+  1403→              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+  1404→                <Trophy className="w-4 h-4 text-amber-500" />
+  1405→                Leaderboard
+  1406→              </CardTitle>
+  1407→            </CardHeader>
+  1408→            <CardContent>
+  1409→              <div className="space-y-2">
+  1410→                {MOCK_LEADERBOARD.map((entry) => (
+  1411→                  <div key={entry.rank} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+  1412→                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+  1413→                      entry.rank === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+  1414→                      entry.rank === 2 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
+  1415→                      entry.rank === 3 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+  1416→                      'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-500'
+  1417→                    }`}>
+  1418→                      {entry.rank <= 3 ? (
+  1419→                        entry.rank === 1 ? <Crown className="w-3.5 h-3.5" /> : entry.rank
+  1420→                      ) : entry.rank}
+  1421→                    </div>
+  1422→                    <div className="min-w-0 flex-1">
+  1423→                      <p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">{entry.name}</p>
+  1424→                    </div>
+  1425→                    <div className="flex items-center gap-1.5 flex-shrink-0">
+  1426→                      <Flame className="w-3 h-3 text-orange-400" />
+  1427→                      <span className="text-[10px] text-slate-500">{entry.streak}</span>
+  1428→                    </div>
+  1429→                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">{entry.score}</span>
+  1430→                  </div>
+  1431→                ))}
+  1432→              </div>
+  1433→            </CardContent>
+  1434→          </Card>
+  1435→        </div>
+  1436→      </div>
+  1437→
+  1438→      {/* Quick Stats */}
+  1439→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  1440→        <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+  1441→          <Card>
+  1442→            <CardContent className="pt-4 pb-4">
+  1443→              <div className="flex items-center gap-3">
+  1444→                <div className="p-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+  1445→                  <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+  1446→                </div>
+  1447→                <div>
+  1448→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalSubjects}</p>
+  1449→                  <p className="text-xs text-slate-500">Subjects</p>
+  1450→                </div>
+  1451→              </div>
+  1452→            </CardContent>
+  1453→          </Card>
+  1454→        </motion.div>
+  1455→        <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+  1456→          <Card>
+  1457→            <CardContent className="pt-4 pb-4">
+  1458→              <div className="flex items-center gap-3">
+  1459→                <div className="p-2 rounded-lg bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
+  1460→                  <ListChecks className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+  1461→                </div>
+  1462→                <div>
+  1463→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalChapters}</p>
+  1464→                  <p className="text-xs text-slate-500">Total Chapters</p>
+  1465→                </div>
+  1466→              </div>
+  1467→            </CardContent>
+  1468→          </Card>
+  1469→        </motion.div>
+  1470→        <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+  1471→          <Card>
+  1472→            <CardContent className="pt-4 pb-4">
+  1473→              <div className="flex items-center gap-3">
+  1474→                <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-800/20">
+  1475→                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+  1476→                </div>
+  1477→                <div>
+  1478→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.completedChapters}</p>
+  1479→                  <p className="text-xs text-slate-500">Completed</p>
+  1480→                </div>
+  1481→              </div>
+  1482→            </CardContent>
+  1483→          </Card>
+  1484→        </motion.div>
+  1485→        <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+  1486→          <Card>
+  1487→            <CardContent className="pt-4 pb-4">
+  1488→              <div className="flex items-center gap-3">
+  1489→                <div className="p-2 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-800/20">
+  1490→                  <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+  1491→                </div>
+  1492→                <div>
+  1493→                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+  1494→                  <p className="text-xs text-slate-500">Today</p>
+  1495→                </div>
+  1496→              </div>
+  1497→            </CardContent>
+  1498→          </Card>
+  1499→        </motion.div>
+  1500→      </div>
+  1501→
+  1502→      {/* Achievements - Enhanced */}
+  1503→      <Card>
+  1504→        <CardHeader className="pb-3">
+  1505→          <div className="flex items-center justify-between">
+  1506→            <CardTitle className="text-lg flex items-center gap-2">
+  1507→              <Trophy className="w-5 h-5 text-amber-500" />
+  1508→              Achievements
+  1509→            </CardTitle>
+  1510→            <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+  1511→              {unlockedCount}/{totalAchievements} Unlocked
+  1512→            </Badge>
+  1513→          </div>
+  1514→        </CardHeader>
+  1515→        <CardContent>
+  1516→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+  1517→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+  1518→              <TooltipProvider key={a.id}>
+  1519→                <Tooltip>
+  1520→                  <TooltipTrigger asChild>
+  1521→                    <motion.div
+  1522→                      whileHover={{ scale: 1.05, y: -2 }}
+  1523→                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden ${
+  1524→                        a.unlocked
+  1525→                          ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+  1526→                          : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+  1527→                      }`}
+  1528→                      style={a.unlocked ? {
+  1529→                        backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)',
+  1530→                        backgroundSize: '200% 100%',
+  1531→                      } : undefined}
+  1532→                    >
+  1533→                      {a.unlocked ? (
+  1534→                        <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+  1535→                      ) : (
+  1536→                        <div className="relative">
+  1537→                          <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+  1538→                          <div className="absolute inset-0 flex items-center justify-center">
+  1539→                            <Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+  1540→                          </div>
+  1541→                        </div>
+  1542→                      )}
+  1543→                      <span className={`text-[10px] font-medium text-center leading-tight ${
+  1544→                        a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+  1545→                      }`}>
+  1546→                        {a.name}
+  1547→                      </span>
+  1548→                    </motion.div>
+  1549→                  </TooltipTrigger>
+  1550→                  <TooltipContent>
+  1551→                    <p className="font-semibold">{a.name}</p>
+  1552→                    <p className="text-xs">{a.description}</p>
+  1553→                    <p className="text-xs text-slate-400 mt-1">{a.threshold} points needed</p>
+  1554→                    {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+  1555→                  </TooltipContent>
+  1556→                </Tooltip>
+  1557→              </TooltipProvider>
+  1558→            ))}
+  1559→          </div>
+  1560→        </CardContent>
+  1561→      </Card>
+  1562→    </div>
+  1563→  )
+  1564→}
+  1565→
+  1566→// ═══════════════════════════════════════════════════════════════════════
+  1567→// PAGE 2: TRACK STUDY
+  1568→// ═══════════════════════════════════════════════════════════════════════
+  1569→
+  1570→function TrackStudyPage({ subjects }: { subjects: Subject[] }) {
+  1571→  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  1572→  const [sessions, setSessions] = useState<StudySession[]>([])
+  1573→  const [totalMin, setTotalMin] = useState(0)
+  1574→  const [chartData, setChartData] = useState<{ date: string; minutes: number }[]>([])
+  1575→  const [heatmapData, setHeatmapData] = useState<Record<string, number>>({})
+  1576→  const [weeklySummary, setWeeklySummary] = useState<{ totalMin: number; sessions: number; bestDay: string; bestDayMin: number } | null>(null)
+  1577→  const [loading, setLoading] = useState(true)
+  1578→
+  1579→  // Fetch chart data (all sessions last 30 days)
+  1580→  useEffect(() => {
+  1581→    const fetchChart = async () => {
+  1582→      try {
+  1583→        const data = await api.studentStudyHistory()
+  1584→        const sessions = data.sessions || []
+  1585→        // Aggregate by date
+  1586→        const dateMap: Record<string, number> = {}
+  1587→        sessions.forEach((s: any) => {
+  1588→          const dateKey = new Date(s.date).toISOString().split('T')[0]
+  1589→          dateMap[dateKey] = (dateMap[dateKey] || 0) + s.durationMin
+  1590→        })
+  1591→        // Build last 14 days for chart
+  1592→        const chart: { date: string; minutes: number }[] = []
+  1593→        for (let i = 13; i >= 0; i--) {
+  1594→          const d = new Date()
+  1595→          d.setDate(d.getDate() - i)
+  1596→          const key = formatDate(d)
+  1597→          chart.push({ date: key, minutes: dateMap[key] || 0 })
+  1598→        }
+  1599→        setChartData(chart)
+  1600→
+  1601→        // Build 30 days for heatmap
+  1602→        const heatmap: Record<string, number> = {}
+  1603→        for (let i = 29; i >= 0; i--) {
+  1604→          const d = new Date()
+  1605→          d.setDate(d.getDate() - i)
+  1606→          const key = formatDate(d)
+  1607→          heatmap[key] = dateMap[key] || 0
+  1608→        }
+  1609→        setHeatmapData(heatmap)
+  1610→
+  1611→        // Weekly summary
+  1612→        let weekTotal = 0
+  1613→        let weekSessions = sessions.length
+  1614→        let bestDay = ''
+  1615→        let bestDayMin = 0
+  1616→        for (let i = 6; i >= 0; i--) {
+  1617→          const d = new Date()
+  1618→          d.setDate(d.getDate() - i)
+  1619→          const key = formatDate(d)
+  1620→          const min = dateMap[key] || 0
+  1621→          weekTotal += min
+  1622→          if (min > bestDayMin) {
+  1623→            bestDayMin = min
+  1624→            bestDay = key
+  1625→          }
+  1626→        }
+  1627→        setWeeklySummary({ totalMin: weekTotal, sessions: weekSessions, bestDay, bestDayMin })
+  1628→      } catch (err) {
+  1629→        console.error('Chart data error:', err)
+  1630→      }
+  1631→    }
+  1632→    fetchChart()
+  1633→  }, [])
+  1634→
+  1635→  // Fetch date-specific sessions
+  1636→  useEffect(() => {
+  1637→    const fetchSessions = async () => {
+  1638→      setLoading(true)
+  1639→      try {
+  1640→        const dateStr = formatDate(selectedDate)
+  1641→        const data = await api.studentStudyHistory(dateStr)
+  1642→        setSessions(data.sessions || [])
+  1643→        setTotalMin(data.totalMin || 0)
+  1644→      } catch (err) {
+  1645→        console.error('Sessions fetch error:', err)
+  1646→      } finally {
+  1647→        setLoading(false)
+  1648→      }
+  1649→    }
+  1650→    fetchSessions()
+  1651→  }, [selectedDate])
+  1652→
+  1653→  const maxChartMinutes = Math.max(...chartData.map(d => d.minutes), 1)
+  1654→
+  1655→  return (
+  1656→    <div className="space-y-6">
+  1657→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1658→        <CalendarDays className="w-5 h-5" />
+  1659→        Track Study
+  1660→      </h2>
+  1661→
+  1662→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+  1663→        {/* Calendar */}
+  1664→        <Card>
+  1665→          <CardContent className="pt-4 flex justify-center">
+  1666→            <Calendar
+  1667→              mode="single"
+  1668→              selected={selectedDate}
+  1669→              onSelect={(d) => d && setSelectedDate(d)}
+  1670→              className="rounded-md"
+  1671→            />
+  1672→          </CardContent>
+  1673→        </Card>
+  1674→
+  1675→        {/* Day Details */}
+  1676→        <Card>
+  1677→          <CardHeader className="pb-3">
+  1678→            <div className="flex items-center justify-between">
+  1679→              <CardTitle className="text-base">
+  1680→                {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+  1681→              </CardTitle>
+  1682→              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+  1683→                {formatMinutes(totalMin)} studied
+  1684→              </Badge>
+  1685→            </div>
+  1686→          </CardHeader>
+  1687→          <CardContent>
+  1688→            {loading ? (
+  1689→              <div className="space-y-2">
+  1690→                {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}
+  1691→              </div>
+  1692→            ) : sessions.length === 0 ? (
+  1693→              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
+  1694→                No study sessions on this day
+  1695→              </p>
+  1696→            ) : (
+  1697→              <ScrollArea className="max-h-64">
+  1698→                <div className="space-y-2">
+  1699→                  {sessions.map(s => (
+  1700→                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+  1701→                      <div className="flex items-center gap-3">
+  1702→                        <div className={`p-1.5 rounded-lg ${s.completed ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-200 dark:bg-slate-800'}`}>
+  1703→                          {s.completed ? (
+  1704→                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+  1705→                          ) : (
+  1706→                            <Clock className="w-4 h-4 text-slate-500" />
+  1707→                          )}
+  1708→                        </div>
+  1709→                        <div>
+  1710→                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+  1711→                            {s.chapter?.name || 'General Study'}
+  1712→                          </p>
+  1713→                          <p className="text-xs text-slate-500">{s.chapter?.subject?.name || ''}</p>
+  1714→                        </div>
+  1715→                      </div>
+  1716→                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+  1717→                        {formatMinutes(s.durationMin)}
+  1718→                      </span>
+  1719→                    </div>
+  1720→                  ))}
+  1721→                </div>
+  1722→              </ScrollArea>
+  1723→            )}
+  1724→          </CardContent>
+  1725→        </Card>
+  1726→      </div>
+  1727→
+  1728→      {/* Study Hours Chart - Enhanced with gradient bars */}
+  1729→      <Card>
+  1730→        <CardHeader className="pb-3">
+  1731→          <CardTitle className="text-base flex items-center gap-2">
+  1732→            <TrendingUp className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+  1733→            Last 14 Days
+  1734→          </CardTitle>
+  1735→        </CardHeader>
+  1736→        <CardContent>
+  1737→          <div className="flex items-end gap-1.5 h-44">
+  1738→            {chartData.map((d, i) => {
+  1739→              const height = d.minutes > 0 ? Math.max((d.minutes / maxChartMinutes) * 100, 4) : 2
+  1740→              const isToday = d.date === formatDate(new Date())
+  1741→              return (
+  1742→                <TooltipProvider key={i}>
+  1743→                  <Tooltip>
+  1744→                    <TooltipTrigger asChild>
+  1745→                      <div className="flex-1 flex flex-col items-center gap-1 group">
+  1746→                        <motion.div
+  1747→                          initial={{ height: 0 }}
+  1748→                          animate={{ height: `${height}%` }}
+  1749→                          transition={{ delay: i * 0.03, duration: 0.4 }}
+  1750→                          className={`w-full rounded-t-md transition-all relative overflow-hidden ${
+  1751→                            isToday
+  1752→                              ? 'bg-gradient-to-t from-slate-800 to-slate-600 dark:from-slate-200 dark:to-slate-400'
+  1753→                              : d.minutes > 0
+  1754→                                ? 'bg-gradient-to-t from-slate-500 to-slate-400 dark:from-slate-600 dark:to-slate-500'
+  1755→                                : 'bg-slate-200 dark:bg-slate-800'
+  1756→                          }`}
+  1757→                          style={{ minHeight: '4px' }}
+  1758→                        >
+  1759→                          {/* Shine effect on hover */}
+  1760→                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+  1761→                        </motion.div>
+  1762→                        <span className={`text-[9px] ${isToday ? 'font-bold text-slate-900 dark:text-slate-100' : 'text-slate-400'}`}>
+  1763→                          {new Date(d.date + 'T00:00:00').getDate()}
+  1764→                        </span>
+  1765→                      </div>
+  1766→                    </TooltipTrigger>
+  1767→                    <TooltipContent>
+  1768→                      <p className="font-medium">{formatMinutes(d.minutes)} studied</p>
+  1769→                      <p className="text-xs text-slate-400">{d.date}</p>
+  1770→                    </TooltipContent>
+  1771→                  </Tooltip>
+  1772→                </TooltipProvider>
+  1773→              )
+  1774→            })}
+  1775→          </div>
+  1776→        </CardContent>
+  1777→      </Card>
+  1778→
+  1779→      {/* Study Streak Heatmap */}
+  1780→      <Card>
+  1781→        <CardHeader className="pb-3">
+  1782→          <CardTitle className="text-base flex items-center gap-2">
+  1783→            <Flame className="w-4 h-4 text-orange-500" />
+  1784→            Study Activity — Last 30 Days
+  1785→          </CardTitle>
+  1786→        </CardHeader>
+  1787→        <CardContent>
+  1788→          <StudyHeatmap data={heatmapData} />
+  1789→        </CardContent>
+  1790→      </Card>
+  1791→
+  1792→      {/* Weekly Summary Card */}
+  1793→      {weeklySummary && (
+  1794→        <Card>
+  1795→          <CardHeader className="pb-3">
+  1796→            <CardTitle className="text-base flex items-center gap-2">
+  1797→              <Zap className="w-4 h-4 text-amber-500" />
+  1798→              This Week&apos;s Summary
+  1799→            </CardTitle>
+  1800→          </CardHeader>
+  1801→          <CardContent>
+  1802→            <div className="grid grid-cols-3 gap-4">
+  1803→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20">
+  1804→                <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400">{formatMinutes(weeklySummary.totalMin)}</p>
+  1805→                <p className="text-xs text-slate-500 mt-1">Total Study</p>
+  1806→              </div>
+  1807→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+  1808→                <p className="text-xl font-bold text-blue-700 dark:text-blue-400">{weeklySummary.sessions}</p>
+  1809→                <p className="text-xs text-slate-500 mt-1">Sessions</p>
+  1810→              </div>
+  1811→              <div className="text-center p-3 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20">
+  1812→                <p className="text-xl font-bold text-amber-700 dark:text-amber-400">{formatMinutes(weeklySummary.bestDayMin)}</p>
+  1813→                <p className="text-xs text-slate-500 mt-1">Best Day</p>
+  1814→              </div>
+  1815→            </div>
+  1816→          </CardContent>
+  1817→        </Card>
+  1818→      )}
+  1819→    </div>
+  1820→  )
+  1821→}
+  1822→
+  1823→// ═══════════════════════════════════════════════════════════════════════
+  1824→// PAGE 3: STUDY PLANNER
+  1825→// ═══════════════════════════════════════════════════════════════════════
+  1826→
+  1827→function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
+  1828→  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  1829→  const [plans, setPlans] = useState<StudyPlan[]>([])
+  1830→  const [loading, setLoading] = useState(true)
+  1831→  const [showForm, setShowForm] = useState(false)
+  1832→  const [formSubjectId, setFormSubjectId] = useState('')
+  1833→  const [formChapterId, setFormChapterId] = useState('')
+  1834→  const [formNotes, setFormNotes] = useState('')
+  1835→  const [formLoading, setFormLoading] = useState(false)
+  1836→  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  1837→
+  1838→  const selectedSubject = subjects.find(s => s.id === formSubjectId)
+  1839→  const chapters = selectedSubject?.chapters || []
+  1840→
+  1841→  const fetchPlans = useCallback(async () => {
+  1842→    if (!selectedDate) return
+  1843→    setLoading(true)
+  1844→    try {
+  1845→      const dateStr = formatDate(selectedDate)
+  1846→      const data = await api.studentStudyPlans(dateStr)
+  1847→      setPlans(data.plans || [])
+  1848→    } catch (err) {
+  1849→      console.error('Plans fetch error:', err)
+  1850→    } finally {
+  1851→      setLoading(false)
+  1852→    }
+  1853→  }, [selectedDate])
+  1854→
+  1855→  useEffect(() => { fetchPlans() }, [fetchPlans])
+  1856→
+  1857→  const handleSavePlan = async () => {
+  1858→    if (!formChapterId || !selectedDate) return
+  1859→    setFormLoading(true)
+  1860→    try {
+  1861→      if (editingPlanId) {
+  1862→        await api.studentUpdatePlan(editingPlanId, {
+  1863→          chapterId: formChapterId,
+  1864→          notes: formNotes,
+  1865→          plannedDate: formatDate(selectedDate)
+  1866→        })
+  1867→      } else {
+  1868→        await api.studentCreatePlan({
+  1869→          chapterId: formChapterId,
+  1870→          notes: formNotes,
+  1871→          plannedDate: formatDate(selectedDate)
+  1872→        })
+  1873→      }
+  1874→      setShowForm(false)
+  1875→      setFormSubjectId('')
+  1876→      setFormChapterId('')
+  1877→      setFormNotes('')
+  1878→      setEditingPlanId(null)
+  1879→      fetchPlans()
+  1880→    } catch (err) {
+  1881→      console.error('Plan save error:', err)
+  1882→    } finally {
+  1883→      setFormLoading(false)
+  1884→    }
+  1885→  }
+  1886→
+  1887→  const handleEdit = (plan: StudyPlan) => {
+  1888→    setEditingPlanId(plan.id)
+  1889→    const subject = subjects.find(s => s.chapters.some(c => c.id === plan.chapterId))
+  1890→    if (subject) setFormSubjectId(subject.id)
+  1891→    setFormChapterId(plan.chapterId || '')
+  1892→    setFormNotes(plan.notes || '')
+  1893→    setShowForm(true)
+  1894→  }
+  1895→
+  1896→  const handleCancelForm = () => {
+  1897→    setShowForm(false)
+  1898→    setFormSubjectId('')
+  1899→    setFormChapterId('')
+  1900→    setFormNotes('')
+  1901→    setEditingPlanId(null)
+  1902→  }
+  1903→
+  1904→  // Only allow selecting today and future dates
+  1905→  const disabledDays = { before: new Date() }
+  1906→
+  1907→  return (
+  1908→    <div className="space-y-6">
+  1909→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1910→        <CalendarCheck className="w-5 h-5" />
+  1911→        Study Planner
+  1912→      </h2>
+  1913→
+  1914→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+  1915→        <Card>
+  1916→          <CardContent className="pt-4 flex justify-center">
+  1917→            <Calendar
+  1918→              mode="single"
+  1919→              selected={selectedDate}
+  1920→              onSelect={setSelectedDate}
+  1921→              disabled={disabledDays}
+  1922→              className="rounded-md"
+  1923→            />
+  1924→          </CardContent>
+  1925→        </Card>
+  1926→
+  1927→        <div className="space-y-4">
+  1928→          {/* Plans for selected date */}
+  1929→          <Card>
+  1930→            <CardHeader className="pb-3">
+  1931→              <div className="flex items-center justify-between">
+  1932→                <CardTitle className="text-base">
+  1933→                  {selectedDate
+  1934→                    ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  1935→                    : 'Select a date'}
+  1936→                </CardTitle>
+  1937→                <Button
+  1938→                  size="sm"
+  1939→                  onClick={() => { setShowForm(true); setEditingPlanId(null) }}
+  1940→                  disabled={!selectedDate}
+  1941→                  className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1942→                >
+  1943→                  <Plus className="w-3.5 h-3.5 mr-1" />
+  1944→                  Add Plan
+  1945→                </Button>
+  1946→              </div>
+  1947→            </CardHeader>
+  1948→            <CardContent>
+  1949→              {loading ? (
+  1950→                <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
+  1951→              ) : plans.length === 0 ? (
+  1952→                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-6">
+  1953→                  No plans for this date
+  1954→                </p>
+  1955→              ) : (
+  1956→                <div className="space-y-2">
+  1957→                  {plans.map(plan => (
+  1958→                    <div key={plan.id} className="flex items-start justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+  1959→                      <div>
+  1960→                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+  1961→                          {plan.chapter?.name || 'General'}
+  1962→                        </p>
+  1963→                        <p className="text-xs text-slate-500">{plan.chapter?.subject?.name || ''}</p>
+  1964→                        {plan.notes && (
+  1965→                          <p className="text-xs text-slate-500 mt-1">{plan.notes}</p>
+  1966→                        )}
+  1967→                      </div>
+  1968→                      <Button size="sm" variant="ghost" onClick={() => handleEdit(plan)}>
+  1969→                        Edit
+  1970→                      </Button>
+  1971→                    </div>
+  1972→                  ))}
+  1973→                </div>
+  1974→              )}
+  1975→            </CardContent>
+  1976→          </Card>
+  1977→
+  1978→          {/* Add/Edit Form */}
+  1979→          {showForm && selectedDate && (
+  1980→            <motion.div
+  1981→              initial={{ opacity: 0, y: 10 }}
+  1982→              animate={{ opacity: 1, y: 0 }}
+  1983→            >
+  1984→              <Card>
+  1985→                <CardHeader className="pb-3">
+  1986→                  <CardTitle className="text-base">
+  1987→                    {editingPlanId ? 'Edit Plan' : 'New Plan'}
+  1988→                  </CardTitle>
+  1989→                </CardHeader>
+  1990→                <CardContent className="space-y-3">
+  1991→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1992→                    <div className="space-y-1.5">
+  1993→                      <Label className="text-xs">Subject</Label>
+  1994→                      <Select value={formSubjectId} onValueChange={(v) => { setFormSubjectId(v); setFormChapterId('') }}>
+  1995→                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1996→                        <SelectContent>
+  1997→                          {subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+  1998→                        </SelectContent>
+  1999→                      </Select>
+  2000→                    </div>
+
+[showing lines 1-2000 of 2536; use offset=2001 with limit to continue reading]

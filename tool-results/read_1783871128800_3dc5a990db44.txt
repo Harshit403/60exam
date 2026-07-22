@@ -1,0 +1,1636 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useEffect, useRef, useCallback } from 'react'
+     4→     4→import { Button } from '@/components/ui/button'
+     5→     5→import { Input } from '@/components/ui/input'
+     6→     6→import { Label } from '@/components/ui/label'
+     7→     7→import { Textarea } from '@/components/ui/textarea'
+     8→     8→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+     9→     9→import { Badge } from '@/components/ui/badge'
+    10→    10→import { Progress } from '@/components/ui/progress'
+    11→    11→import { Separator } from '@/components/ui/separator'
+    12→    12→import { Skeleton } from '@/components/ui/skeleton'
+    13→    13→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    14→    14→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+    15→    15→import { Alert, AlertDescription } from '@/components/ui/alert'
+    16→    16→import { Calendar } from '@/components/ui/calendar'
+    17→    17→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    18→    18→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    19→    19→import { ScrollArea } from '@/components/ui/scroll-area'
+    20→    20→import {
+    21→    21→  LayoutDashboard,
+    22→    22→  BookOpen,
+    23→    23→  CalendarDays,
+    24→    24→  CalendarCheck,
+    25→    25→  MessageCircle,
+    26→    26→  ListChecks,
+    27→    27→  UserCog,
+    28→    28→  LogOut,
+    29→    29→  Flame,
+    30→    30→  Settings,
+    31→    31→  CheckCircle2,
+    32→    32→  Clock,
+    33→    33→  Play,
+    34→    34→  Pause,
+    35→    35→  RotateCcw,
+    36→    36→  ChevronRight,
+    37→    37→  Trophy,
+    38→    38→  Star,
+    39→    39→  Target,
+    40→    40→  Zap,
+    41→    41→  TrendingUp,
+    42→    42→  GraduationCap,
+    43→    43→  AlertCircle,
+    44→    44→  Send,
+    45→    45→  Loader2,
+    46→    46→  X,
+    47→    47→  Menu,
+    48→    48→} from 'lucide-react'
+    49→    49→import { api } from '@/lib/api-client'
+    50→    50→import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
+    51→    51→
+    52→    52→// ─── Types ──────────────────────────────────────────────────────────────
+    53→    53→
+    54→    54→interface StudentPanelProps {
+    55→    55→  onLogout: () => void
+    56→    56→}
+    57→    57→
+    58→    58→type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'syllabus' | 'profile'
+    59→    59→
+    60→    60→interface Subject {
+    61→    61→  id: string
+    62→    62→  name: string
+    63→    63→  orderNum: number
+    64→    64→  chapters: Chapter[]
+    65→    65→}
+    66→    66→
+    67→    67→interface Chapter {
+    68→    68→  id: string
+    69→    69→  name: string
+    70→    70→  subjectId: string
+    71→    71→  orderNum?: number
+    72→    72→}
+    73→    73→
+    74→    74→interface DashboardData {
+    75→    75→  student: {
+    76→    76→    id: string
+    77→    77→    fullName: string
+    78→    78→    email: string
+    79→    79→    mobile: string
+    80→    80→    score: number
+    81→    81→    totalStudyMin: number
+    82→    82→    currentStreak: number
+    83→    83→    verified: boolean
+    84→    84→    course: { id: string; title: string; subjects: Subject[] }
+    85→    85→  }
+    86→    86→  subjects: Subject[]
+    87→    87→  totalSubjects: number
+    88→    88→  totalChapters: number
+    89→    89→  completedChapters: number
+    90→    90→  completionPercent: number
+    91→    91→  todayStudyMin: number
+    92→    92→  achievements: { achievement: { id: string; name: string; icon: string; threshold: number }; unlockedAt: string }[]
+    93→    93→}
+    94→    94→
+    95→    95→interface StudySession {
+    96→    96→  id: string
+    97→    97→  durationMin: number
+    98→    98→  completed: boolean
+    99→    99→  date: string
+   100→   100→  chapter?: { id: string; name: string; subject: { name: string } } | null
+   101→   101→}
+   102→   102→
+   103→   103→interface StudyPlan {
+   104→   104→  id: string
+   105→   105→  chapterId: string | null
+   106→   106→  notes: string | null
+   107→   107→  plannedDate: string
+   108→   108→  chapter?: { id: string; name: string; subject: { name: string } } | null
+   109→   109→}
+   110→   110→
+   111→   111→interface Discussion {
+   112→   112→  id: string
+   113→   113→  title: string
+   114→   114→  content: string
+   115→   115→  createdAt: string
+   116→   116→  replies: { id: string; content: string; createdAt: string; student?: { fullName: string } | null; adminReply?: boolean }[]
+   117→   117→}
+   118→   118→
+   119→   119→interface SyllabusSubject {
+   120→   120→  id: string
+   121→   121→  name: string
+   122→   122→  totalChapters: number
+   123→   123→  completedChapters: number
+   124→   124→  completionPercent: number
+   125→   125→  chapters: { id: string; name: string; completed: boolean; completedAt: string | null }[]
+   126→   126→}
+   127→   127→
+   128→   128→// ─── Fire Animation CSS ─────────────────────────────────────────────────
+   129→   129→
+   130→   130→const FIRE_ANIMATION_STYLE = `
+   131→   131→@keyframes firePulse {
+   132→   132→  0% { transform: scale(1); filter: brightness(1); }
+   133→   133→  25% { transform: scale(1.3); filter: brightness(1.5) drop-shadow(0 0 8px #f97316); }
+   134→   134→  50% { transform: scale(1.1); filter: brightness(1.8) drop-shadow(0 0 16px #ef4444); }
+   135→   135→  75% { transform: scale(1.25); filter: brightness(1.3) drop-shadow(0 0 12px #f59e0b); }
+   136→   136→  100% { transform: scale(1); filter: brightness(1); }
+   137→   137→}
+   138→   138→.fire-animate {
+   139→   139→  animation: firePulse 0.8s ease-in-out;
+   140→   140→}
+   141→   141→`
+   142→   142→
+   143→   143→// ─── Helper: format time ────────────────────────────────────────────────
+   144→   144→
+   145→   145→function formatTimer(seconds: number): string {
+   146→   146→  const h = Math.floor(seconds / 3600)
+   147→   147→  const m = Math.floor((seconds % 3600) / 60)
+   148→   148→  const s = seconds % 60
+   149→   149→  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   150→   150→  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+   151→   151→}
+   152→   152→
+   153→   153→function formatMinutes(min: number): string {
+   154→   154→  if (min < 60) return `${min}m`
+   155→   155→  const h = Math.floor(min / 60)
+   156→   156→  const m = min % 60
+   157→   157→  return m > 0 ? `${h}h ${m}m` : `${h}h`
+   158→   158→}
+   159→   159→
+   160→   160→function formatDate(date: Date): string {
+   161→   161→  return date.toISOString().split('T')[0]
+   162→   162→}
+   163→   163→
+   164→   164→// ─── Main Component ─────────────────────────────────────────────────────
+   165→   165→
+   166→   166→export default function StudentPanel({ onLogout }: StudentPanelProps) {
+   167→   167→  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+   168→   168→  const [sidebarOpen, setSidebarOpen] = useState(false)
+   169→   169→  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+   170→   170→  const [loading, setLoading] = useState(true)
+   171→   171→
+   172→   172→  // Fetch dashboard on mount
+   173→   173→  const fetchDashboard = useCallback(async () => {
+   174→   174→    try {
+   175→   175→      setLoading(true)
+   176→   176→      const data = await api.studentDashboard()
+   177→   177→      setDashboardData(data as DashboardData)
+   178→   178→    } catch (err) {
+   179→   179→      console.error('Dashboard fetch error:', err)
+   180→   180→    } finally {
+   181→   181→      setLoading(false)
+   182→   182→    }
+   183→   183→  }, [])
+   184→   184→
+   185→   185→  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+   186→   186→
+   187→   187→  const navItems = [
+   188→   188→    { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
+   189→   189→    { id: 'track' as Page, label: 'Track Study', icon: CalendarDays },
+   190→   190→    { id: 'planner' as Page, label: 'Study Planner', icon: CalendarCheck },
+   191→   191→    { id: 'discussion' as Page, label: 'Discussion', icon: MessageCircle },
+   192→   192→    { id: 'syllabus' as Page, label: 'Syllabus', icon: ListChecks },
+   193→   193→    { id: 'profile' as Page, label: 'Edit Profile', icon: UserCog },
+   194→   194→  ]
+   195→   195→
+   196→   196→  const handleNavClick = (page: Page) => {
+   197→   197→    setCurrentPage(page)
+   198→   198→    setSidebarOpen(false)
+   199→   199→  }
+   200→   200→
+   201→   201→  // ─── Sidebar ──────────────────────────────────────────────────────────
+   202→   202→
+   203→   203→  const SidebarContent = () => (
+   204→   204→    <div className="flex flex-col h-full">
+   205→   205→      {/* Logo */}
+   206→   206→      <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   207→   207→        <div className="flex items-center gap-3">
+   208→   208→          <div className="w-9 h-9 rounded-lg bg-slate-900 dark:bg-slate-100 flex items-center justify-center flex-shrink-0">
+   209→   209→            <GraduationCap className="w-5 h-5 text-white dark:text-slate-900" />
+   210→   210→          </div>
+   211→   211→          <div>
+   212→   212→            <h2 className="font-bold text-sm text-slate-900 dark:text-slate-100">MISSION CS</h2>
+   213→   213→            <p className="text-[10px] text-slate-500 dark:text-slate-400">TEST SERIES</p>
+   214→   214→          </div>
+   215→   215→        </div>
+   216→   216→      </div>
+   217→   217→
+   218→   218→      {/* Student Info */}
+   219→   219→      {dashboardData && (
+   220→   220→        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+   221→   221→          <div className="flex items-center gap-3">
+   222→   222→            <Avatar className="h-9 w-9">
+   223→   223→              <AvatarFallback className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold">
+   224→   224→                {dashboardData.student.fullName.charAt(0).toUpperCase()}
+   225→   225→              </AvatarFallback>
+   226→   226→            </Avatar>
+   227→   227→            <div className="min-w-0 flex-1">
+   228→   228→              <div className="flex items-center gap-1">
+   229→   229→                <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+   230→   230→                  {dashboardData.student.fullName}
+   231→   231→                </p>
+   232→   232→                {dashboardData.student.verified && (
+   233→   233→                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+   234→   234→                )}
+   235→   235→              </div>
+   236→   236→              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+   237→   237→                Score: {dashboardData.student.score}
+   238→   238→              </p>
+   239→   239→            </div>
+   240→   240→          </div>
+   241→   241→        </div>
+   242→   242→      )}
+   243→   243→
+   244→   244→      {/* Nav Items */}
+   245→   245→      <nav className="flex-1 p-3 space-y-1">
+   246→   246→        {navItems.map((item) => (
+   247→   247→          <button
+   248→   248→            key={item.id}
+   249→   249→            onClick={() => handleNavClick(item.id)}
+   250→   250→            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+   251→   251→              currentPage === item.id
+   252→   252→                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+   253→   253→                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+   254→   254→            }`}
+   255→   255→          >
+   256→   256→            <item.icon className="w-4 h-4 flex-shrink-0" />
+   257→   257→            {item.label}
+   258→   258→          </button>
+   259→   259→        ))}
+   260→   260→      </nav>
+   261→   261→
+   262→   262→      {/* Logout */}
+   263→   263→      <div className="p-3 border-t border-slate-200 dark:border-slate-800">
+   264→   264→        <button
+   265→   265→          onClick={onLogout}
+   266→   266→          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+   267→   267→        >
+   268→   268→          <LogOut className="w-4 h-4 flex-shrink-0" />
+   269→   269→          Logout
+   270→   270→        </button>
+   271→   271→      </div>
+   272→   272→    </div>
+   273→   273→  )
+   274→   274→
+   275→   275→  // ─── Render Page ──────────────────────────────────────────────────────
+   276→   276→
+   277→   277→  const renderPage = () => {
+   278→   278→    if (loading) return <LoadingSkeleton />
+   279→   279→
+   280→   280→    switch (currentPage) {
+   281→   281→      case 'dashboard': return <DashboardPage data={dashboardData} onRefresh={fetchDashboard} />
+   282→   282→      case 'track': return <TrackStudyPage subjects={dashboardData?.subjects || []} />
+   283→   283→      case 'planner': return <StudyPlannerPage subjects={dashboardData?.subjects || []} />
+   284→   284→      case 'discussion': return <DiscussionPage />
+   285→   285→      case 'syllabus': return <SyllabusPage />
+   286→   286→      case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />
+   287→   287→    }
+   288→   288→  }
+   289→   289→
+   290→   290→  return (
+   291→   291→    <>
+   292→   292→      <style>{FIRE_ANIMATION_STYLE}</style>
+   293→   293→      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+   294→   294→        {/* Desktop Sidebar */}
+   295→   295→        <aside className="hidden md:flex w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col fixed inset-y-0 z-40">
+   296→   296→          <SidebarContent />
+   297→   297→        </aside>
+   298→   298→
+   299→   299→        {/* Mobile Sidebar Overlay */}
+   300→   300→        {sidebarOpen && (
+   301→   301→          <div className="fixed inset-0 z-50 md:hidden">
+   302→   302→            <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
+   303→   303→            <aside className="absolute left-0 top-0 bottom-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
+   304→   304→              <SidebarContent />
+   305→   305→            </aside>
+   306→   306→          </div>
+   307→   307→        )}
+   308→   308→
+   309→   309→        {/* Main Content */}
+   310→   310→        <main className="flex-1 md:ml-64">
+   311→   311→          {/* Mobile Header */}
+   312→   312→          <div className="md:hidden sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
+   313→   313→            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+   314→   314→              <Menu className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+   315→   315→            </button>
+   316→   316→            <h1 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+   317→   317→              {navItems.find(n => n.id === currentPage)?.label || 'Dashboard'}
+   318→   318→            </h1>
+   319→   319→          </div>
+   320→   320→
+   321→   321→          <div className="p-4 md:p-6 max-w-5xl mx-auto">
+   322→   322→            {renderPage()}
+   323→   323→          </div>
+   324→   324→        </main>
+   325→   325→      </div>
+   326→   326→    </>
+   327→   327→  )
+   328→   328→}
+   329→   329→
+   330→   330→// ─── Loading Skeleton ────────────────────────────────────────────────────
+   331→   331→
+   332→   332→function LoadingSkeleton() {
+   333→   333→  return (
+   334→   334→    <div className="space-y-6">
+   335→   335→      <div className="grid gap-4 md:grid-cols-3">
+   336→   336→        {[1, 2, 3].map(i => (
+   337→   337→          <Skeleton key={i} className="h-32 rounded-xl" />
+   338→   338→        ))}
+   339→   339→      </div>
+   340→   340→      <Skeleton className="h-64 rounded-xl" />
+   341→   341→      <Skeleton className="h-48 rounded-xl" />
+   342→   342→    </div>
+   343→   343→  )
+   344→   344→}
+   345→   345→
+   346→   346→// ═══════════════════════════════════════════════════════════════════════
+   347→   347→// PAGE 1: DASHBOARD
+   348→   348→// ═══════════════════════════════════════════════════════════════════════
+   349→   349→
+   350→   350→function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+   351→   351→  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('')
+   352→   352→  const [selectedChapterId, setSelectedChapterId] = useState<string>('')
+   353→   353→  const [timerPreset, setTimerPreset] = useState<number>(0)
+   354→   354→  const [customMinutes, setCustomMinutes] = useState<string>('')
+   355→   355→  const [timerRunning, setTimerRunning] = useState(false)
+   356→   356→  const [timerPaused, setTimerPaused] = useState(false)
+   357→   357→  const [timerSeconds, setTimerSeconds] = useState(0)
+   358→   358→  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
+   359→   359→  const [timerCompleted, setTimerCompleted] = useState(false)
+   360→   360→  const [strikeAnimating, setStrikeAnimating] = useState(false)
+   361→   361→  const [strikeLoading, setStrikeLoading] = useState(false)
+   362→   362→  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+   363→   363→  const [resetLoading, setResetLoading] = useState(false)
+   364→   364→  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+   365→   365→  const [achievementsData, setAchievementsData] = useState<any>(null)
+   366→   366→
+   367→   367→  const student = data?.student
+   368→   368→  const subjects = data?.subjects || []
+   369→   369→  const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
+   370→   370→  const chapters = selectedSubject?.chapters || []
+   371→   371→
+   372→   372→  // Fetch achievements
+   373→   373→  useEffect(() => {
+   374→   374→    const fetchAchievements = async () => {
+   375→   375→      try {
+   376→   376→        const data = await api.studentAchievements()
+   377→   377→        setAchievementsData(data)
+   378→   378→      } catch (err) {
+   379→   379→        console.error('Achievements fetch error:', err)
+   380→   380→      }
+   381→   381→    }
+   382→   382→    fetchAchievements()
+   383→   383→  }, [data?.student?.score])
+   384→   384→
+   385→   385→  // Timer logic
+   386→   386→  useEffect(() => {
+   387→   387→    if (timerRunning && !timerPaused && timerSeconds > 0) {
+   388→   388→      timerInterval.current = setInterval(() => {
+   389→   389→        setTimerSeconds(prev => {
+   390→   390→          if (prev <= 1) {
+   391→   391→            setTimerRunning(false)
+   392→   392→            setTimerCompleted(true)
+   393→   393→            if (timerInterval.current) clearInterval(timerInterval.current)
+   394→   394→            return 0
+   395→   395→          }
+   396→   396→          return prev - 1
+   397→   397→        })
+   398→   398→      }, 1000)
+   399→   399→    }
+   400→   400→    return () => {
+   401→   401→      if (timerInterval.current) clearInterval(timerInterval.current)
+   402→   402→    }
+   403→   403→  }, [timerRunning, timerPaused, timerSeconds])
+   404→   404→
+   405→   405→  const startTimer = () => {
+   406→   406→    let minutes = timerPreset
+   407→   407→    if (timerPreset === -1) {
+   408→   408→      minutes = parseInt(customMinutes) || 0
+   409→   409→    }
+   410→   410→    if (minutes <= 0 || !selectedChapterId) return
+   411→   411→    setTimerTotalSeconds(minutes * 60)
+   412→   412→    setTimerSeconds(minutes * 60)
+   413→   413→    setTimerRunning(true)
+   414→   414→    setTimerPaused(false)
+   415→   415→    setTimerCompleted(false)
+   416→   416→  }
+   417→   417→
+   418→   418→  const pauseResumeTimer = () => setTimerPaused(prev => !prev)
+   419→   419→
+   420→   420→  const resetTimer = () => {
+   421→   421→    setTimerRunning(false)
+   422→   422→    setTimerPaused(false)
+   423→   423→    setTimerSeconds(0)
+   424→   424→    setTimerTotalSeconds(0)
+   425→   425→    setTimerCompleted(false)
+   426→   426→    if (timerInterval.current) clearInterval(timerInterval.current)
+   427→   427→  }
+   428→   428→
+   429→   429→  const chooseAnotherChapter = () => {
+   430→   430→    resetTimer()
+   431→   431→    setSelectedChapterId('')
+   432→   432→  }
+   433→   433→
+   434→   434→  const handleTimerComplete = async (completed: boolean) => {
+   435→   435→    const durationMin = Math.round(timerTotalSeconds / 60)
+   436→   436→    try {
+   437→   437→      await api.studentStartSession({
+   438→   438→        chapterId: selectedChapterId,
+   439→   439→        durationMin,
+   440→   440→        completed
+   441→   441→      })
+   442→   442→      if (completed) {
+   443→   443→        await api.studentMarkChapter(selectedChapterId, true)
+   444→   444→      }
+   445→   445→    } catch (err) {
+   446→   446→      console.error('Session save error:', err)
+   447→   447→    }
+   448→   448→    setTimerCompleted(false)
+   449→   449→    resetTimer()
+   450→   450→    onRefresh()
+   451→   451→  }
+   452→   452→
+   453→   453→  // Strike
+   454→   454→  const handleStrike = async () => {
+   455→   455→    setStrikeLoading(true)
+   456→   456→    setStrikeAnimating(true)
+   457→   457→    try {
+   458→   458→      await api.studentSendStrike()
+   459→   459→      setTimeout(() => setStrikeAnimating(false), 800)
+   460→   460→      onRefresh()
+   461→   461→    } catch (err: any) {
+   462→   462→      setStrikeAnimating(false)
+   463→   463→    } finally {
+   464→   464→      setStrikeLoading(false)
+   465→   465→    }
+   466→   466→  }
+   467→   467→
+   468→   468→  // Reset stats
+   469→   469→  const handleResetStats = async () => {
+   470→   470→    setResetLoading(true)
+   471→   471→    try {
+   472→   472→      await api.studentResetStats()
+   473→   473→      setResetDialogOpen(false)
+   474→   474→      onRefresh()
+   475→   475→    } catch (err) {
+   476→   476→      console.error('Reset error:', err)
+   477→   477→    } finally {
+   478→   478→      setResetLoading(false)
+   479→   479→    }
+   480→   480→  }
+   481→   481→
+   482→   482→  if (!data || !student) return <LoadingSkeleton />
+   483→   483→
+   484→   484→  const canStrike = !student.lastStrikeAt ||
+   485→   485→    new Date(student.lastStrikeAt).toDateString() !== new Date().toDateString()
+   486→   486→
+   487→   487→  const timerPresets = [
+   488→   488→    { label: '30m', value: 30 },
+   489→   489→    { label: '45m', value: 45 },
+   490→   490→    { label: '1h', value: 60 },
+   491→   491→    { label: '1.5h', value: 90 },
+   492→   492→    { label: '2h', value: 120 },
+   493→   493→  ]
+   494→   494→
+   495→   495→  const unlockedCount = achievementsData?.totalUnlocked || 0
+   496→   496→  const totalAchievements = achievementsData?.totalAchievements || 12
+   497→   497→
+   498→   498→  return (
+   499→   499→    <div className="space-y-6">
+   500→   500→      {/* Profile Card */}
+   501→   501→      <Card className="overflow-hidden">
+   502→   502→        <div className="bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-800 dark:to-slate-600 p-6">
+   503→   503→          <div className="flex items-start justify-between">
+   504→   504→            <div className="flex items-center gap-4">
+   505→   505→              <Avatar className="h-16 w-16 border-2 border-white/20">
+   506→   506→                <AvatarFallback className="bg-white/20 text-white text-xl font-bold">
+   507→   507→                  {student.fullName.charAt(0).toUpperCase()}
+   508→   508→                </AvatarFallback>
+   509→   509→              </Avatar>
+   510→   510→              <div>
+   511→   511→                <div className="flex items-center gap-2">
+   512→   512→                  <h2 className="text-xl font-bold text-white">{student.fullName}</h2>
+   513→   513→                  {student.verified && (
+   514→   514→                    <TooltipProvider>
+   515→   515→                      <Tooltip>
+   516→   516→                        <TooltipTrigger>
+   517→   517→                          <CheckCircle2 className="w-5 h-5 text-blue-400" />
+   518→   518→                        </TooltipTrigger>
+   519→   519→                        <TooltipContent>
+   520→   520→                          <p>Verified - 7 Day Streak! 🔥</p>
+   521→   521→                        </TooltipContent>
+   522→   522→                      </Tooltip>
+   523→   523→                    </TooltipProvider>
+   524→   524→                  )}
+   525→   525→                </div>
+   526→   526→                <p className="text-slate-300 text-sm">{student.course.title}</p>
+   527→   527→                <div className="flex items-center gap-4 mt-2">
+   528→   528→                  <div className="flex items-center gap-1.5">
+   529→   529→                    <Trophy className="w-4 h-4 text-amber-400" />
+   530→   530→                    <span className="text-white font-semibold">{student.score}</span>
+   531→   531→                    <span className="text-slate-400 text-xs">points</span>
+   532→   532→                  </div>
+   533→   533→                  <div className="flex items-center gap-1.5">
+   534→   534→                    <Flame className="w-4 h-4 text-orange-400" />
+   535→   535→                    <span className="text-white font-semibold">{student.currentStreak}</span>
+   536→   536→                    <span className="text-slate-400 text-xs">day streak</span>
+   537→   537→                  </div>
+   538→   538→                </div>
+   539→   539→              </div>
+   540→   540→            </div>
+   541→   541→            <div className="flex items-center gap-2">
+   542→   542→              {/* Strike Button */}
+   543→   543→              <TooltipProvider>
+   544→   544→                <Tooltip>
+   545→   545→                  <TooltipTrigger asChild>
+   546→   546→                    <Button
+   547→   547→                      size="icon"
+   548→   548→                      variant="ghost"
+   549→   549→                      className={`h-10 w-10 text-orange-400 hover:text-orange-300 hover:bg-white/10 ${strikeAnimating ? 'fire-animate' : ''}`}
+   550→   550→                      onClick={handleStrike}
+   551→   551→                      disabled={!canStrike || strikeLoading}
+   552→   552→                    >
+   553→   553→                      <Flame className="w-6 h-6" />
+   554→   554→                    </Button>
+   555→   555→                  </TooltipTrigger>
+   556→   556→                  <TooltipContent>
+   557→   557→                    {canStrike ? 'Send Strike! (+10 pts)' : 'Already struck today'}
+   558→   558→                  </TooltipContent>
+   559→   559→                </Tooltip>
+   560→   560→              </TooltipProvider>
+   561→   561→
+   562→   562→              {/* Settings - Reset */}
+   563→   563→              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+   564→   564→                <DialogTrigger asChild>
+   565→   565→                  <Button size="icon" variant="ghost" className="h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10">
+   566→   566→                    <Settings className="w-5 h-5" />
+   567→   567→                  </Button>
+   568→   568→                </DialogTrigger>
+   569→   569→                <DialogContent>
+   570→   570→                  <DialogHeader>
+   571→   571→                    <DialogTitle>Reset All Stats?</DialogTitle>
+   572→   572→                    <DialogDescription>
+   573→   573→                      This will permanently delete all your study sessions, plans, chapter completions, and achievements. Your score and streak will be reset to zero. This action cannot be undone.
+   574→   574→                    </DialogDescription>
+   575→   575→                  </DialogHeader>
+   576→   576→                  <DialogFooter>
+   577→   577→                    <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+   578→   578→                    <Button variant="destructive" onClick={handleResetStats} disabled={resetLoading}>
+   579→   579→                      {resetLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+   580→   580→                      Reset Stats
+   581→   581→                    </Button>
+   582→   582→                  </DialogFooter>
+   583→   583→                </DialogContent>
+   584→   584→              </Dialog>
+   585→   585→            </div>
+   586→   586→          </div>
+   587→   587→        </div>
+   588→   588→      </Card>
+   589→   589→
+   590→   590→      {/* Study Session Area */}
+   591→   591→      <Card>
+   592→   592→        <CardHeader className="pb-3">
+   593→   593→          <CardTitle className="text-lg flex items-center gap-2">
+   594→   594→            <BookOpen className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+   595→   595→            Study Session
+   596→   596→          </CardTitle>
+   597→   597→          <CardDescription>Which chapter do you want to study today?</CardDescription>
+   598→   598→        </CardHeader>
+   599→   599→        <CardContent className="space-y-4">
+   600→   600→          {!timerRunning && !timerCompleted ? (
+   601→   601→            <>
+   602→   602→              {/* Subject Select */}
+   603→   603→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   604→   604→                <div className="space-y-1.5">
+   605→   605→                  <Label className="text-xs font-medium text-slate-500">Subject</Label>
+   606→   606→                  <Select value={selectedSubjectId} onValueChange={(v) => { setSelectedSubjectId(v); setSelectedChapterId('') }}>
+   607→   607→                    <SelectTrigger>
+   608→   608→                      <SelectValue placeholder="Choose subject" />
+   609→   609→                    </SelectTrigger>
+   610→   610→                    <SelectContent>
+   611→   611→                      {subjects.map(s => (
+   612→   612→                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+   613→   613→                      ))}
+   614→   614→                    </SelectContent>
+   615→   615→                  </Select>
+   616→   616→                </div>
+   617→   617→                <div className="space-y-1.5">
+   618→   618→                  <Label className="text-xs font-medium text-slate-500">Chapter</Label>
+   619→   619→                  <Select value={selectedChapterId} onValueChange={setSelectedChapterId} disabled={!selectedSubjectId}>
+   620→   620→                    <SelectTrigger>
+   621→   621→                      <SelectValue placeholder="Choose chapter" />
+   622→   622→                    </SelectTrigger>
+   623→   623→                    <SelectContent>
+   624→   624→                      {chapters.map(c => (
+   625→   625→                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+   626→   626→                      ))}
+   627→   627→                    </SelectContent>
+   628→   628→                  </Select>
+   629→   629→                </div>
+   630→   630→              </div>
+   631→   631→
+   632→   632→              {/* Timer Presets */}
+   633→   633→              <div className="space-y-2">
+   634→   634→                <Label className="text-xs font-medium text-slate-500">Study Duration</Label>
+   635→   635→                <div className="flex flex-wrap gap-2">
+   636→   636→                  {timerPresets.map(p => (
+   637→   637→                    <Button
+   638→   638→                      key={p.value}
+   639→   639→                      variant={timerPreset === p.value ? 'default' : 'outline'}
+   640→   640→                      size="sm"
+   641→   641→                      className={timerPreset === p.value ? 'bg-slate-900 dark:bg-slate-100 dark:text-slate-900' : ''}
+   642→   642→                      onClick={() => { setTimerPreset(p.value); setCustomMinutes('') }}
+   643→   643→                    >
+   644→   644→                      {p.label}
+   645→   645→                    </Button>
+   646→   646→                  ))}
+   647→   647→                  <div className="flex items-center gap-1.5">
+   648→   648→                    <Input
+   649→   649→                      type="number"
+   650→   650→                      placeholder="Custom (min)"
+   651→   651→                      className="w-28 h-8 text-sm"
+   652→   652→                      value={customMinutes}
+   653→   653→                      onChange={(e) => { setCustomMinutes(e.target.value); setTimerPreset(-1) }}
+   654→   654→                      min={1}
+   655→   655→                    />
+   656→   656→                    <span className="text-xs text-slate-400">min</span>
+   657→   657→                  </div>
+   658→   658→                </div>
+   659→   659→              </div>
+   660→   660→
+   661→   661→              <Button
+   662→   662→                onClick={startTimer}
+   663→   663→                disabled={!selectedChapterId || (timerPreset === 0 && !customMinutes) || timerPreset === -1 && !customMinutes}
+   664→   664→                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+   665→   665→              >
+   666→   666→                <Play className="w-4 h-4 mr-2" />
+   667→   667→                Start Session
+   668→   668→              </Button>
+   669→   669→            </>
+   670→   670→          ) : timerCompleted ? (
+   671→   671→            /* Completion Prompt */
+   672→   672→            <div className="text-center py-6 space-y-4">
+   673→   673→              <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+   674→   674→                <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   675→   675→              </div>
+   676→   676→              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+   677→   677→                Session Complete! 🎉
+   678→   678→              </h3>
+   679→   679→              <p className="text-slate-500 dark:text-slate-400">
+   680→   680→                Have you completed this chapter?
+   681→   681→              </p>
+   682→   682→              <div className="flex items-center justify-center gap-3">
+   683→   683→                <Button
+   684→   684→                  onClick={() => handleTimerComplete(true)}
+   685→   685→                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+   686→   686→                >
+   687→   687→                  <CheckCircle2 className="w-4 h-4 mr-2" />
+   688→   688→                  Yes, Done!
+   689→   689→                </Button>
+   690→   690→                <Button variant="outline" onClick={() => handleTimerComplete(false)}>
+   691→   691→                  Not Yet
+   692→   692→                </Button>
+   693→   693→              </div>
+   694→   694→            </div>
+   695→   695→          ) : (
+   696→   696→            /* Timer Running */
+   697→   697→            <div className="text-center py-8 space-y-6">
+   698→   698→              <div>
+   699→   699→                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Studying</p>
+   700→   700→                <p className="font-medium text-slate-900 dark:text-slate-100">
+   701→   701→                  {chapters.find(c => c.id === selectedChapterId)?.name}
+   702→   702→                </p>
+   703→   703→              </div>
+   704→   704→              {/* Big Timer Display */}
+   705→   705→              <div className="relative inline-flex items-center justify-center">
+   706→   706→                <div className="absolute inset-0 rounded-full bg-slate-900/5 dark:bg-slate-100/5 scale-125" />
+   707→   707→                <div className="relative w-48 h-48 rounded-full border-4 border-slate-200 dark:border-slate-700 flex items-center justify-center">
+   708→   708→                  <span className="text-5xl font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+   709→   709→                    {formatTimer(timerSeconds)}
+   710→   710→                  </span>
+   711→   711→                </div>
+   712→   712→              </div>
+   713→   713→              {/* Progress bar */}
+   714→   714→              <div className="max-w-xs mx-auto">
+   715→   715→                <Progress
+   716→   716→                  value={timerTotalSeconds > 0 ? ((timerTotalSeconds - timerSeconds) / timerTotalSeconds) * 100 : 0}
+   717→   717→                  className="h-2"
+   718→   718→                />
+   719→   719→              </div>
+   720→   720→              {/* Controls */}
+   721→   721→              <div className="flex items-center justify-center gap-3">
+   722→   722→                <Button
+   723→   723→                  variant="outline"
+   724→   724→                  size="icon"
+   725→   725→                  onClick={pauseResumeTimer}
+   726→   726→                  className="h-12 w-12"
+   727→   727→                >
+   728→   728→                  {timerPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+   729→   729→                </Button>
+   730→   730→                <Button
+   731→   731→                  variant="outline"
+   732→   732→                  size="icon"
+   733→   733→                  onClick={resetTimer}
+   734→   734→                  className="h-12 w-12"
+   735→   735→                >
+   736→   736→                  <RotateCcw className="w-5 h-5" />
+   737→   737→                </Button>
+   738→   738→                <Button
+   739→   739→                  variant="ghost"
+   740→   740→                  onClick={chooseAnotherChapter}
+   741→   741→                  className="text-sm text-slate-500"
+   742→   742→                >
+   743→   743→                  Choose Another
+   744→   744→                </Button>
+   745→   745→              </div>
+   746→   746→            </div>
+   747→   747→          )}
+   748→   748→        </CardContent>
+   749→   749→      </Card>
+   750→   750→
+   751→   751→      {/* Quick Stats */}
+   752→   752→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   753→   753→        <Card>
+   754→   754→          <CardContent className="pt-4 pb-4">
+   755→   755→            <div className="flex items-center gap-3">
+   756→   756→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   757→   757→                <BookOpen className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   758→   758→              </div>
+   759→   759→              <div>
+   760→   760→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalSubjects}</p>
+   761→   761→                <p className="text-xs text-slate-500">Subjects</p>
+   762→   762→              </div>
+   763→   763→            </div>
+   764→   764→          </CardContent>
+   765→   765→        </Card>
+   766→   766→        <Card>
+   767→   767→          <CardContent className="pt-4 pb-4">
+   768→   768→            <div className="flex items-center gap-3">
+   769→   769→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   770→   770→                <ListChecks className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   771→   771→              </div>
+   772→   772→              <div>
+   773→   773→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.totalChapters}</p>
+   774→   774→                <p className="text-xs text-slate-500">Total Chapters</p>
+   775→   775→              </div>
+   776→   776→            </div>
+   777→   777→          </CardContent>
+   778→   778→        </Card>
+   779→   779→        <Card>
+   780→   780→          <CardContent className="pt-4 pb-4">
+   781→   781→            <div className="flex items-center gap-3">
+   782→   782→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   783→   783→                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+   784→   784→              </div>
+   785→   785→              <div>
+   786→   786→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{data.completedChapters}</p>
+   787→   787→                <p className="text-xs text-slate-500">Completed</p>
+   788→   788→              </div>
+   789→   789→            </div>
+   790→   790→          </CardContent>
+   791→   791→        </Card>
+   792→   792→        <Card>
+   793→   793→          <CardContent className="pt-4 pb-4">
+   794→   794→            <div className="flex items-center gap-3">
+   795→   795→              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+   796→   796→                <Clock className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   797→   797→              </div>
+   798→   798→              <div>
+   799→   799→                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatMinutes(data.todayStudyMin)}</p>
+   800→   800→                <p className="text-xs text-slate-500">Today</p>
+   801→   801→              </div>
+   802→   802→            </div>
+   803→   803→          </CardContent>
+   804→   804→        </Card>
+   805→   805→      </div>
+   806→   806→
+   807→   807→      {/* Achievements */}
+   808→   808→      <Card>
+   809→   809→        <CardHeader className="pb-3">
+   810→   810→          <div className="flex items-center justify-between">
+   811→   811→            <CardTitle className="text-lg flex items-center gap-2">
+   812→   812→              <Trophy className="w-5 h-5 text-amber-500" />
+   813→   813→              Achievements
+   814→   814→            </CardTitle>
+   815→   815→            <Badge variant="secondary">{unlockedCount}/{totalAchievements} Verified</Badge>
+   816→   816→          </div>
+   817→   817→        </CardHeader>
+   818→   818→        <CardContent>
+   819→   819→          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+   820→   820→            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+   821→   821→              <TooltipProvider key={a.id}>
+   822→   822→                <Tooltip>
+   823→   823→                  <TooltipTrigger asChild>
+   824→   824→                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+   825→   825→                      a.unlocked
+   826→   826→                        ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+   827→   827→                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-50'
+   828→   828→                    }`}>
+   829→   829→                      <span className="text-2xl">{a.icon || a.icon}</span>
+   830→   830→                      <span className="text-[10px] font-medium text-center leading-tight text-slate-700 dark:text-slate-300">
+   831→   831→                        {a.name}
+   832→   832→                      </span>
+   833→   833→                    </div>
+   834→   834→                  </TooltipTrigger>
+   835→   835→                  <TooltipContent>
+   836→   836→                    <p className="font-semibold">{a.name}</p>
+   837→   837→                    <p className="text-xs">{a.description}</p>
+   838→   838→                    <p className="text-xs text-slate-400">{a.threshold} points needed</p>
+   839→   839→                  </TooltipContent>
+   840→   840→                </Tooltip>
+   841→   841→              </TooltipProvider>
+   842→   842→            ))}
+   843→   843→          </div>
+   844→   844→        </CardContent>
+   845→   845→      </Card>
+   846→   846→    </div>
+   847→   847→  )
+   848→   848→}
+   849→   849→
+   850→   850→// ═══════════════════════════════════════════════════════════════════════
+   851→   851→// PAGE 2: TRACK STUDY
+   852→   852→// ═══════════════════════════════════════════════════════════════════════
+   853→   853→
+   854→   854→function TrackStudyPage({ subjects }: { subjects: Subject[] }) {
+   855→   855→  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+   856→   856→  const [sessions, setSessions] = useState<StudySession[]>([])
+   857→   857→  const [totalMin, setTotalMin] = useState(0)
+   858→   858→  const [chartData, setChartData] = useState<{ date: string; minutes: number }[]>([])
+   859→   859→  const [loading, setLoading] = useState(true)
+   860→   860→
+   861→   861→  // Fetch chart data (all sessions last 30 days)
+   862→   862→  useEffect(() => {
+   863→   863→    const fetchChart = async () => {
+   864→   864→      try {
+   865→   865→        const data = await api.studentStudyHistory()
+   866→   866→        const sessions = data.sessions || []
+   867→   867→        // Aggregate by date
+   868→   868→        const dateMap: Record<string, number> = {}
+   869→   869→        sessions.forEach((s: any) => {
+   870→   870→          const dateKey = new Date(s.date).toISOString().split('T')[0]
+   871→   871→          dateMap[dateKey] = (dateMap[dateKey] || 0) + s.durationMin
+   872→   872→        })
+   873→   873→        // Build last 14 days
+   874→   874→        const chart: { date: string; minutes: number }[] = []
+   875→   875→        for (let i = 13; i >= 0; i--) {
+   876→   876→          const d = new Date()
+   877→   877→          d.setDate(d.getDate() - i)
+   878→   878→          const key = formatDate(d)
+   879→   879→          chart.push({ date: key, minutes: dateMap[key] || 0 })
+   880→   880→        }
+   881→   881→        setChartData(chart)
+   882→   882→      } catch (err) {
+   883→   883→        console.error('Chart data error:', err)
+   884→   884→      }
+   885→   885→    }
+   886→   886→    fetchChart()
+   887→   887→  }, [])
+   888→   888→
+   889→   889→  // Fetch date-specific sessions
+   890→   890→  useEffect(() => {
+   891→   891→    const fetchSessions = async () => {
+   892→   892→      setLoading(true)
+   893→   893→      try {
+   894→   894→        const dateStr = formatDate(selectedDate)
+   895→   895→        const data = await api.studentStudyHistory(dateStr)
+   896→   896→        setSessions(data.sessions || [])
+   897→   897→        setTotalMin(data.totalMin || 0)
+   898→   898→      } catch (err) {
+   899→   899→        console.error('Sessions fetch error:', err)
+   900→   900→      } finally {
+   901→   901→        setLoading(false)
+   902→   902→      }
+   903→   903→    }
+   904→   904→    fetchSessions()
+   905→   905→  }, [selectedDate])
+   906→   906→
+   907→   907→  const maxChartMinutes = Math.max(...chartData.map(d => d.minutes), 1)
+   908→   908→
+   909→   909→  return (
+   910→   910→    <div className="space-y-6">
+   911→   911→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+   912→   912→        <CalendarDays className="w-5 h-5" />
+   913→   913→        Track Study
+   914→   914→      </h2>
+   915→   915→
+   916→   916→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+   917→   917→        {/* Calendar */}
+   918→   918→        <Card>
+   919→   919→          <CardContent className="pt-4 flex justify-center">
+   920→   920→            <Calendar
+   921→   921→              mode="single"
+   922→   922→              selected={selectedDate}
+   923→   923→              onSelect={(d) => d && setSelectedDate(d)}
+   924→   924→              className="rounded-md"
+   925→   925→            />
+   926→   926→          </CardContent>
+   927→   927→        </Card>
+   928→   928→
+   929→   929→        {/* Day Details */}
+   930→   930→        <Card>
+   931→   931→          <CardHeader className="pb-3">
+   932→   932→            <div className="flex items-center justify-between">
+   933→   933→              <CardTitle className="text-base">
+   934→   934→                {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+   935→   935→              </CardTitle>
+   936→   936→              <Badge variant="secondary">{formatMinutes(totalMin)} studied</Badge>
+   937→   937→            </div>
+   938→   938→          </CardHeader>
+   939→   939→          <CardContent>
+   940→   940→            {loading ? (
+   941→   941→              <div className="space-y-2">
+   942→   942→                {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}
+   943→   943→              </div>
+   944→   944→            ) : sessions.length === 0 ? (
+   945→   945→              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
+   946→   946→                No study sessions on this day
+   947→   947→              </p>
+   948→   948→            ) : (
+   949→   949→              <ScrollArea className="max-h-64">
+   950→   950→                <div className="space-y-2">
+   951→   951→                  {sessions.map(s => (
+   952→   952→                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+   953→   953→                      <div className="flex items-center gap-3">
+   954→   954→                        <div className={`p-1.5 rounded-lg ${s.completed ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-200 dark:bg-slate-800'}`}>
+   955→   955→                          {s.completed ? (
+   956→   956→                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+   957→   957→                          ) : (
+   958→   958→                            <Clock className="w-4 h-4 text-slate-500" />
+   959→   959→                          )}
+   960→   960→                        </div>
+   961→   961→                        <div>
+   962→   962→                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+   963→   963→                            {s.chapter?.name || 'General Study'}
+   964→   964→                          </p>
+   965→   965→                          <p className="text-xs text-slate-500">{s.chapter?.subject?.name || ''}</p>
+   966→   966→                        </div>
+   967→   967→                      </div>
+   968→   968→                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+   969→   969→                        {formatMinutes(s.durationMin)}
+   970→   970→                      </span>
+   971→   971→                    </div>
+   972→   972→                  ))}
+   973→   973→                </div>
+   974→   974→              </ScrollArea>
+   975→   975→            )}
+   976→   976→          </CardContent>
+   977→   977→        </Card>
+   978→   978→      </div>
+   979→   979→
+   980→   980→      {/* Study Hours Chart */}
+   981→   981→      <Card>
+   982→   982→        <CardHeader className="pb-3">
+   983→   983→          <CardTitle className="text-base flex items-center gap-2">
+   984→   984→            <TrendingUp className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+   985→   985→            Last 14 Days
+   986→   986→          </CardTitle>
+   987→   987→        </CardHeader>
+   988→   988→        <CardContent>
+   989→   989→          <div className="flex items-end gap-1 h-40">
+   990→   990→            {chartData.map((d, i) => {
+   991→   991→              const height = d.minutes > 0 ? Math.max((d.minutes / maxChartMinutes) * 100, 4) : 2
+   992→   992→              const isToday = d.date === formatDate(new Date())
+   993→   993→              return (
+   994→   994→                <TooltipProvider key={i}>
+   995→   995→                  <Tooltip>
+   996→   996→                    <TooltipTrigger asChild>
+   997→   997→                      <div className="flex-1 flex flex-col items-center gap-1">
+   998→   998→                        <div
+   999→   999→                          className={`w-full rounded-t-sm transition-all ${
+  1000→  1000→                            isToday
+  1001→  1001→                              ? 'bg-slate-900 dark:bg-slate-100'
+  1002→  1002→                              : d.minutes > 0
+  1003→  1003→                                ? 'bg-slate-400 dark:bg-slate-600'
+  1004→  1004→                                : 'bg-slate-200 dark:bg-slate-800'
+  1005→  1005→                          }`}
+  1006→  1006→                          style={{ height: `${height}%` }}
+  1007→  1007→                        />
+  1008→  1008→                        <span className="text-[9px] text-slate-400">
+  1009→  1009→                          {new Date(d.date + 'T00:00:00').getDate()}
+  1010→  1010→                        </span>
+  1011→  1011→                      </div>
+  1012→  1012→                    </TooltipTrigger>
+  1013→  1013→                    <TooltipContent>
+  1014→  1014→                      <p>{formatMinutes(d.minutes)} studied</p>
+  1015→  1015→                      <p className="text-xs text-slate-400">{d.date}</p>
+  1016→  1016→                    </TooltipContent>
+  1017→  1017→                  </Tooltip>
+  1018→  1018→                </TooltipProvider>
+  1019→  1019→              )
+  1020→  1020→            })}
+  1021→  1021→          </div>
+  1022→  1022→        </CardContent>
+  1023→  1023→      </Card>
+  1024→  1024→    </div>
+  1025→  1025→  )
+  1026→  1026→}
+  1027→  1027→
+  1028→  1028→// ═══════════════════════════════════════════════════════════════════════
+  1029→  1029→// PAGE 3: STUDY PLANNER
+  1030→  1030→// ═══════════════════════════════════════════════════════════════════════
+  1031→  1031→
+  1032→  1032→function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
+  1033→  1033→  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  1034→  1034→  const [plans, setPlans] = useState<StudyPlan[]>([])
+  1035→  1035→  const [loading, setLoading] = useState(true)
+  1036→  1036→  const [showForm, setShowForm] = useState(false)
+  1037→  1037→  const [formSubjectId, setFormSubjectId] = useState('')
+  1038→  1038→  const [formChapterId, setFormChapterId] = useState('')
+  1039→  1039→  const [formNotes, setFormNotes] = useState('')
+  1040→  1040→  const [formLoading, setFormLoading] = useState(false)
+  1041→  1041→  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  1042→  1042→
+  1043→  1043→  const selectedSubject = subjects.find(s => s.id === formSubjectId)
+  1044→  1044→  const chapters = selectedSubject?.chapters || []
+  1045→  1045→
+  1046→  1046→  const fetchPlans = useCallback(async () => {
+  1047→  1047→    if (!selectedDate) return
+  1048→  1048→    setLoading(true)
+  1049→  1049→    try {
+  1050→  1050→      const dateStr = formatDate(selectedDate)
+  1051→  1051→      const data = await api.studentStudyPlans(dateStr)
+  1052→  1052→      setPlans(data.plans || [])
+  1053→  1053→    } catch (err) {
+  1054→  1054→      console.error('Plans fetch error:', err)
+  1055→  1055→    } finally {
+  1056→  1056→      setLoading(false)
+  1057→  1057→    }
+  1058→  1058→  }, [selectedDate])
+  1059→  1059→
+  1060→  1060→  useEffect(() => { fetchPlans() }, [fetchPlans])
+  1061→  1061→
+  1062→  1062→  const handleSavePlan = async () => {
+  1063→  1063→    if (!formChapterId || !selectedDate) return
+  1064→  1064→    setFormLoading(true)
+  1065→  1065→    try {
+  1066→  1066→      if (editingPlanId) {
+  1067→  1067→        await api.studentUpdatePlan(editingPlanId, {
+  1068→  1068→          chapterId: formChapterId,
+  1069→  1069→          notes: formNotes,
+  1070→  1070→          plannedDate: formatDate(selectedDate)
+  1071→  1071→        })
+  1072→  1072→      } else {
+  1073→  1073→        await api.studentCreatePlan({
+  1074→  1074→          chapterId: formChapterId,
+  1075→  1075→          notes: formNotes,
+  1076→  1076→          plannedDate: formatDate(selectedDate)
+  1077→  1077→        })
+  1078→  1078→      }
+  1079→  1079→      setShowForm(false)
+  1080→  1080→      setFormSubjectId('')
+  1081→  1081→      setFormChapterId('')
+  1082→  1082→      setFormNotes('')
+  1083→  1083→      setEditingPlanId(null)
+  1084→  1084→      fetchPlans()
+  1085→  1085→    } catch (err) {
+  1086→  1086→      console.error('Plan save error:', err)
+  1087→  1087→    } finally {
+  1088→  1088→      setFormLoading(false)
+  1089→  1089→    }
+  1090→  1090→  }
+  1091→  1091→
+  1092→  1092→  const handleEdit = (plan: StudyPlan) => {
+  1093→  1093→    setEditingPlanId(plan.id)
+  1094→  1094→    const subject = subjects.find(s => s.chapters.some(c => c.id === plan.chapterId))
+  1095→  1095→    if (subject) setFormSubjectId(subject.id)
+  1096→  1096→    setFormChapterId(plan.chapterId || '')
+  1097→  1097→    setFormNotes(plan.notes || '')
+  1098→  1098→    setShowForm(true)
+  1099→  1099→  }
+  1100→  1100→
+  1101→  1101→  const handleCancelForm = () => {
+  1102→  1102→    setShowForm(false)
+  1103→  1103→    setFormSubjectId('')
+  1104→  1104→    setFormChapterId('')
+  1105→  1105→    setFormNotes('')
+  1106→  1106→    setEditingPlanId(null)
+  1107→  1107→  }
+  1108→  1108→
+  1109→  1109→  // Only allow selecting today and future dates
+  1110→  1110→  const disabledDays = { before: new Date() }
+  1111→  1111→
+  1112→  1112→  return (
+  1113→  1113→    <div className="space-y-6">
+  1114→  1114→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1115→  1115→        <CalendarCheck className="w-5 h-5" />
+  1116→  1116→        Study Planner
+  1117→  1117→      </h2>
+  1118→  1118→
+  1119→  1119→      <div className="grid md:grid-cols-[auto_1fr] gap-6">
+  1120→  1120→        <Card>
+  1121→  1121→          <CardContent className="pt-4 flex justify-center">
+  1122→  1122→            <Calendar
+  1123→  1123→              mode="single"
+  1124→  1124→              selected={selectedDate}
+  1125→  1125→              onSelect={setSelectedDate}
+  1126→  1126→              disabled={disabledDays}
+  1127→  1127→              className="rounded-md"
+  1128→  1128→            />
+  1129→  1129→          </CardContent>
+  1130→  1130→        </Card>
+  1131→  1131→
+  1132→  1132→        <div className="space-y-4">
+  1133→  1133→          {/* Plans for selected date */}
+  1134→  1134→          <Card>
+  1135→  1135→            <CardHeader className="pb-3">
+  1136→  1136→              <div className="flex items-center justify-between">
+  1137→  1137→                <CardTitle className="text-base">
+  1138→  1138→                  {selectedDate
+  1139→  1139→                    ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  1140→  1140→                    : 'Select a date'}
+  1141→  1141→                </CardTitle>
+  1142→  1142→                <Button
+  1143→  1143→                  size="sm"
+  1144→  1144→                  onClick={() => { setShowForm(true); setEditingPlanId(null) }}
+  1145→  1145→                  disabled={!selectedDate}
+  1146→  1146→                  className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1147→  1147→                >
+  1148→  1148→                  <Plus className="w-3.5 h-3.5 mr-1" />
+  1149→  1149→                  Add Plan
+  1150→  1150→                </Button>
+  1151→  1151→              </div>
+  1152→  1152→            </CardHeader>
+  1153→  1153→            <CardContent>
+  1154→  1154→              {loading ? (
+  1155→  1155→                <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
+  1156→  1156→              ) : plans.length === 0 ? (
+  1157→  1157→                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-6">
+  1158→  1158→                  No plans for this date
+  1159→  1159→                </p>
+  1160→  1160→              ) : (
+  1161→  1161→                <div className="space-y-2">
+  1162→  1162→                  {plans.map(plan => (
+  1163→  1163→                    <div key={plan.id} className="flex items-start justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+  1164→  1164→                      <div>
+  1165→  1165→                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+  1166→  1166→                          {plan.chapter?.name || 'General'}
+  1167→  1167→                        </p>
+  1168→  1168→                        <p className="text-xs text-slate-500">{plan.chapter?.subject?.name || ''}</p>
+  1169→  1169→                        {plan.notes && (
+  1170→  1170→                          <p className="text-xs text-slate-500 mt-1">{plan.notes}</p>
+  1171→  1171→                        )}
+  1172→  1172→                      </div>
+  1173→  1173→                      <Button size="sm" variant="ghost" onClick={() => handleEdit(plan)}>
+  1174→  1174→                        Edit
+  1175→  1175→                      </Button>
+  1176→  1176→                    </div>
+  1177→  1177→                  ))}
+  1178→  1178→                </div>
+  1179→  1179→              )}
+  1180→  1180→            </CardContent>
+  1181→  1181→          </Card>
+  1182→  1182→
+  1183→  1183→          {/* Add/Edit Form */}
+  1184→  1184→          {showForm && selectedDate && (
+  1185→  1185→            <Card>
+  1186→  1186→              <CardHeader className="pb-3">
+  1187→  1187→                <CardTitle className="text-base">
+  1188→  1188→                  {editingPlanId ? 'Edit Plan' : 'New Plan'}
+  1189→  1189→                </CardTitle>
+  1190→  1190→              </CardHeader>
+  1191→  1191→              <CardContent className="space-y-3">
+  1192→  1192→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1193→  1193→                  <div className="space-y-1.5">
+  1194→  1194→                    <Label className="text-xs">Subject</Label>
+  1195→  1195→                    <Select value={formSubjectId} onValueChange={(v) => { setFormSubjectId(v); setFormChapterId('') }}>
+  1196→  1196→                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1197→  1197→                      <SelectContent>
+  1198→  1198→                        {subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+  1199→  1199→                      </SelectContent>
+  1200→  1200→                    </Select>
+  1201→  1201→                  </div>
+  1202→  1202→                  <div className="space-y-1.5">
+  1203→  1203→                    <Label className="text-xs">Chapter</Label>
+  1204→  1204→                    <Select value={formChapterId} onValueChange={setFormChapterId} disabled={!formSubjectId}>
+  1205→  1205→                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1206→  1206→                      <SelectContent>
+  1207→  1207→                        {chapters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+  1208→  1208→                      </SelectContent>
+  1209→  1209→                    </Select>
+  1210→  1210→                  </div>
+  1211→  1211→                </div>
+  1212→  1212→                <div className="space-y-1.5">
+  1213→  1213→                  <Label className="text-xs">Notes</Label>
+  1214→  1214→                  <Textarea
+  1215→  1215→                    placeholder="Add study notes..."
+  1216→  1216→                    value={formNotes}
+  1217→  1217→                    onChange={(e) => setFormNotes(e.target.value)}
+  1218→  1218→                    rows={3}
+  1219→  1219→                  />
+  1220→  1220→                </div>
+  1221→  1221→                <div className="flex gap-2">
+  1222→  1222→                  <Button
+  1223→  1223→                    onClick={handleSavePlan}
+  1224→  1224→                    disabled={!formChapterId || formLoading}
+  1225→  1225→                    className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1226→  1226→                  >
+  1227→  1227→                    {formLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+  1228→  1228→                    Save
+  1229→  1229→                  </Button>
+  1230→  1230→                  <Button variant="outline" onClick={handleCancelForm}>Cancel</Button>
+  1231→  1231→                </div>
+  1232→  1232→              </CardContent>
+  1233→  1233→            </Card>
+  1234→  1234→          )}
+  1235→  1235→        </div>
+  1236→  1236→      </div>
+  1237→  1237→    </div>
+  1238→  1238→  )
+  1239→  1239→}
+  1240→  1240→
+  1241→  1241→function Plus({ className }: { className?: string }) {
+  1242→  1242→  return (
+  1243→  1243→    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+  1244→  1244→      <path d="M5 12h14" /><path d="M12 5v14" />
+  1245→  1245→    </svg>
+  1246→  1246→  )
+  1247→  1247→}
+  1248→  1248→
+  1249→  1249→// ═══════════════════════════════════════════════════════════════════════
+  1250→  1250→// PAGE 4: DISCUSSION
+  1251→  1251→// ═══════════════════════════════════════════════════════════════════════
+  1252→  1252→
+  1253→  1253→function DiscussionPage() {
+  1254→  1254→  const [discussions, setDiscussions] = useState<Discussion[]>([])
+  1255→  1255→  const [loading, setLoading] = useState(true)
+  1256→  1256→  const [showForm, setShowForm] = useState(false)
+  1257→  1257→  const [title, setTitle] = useState('')
+  1258→  1258→  const [content, setContent] = useState('')
+  1259→  1259→  const [formLoading, setFormLoading] = useState(false)
+  1260→  1260→
+  1261→  1261→  const fetchDiscussions = useCallback(async () => {
+  1262→  1262→    setLoading(true)
+  1263→  1263→    try {
+  1264→  1264→      const data = await api.studentDiscussions()
+  1265→  1265→      setDiscussions(data.discussions || [])
+  1266→  1266→    } catch (err) {
+  1267→  1267→      console.error('Discussions fetch error:', err)
+  1268→  1268→    } finally {
+  1269→  1269→      setLoading(false)
+  1270→  1270→    }
+  1271→  1271→  }, [])
+  1272→  1272→
+  1273→  1273→  useEffect(() => { fetchDiscussions() }, [fetchDiscussions])
+  1274→  1274→
+  1275→  1275→  const handleSubmit = async () => {
+  1276→  1276→    if (!title || !content) return
+  1277→  1277→    setFormLoading(true)
+  1278→  1278→    try {
+  1279→  1279→      await api.studentCreateDiscussion({ title, content })
+  1280→  1280→      setTitle('')
+  1281→  1281→      setContent('')
+  1282→  1282→      setShowForm(false)
+  1283→  1283→      fetchDiscussions()
+  1284→  1284→    } catch (err) {
+  1285→  1285→      console.error('Discussion create error:', err)
+  1286→  1286→    } finally {
+  1287→  1287→      setFormLoading(false)
+  1288→  1288→    }
+  1289→  1289→  }
+  1290→  1290→
+  1291→  1291→  return (
+  1292→  1292→    <div className="space-y-6">
+  1293→  1293→      <div className="flex items-center justify-between">
+  1294→  1294→        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1295→  1295→          <MessageCircle className="w-5 h-5" />
+  1296→  1296→          Discussion
+  1297→  1297→        </h2>
+  1298→  1298→        <Button
+  1299→  1299→          onClick={() => setShowForm(!showForm)}
+  1300→  1300→          className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1301→  1301→        >
+  1302→  1302→          <Plus className="w-4 h-4 mr-2" />
+  1303→  1303→          Ask a Doubt
+  1304→  1304→        </Button>
+  1305→  1305→      </div>
+  1306→  1306→
+  1307→  1307→      {/* New Doubt Form */}
+  1308→  1308→      {showForm && (
+  1309→  1309→        <Card>
+  1310→  1310→          <CardContent className="pt-4 space-y-3">
+  1311→  1311→            <div className="space-y-1.5">
+  1312→  1312→              <Label className="text-xs">Title</Label>
+  1313→  1313→              <Input
+  1314→  1314→                placeholder="What's your doubt about?"
+  1315→  1315→                value={title}
+  1316→  1316→                onChange={(e) => setTitle(e.target.value)}
+  1317→  1317→              />
+  1318→  1318→            </div>
+  1319→  1319→            <div className="space-y-1.5">
+  1320→  1320→              <Label className="text-xs">Details</Label>
+  1321→  1321→              <Textarea
+  1322→  1322→                placeholder="Describe your doubt in detail..."
+  1323→  1323→                value={content}
+  1324→  1324→                onChange={(e) => setContent(e.target.value)}
+  1325→  1325→                rows={4}
+  1326→  1326→              />
+  1327→  1327→            </div>
+  1328→  1328→            <div className="flex gap-2">
+  1329→  1329→              <Button
+  1330→  1330→                onClick={handleSubmit}
+  1331→  1331→                disabled={!title || !content || formLoading}
+  1332→  1332→                className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1333→  1333→              >
+  1334→  1334→                {formLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+  1335→  1335→                Post Doubt
+  1336→  1336→              </Button>
+  1337→  1337→              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+  1338→  1338→            </div>
+  1339→  1339→          </CardContent>
+  1340→  1340→        </Card>
+  1341→  1341→      )}
+  1342→  1342→
+  1343→  1343→      {/* Discussion List */}
+  1344→  1344→      {loading ? (
+  1345→  1345→        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+  1346→  1346→      ) : discussions.length === 0 ? (
+  1347→  1347→        <Card>
+  1348→  1348→          <CardContent className="py-12 text-center">
+  1349→  1349→            <MessageCircle className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+  1350→  1350→            <p className="text-slate-500 dark:text-slate-400">No doubts posted yet</p>
+  1351→  1351→            <p className="text-sm text-slate-400 dark:text-slate-500">Click &quot;Ask a Doubt&quot; to get help</p>
+  1352→  1352→          </CardContent>
+  1353→  1353→        </Card>
+  1354→  1354→      ) : (
+  1355→  1355→        <div className="space-y-4">
+  1356→  1356→          {discussions.map(d => (
+  1357→  1357→            <Card key={d.id}>
+  1358→  1358→              <CardHeader className="pb-2">
+  1359→  1359→                <CardTitle className="text-base">{d.title}</CardTitle>
+  1360→  1360→                <p className="text-xs text-slate-500">
+  1361→  1361→                  {new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+  1362→  1362→                </p>
+  1363→  1363→              </CardHeader>
+  1364→  1364→              <CardContent className="pt-0">
+  1365→  1365→                <p className="text-sm text-slate-700 dark:text-slate-300">{d.content}</p>
+  1366→  1366→                {d.replies && d.replies.length > 0 && (
+  1367→  1367→                  <div className="mt-4 space-y-3">
+  1368→  1368→                    <Separator />
+  1369→  1369→                    <p className="text-xs font-medium text-slate-500">Replies</p>
+  1370→  1370→                    {d.replies.map(r => (
+  1371→  1371→                      <div key={r.id} className="ml-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border-l-2 border-slate-300 dark:border-slate-700">
+  1372→  1372→                        <div className="flex items-center gap-2 mb-1">
+  1373→  1373→                          <Badge variant={r.adminReply ? 'default' : 'secondary'} className="text-[10px]">
+  1374→  1374→                            {r.adminReply ? 'Admin' : r.student?.fullName || 'Reply'}
+  1375→  1375→                          </Badge>
+  1376→  1376→                          <span className="text-[10px] text-slate-400">
+  1377→  1377→                            {new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+  1378→  1378→                          </span>
+  1379→  1379→                        </div>
+  1380→  1380→                        <p className="text-sm text-slate-700 dark:text-slate-300">{r.content}</p>
+  1381→  1381→                      </div>
+  1382→  1382→                    ))}
+  1383→  1383→                  </div>
+  1384→  1384→                )}
+  1385→  1385→              </CardContent>
+  1386→  1386→            </Card>
+  1387→  1387→          ))}
+  1388→  1388→        </div>
+  1389→  1389→      )}
+  1390→  1390→    </div>
+  1391→  1391→  )
+  1392→  1392→}
+  1393→  1393→
+  1394→  1394→// ═══════════════════════════════════════════════════════════════════════
+  1395→  1395→// PAGE 5: SYLLABUS COMPLETION
+  1396→  1396→// ═══════════════════════════════════════════════════════════════════════
+  1397→  1397→
+  1398→  1398→function SyllabusPage() {
+  1399→  1399→  const [syllabus, setSyllabus] = useState<SyllabusSubject[]>([])
+  1400→  1400→  const [totalChapters, setTotalChapters] = useState(0)
+  1401→  1401→  const [completedChapters, setCompletedChapters] = useState(0)
+  1402→  1402→  const [overallPercent, setOverallPercent] = useState(0)
+  1403→  1403→  const [loading, setLoading] = useState(true)
+  1404→  1404→  const [togglingId, setTogglingId] = useState<string | null>(null)
+  1405→  1405→
+  1406→  1406→  const fetchSyllabus = useCallback(async () => {
+  1407→  1407→    setLoading(true)
+  1408→  1408→    try {
+  1409→  1409→      const data = await api.studentSyllabus()
+  1410→  1410→      setSyllabus(data.syllabus || [])
+  1411→  1411→      setTotalChapters(data.totalChapters || 0)
+  1412→  1412→      setCompletedChapters(data.completedChapters || 0)
+  1413→  1413→      setOverallPercent(data.overallPercent || 0)
+  1414→  1414→    } catch (err) {
+  1415→  1415→      console.error('Syllabus fetch error:', err)
+  1416→  1416→    } finally {
+  1417→  1417→      setLoading(false)
+  1418→  1418→    }
+  1419→  1419→  }, [])
+  1420→  1420→
+  1421→  1421→  useEffect(() => { fetchSyllabus() }, [fetchSyllabus])
+  1422→  1422→
+  1423→  1423→  const toggleChapter = async (chapterId: string, currentCompleted: boolean) => {
+  1424→  1424→    setTogglingId(chapterId)
+  1425→  1425→    try {
+  1426→  1426→      await api.studentMarkChapter(chapterId, !currentCompleted)
+  1427→  1427→      fetchSyllabus()
+  1428→  1428→    } catch (err) {
+  1429→  1429→      console.error('Toggle error:', err)
+  1430→  1430→    } finally {
+  1431→  1431→      setTogglingId(null)
+  1432→  1432→    }
+  1433→  1433→  }
+  1434→  1434→
+  1435→  1435→  if (loading) {
+  1436→  1436→    return (
+  1437→  1437→      <div className="space-y-6">
+  1438→  1438→        <Skeleton className="h-8 w-48" />
+  1439→  1439→        <Skeleton className="h-4 w-full" />
+  1440→  1440→        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-48 rounded-xl" />)}</div>
+  1441→  1441→      </div>
+  1442→  1442→    )
+  1443→  1443→  }
+  1444→  1444→
+  1445→  1445→  return (
+  1446→  1446→    <div className="space-y-6">
+  1447→  1447→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1448→  1448→        <ListChecks className="w-5 h-5" />
+  1449→  1449→        Syllabus Completion
+  1450→  1450→      </h2>
+  1451→  1451→
+  1452→  1452→      {/* Overall Progress */}
+  1453→  1453→      <Card>
+  1454→  1454→        <CardContent className="pt-6">
+  1455→  1455→          <div className="flex items-center justify-between mb-2">
+  1456→  1456→            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Overall Progress</span>
+  1457→  1457→            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{overallPercent}%</span>
+  1458→  1458→          </div>
+  1459→  1459→          <Progress value={overallPercent} className="h-3" />
+  1460→  1460→          <p className="text-xs text-slate-500 mt-1.5">{completedChapters} of {totalChapters} chapters completed</p>
+  1461→  1461→        </CardContent>
+  1462→  1462→      </Card>
+  1463→  1463→
+  1464→  1464→      {/* Subject-wise */}
+  1465→  1465→      <div className="space-y-4">
+  1466→  1466→        {syllabus.map(subject => (
+  1467→  1467→          <Card key={subject.id}>
+  1468→  1468→            <CardHeader className="pb-3">
+  1469→  1469→              <div className="flex items-center justify-between">
+  1470→  1470→                <CardTitle className="text-base">{subject.name}</CardTitle>
+  1471→  1471→                <Badge variant="secondary">{subject.completionPercent}%</Badge>
+  1472→  1472→              </div>
+  1473→  1473→              <Progress value={subject.completionPercent} className="h-2" />
+  1474→  1474→              <p className="text-xs text-slate-500">{subject.completedChapters}/{subject.totalChapters} chapters</p>
+  1475→  1475→            </CardHeader>
+  1476→  1476→            <CardContent>
+  1477→  1477→              <div className="space-y-1.5">
+  1478→  1478→                {subject.chapters.map(chapter => (
+  1479→  1479→                  <div
+  1480→  1480→                    key={chapter.id}
+  1481→  1481→                    className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+  1482→  1482→                  >
+  1483→  1483→                    <div className="flex items-center gap-3 min-w-0">
+  1484→  1484→                      <button
+  1485→  1485→                        onClick={() => toggleChapter(chapter.id, chapter.completed)}
+  1486→  1486→                        disabled={togglingId === chapter.id}
+  1487→  1487→                        className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+  1488→  1488→                          chapter.completed
+  1489→  1489→                            ? 'bg-emerald-500 border-emerald-500 text-white'
+  1490→  1490→                            : 'border-slate-300 dark:border-slate-600 hover:border-slate-400'
+  1491→  1491→                        }`}
+  1492→  1492→                      >
+  1493→  1493→                        {chapter.completed && <CheckCircle2 className="w-3.5 h-3.5" />}
+  1494→  1494→                        {togglingId === chapter.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+  1495→  1495→                      </button>
+  1496→  1496→                      <span className={`text-sm truncate ${chapter.completed ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+  1497→  1497→                        {chapter.name}
+  1498→  1498→                      </span>
+  1499→  1499→                    </div>
+  1500→  1500→                    {chapter.completedAt && (
+  1501→  1501→                      <span className="text-[10px] text-slate-400 flex-shrink-0">
+  1502→  1502→                        {new Date(chapter.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+  1503→  1503→                      </span>
+  1504→  1504→                    )}
+  1505→  1505→                  </div>
+  1506→  1506→                ))}
+  1507→  1507→              </div>
+  1508→  1508→            </CardContent>
+  1509→  1509→          </Card>
+  1510→  1510→        ))}
+  1511→  1511→      </div>
+  1512→  1512→    </div>
+  1513→  1513→  )
+  1514→  1514→}
+  1515→  1515→
+  1516→  1516→// ═══════════════════════════════════════════════════════════════════════
+  1517→  1517→// PAGE 6: EDIT PROFILE
+  1518→  1518→// ═══════════════════════════════════════════════════════════════════════
+  1519→  1519→
+  1520→  1520→function EditProfilePage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
+  1521→  1521→  const [fullName, setFullName] = useState('')
+  1522→  1522→  const [email, setEmail] = useState('')
+  1523→  1523→  const [mobile, setMobile] = useState('')
+  1524→  1524→  const [courseId, setCourseId] = useState('')
+  1525→  1525→  const [courses, setCourses] = useState<{ id: string; title: string }[]>([])
+  1526→  1526→  const [loading, setLoading] = useState(false)
+  1527→  1527→  const [success, setSuccess] = useState(false)
+  1528→  1528→  const [error, setError] = useState('')
+  1529→  1529→  const [initialized, setInitialized] = useState(false)
+  1530→  1530→
+  1531→  1531→  // Load profile & courses
+  1532→  1532→  useEffect(() => {
+  1533→  1533→    const init = async () => {
+  1534→  1534→      try {
+  1535→  1535→        const [profileData, coursesData] = await Promise.all([
+  1536→  1536→          api.studentProfile(),
+  1537→  1537→          api.publicCourses()
+  1538→  1538→        ])
+  1539→  1539→        const s = profileData.student
+  1540→  1540→        setFullName(s.fullName)
+  1541→  1541→        setEmail(s.email)
+  1542→  1542→        setMobile(s.mobile)
+  1543→  1543→        setCourseId(s.courseId)
+  1544→  1544→        setCourses(coursesData.courses || [])
+  1545→  1545→        setInitialized(true)
+  1546→  1546→      } catch (err) {
+  1547→  1547→        console.error('Profile init error:', err)
+  1548→  1548→      }
+  1549→  1549→    }
+  1550→  1550→    init()
+  1551→  1551→  }, [])
+  1552→  1552→
+  1553→  1553→  const handleSave = async () => {
+  1554→  1554→    if (!fullName) return
+  1555→  1555→    setLoading(true)
+  1556→  1556→    setError('')
+  1557→  1557→    setSuccess(false)
+  1558→  1558→    try {
+  1559→  1559→      await api.studentUpdateProfile({ fullName, courseId })
+  1560→  1560→      setSuccess(true)
+  1561→  1561→      onRefresh()
+  1562→  1562→      setTimeout(() => setSuccess(false), 3000)
+  1563→  1563→    } catch (err: any) {
+  1564→  1564→      setError(err.message || 'Update failed')
+  1565→  1565→    } finally {
+  1566→  1566→      setLoading(false)
+  1567→  1567→    }
+  1568→  1568→  }
+  1569→  1569→
+  1570→  1570→  if (!initialized) return <LoadingSkeleton />
+  1571→  1571→
+  1572→  1572→  return (
+  1573→  1573→    <div className="space-y-6">
+  1574→  1574→      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+  1575→  1575→        <UserCog className="w-5 h-5" />
+  1576→  1576→        Edit Profile
+  1577→  1577→      </h2>
+  1578→  1578→
+  1579→  1579→      <Card className="max-w-lg">
+  1580→  1580→        <CardContent className="pt-6 space-y-4">
+  1581→  1581→          {error && (
+  1582→  1582→            <Alert variant="destructive">
+  1583→  1583→              <AlertCircle className="h-4 w-4" />
+  1584→  1584→              <AlertDescription>{error}</AlertDescription>
+  1585→  1585→            </Alert>
+  1586→  1586→          )}
+  1587→  1587→          {success && (
+  1588→  1588→            <Alert className="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800">
+  1589→  1589→              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+  1590→  1590→              <AlertDescription className="text-emerald-700 dark:text-emerald-400">Profile updated successfully!</AlertDescription>
+  1591→  1591→            </Alert>
+  1592→  1592→          )}
+  1593→  1593→
+  1594→  1594→          <div className="space-y-2">
+  1595→  1595→            <Label>Full Name</Label>
+  1596→  1596→            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="h-11" />
+  1597→  1597→          </div>
+  1598→  1598→
+  1599→  1599→          <div className="space-y-2">
+  1600→  1600→            <Label>Email <Badge variant="secondary" className="ml-2 text-[10px]">Read Only</Badge></Label>
+  1601→  1601→            <Input value={email} disabled className="h-11 bg-slate-50 dark:bg-slate-900" />
+  1602→  1602→          </div>
+  1603→  1603→
+  1604→  1604→          <div className="space-y-2">
+  1605→  1605→            <Label>Mobile <Badge variant="secondary" className="ml-2 text-[10px]">Read Only</Badge></Label>
+  1606→  1606→            <Input value={mobile} disabled className="h-11 bg-slate-50 dark:bg-slate-900" />
+  1607→  1607→          </div>
+  1608→  1608→
+  1609→  1609→          <div className="space-y-2">
+  1610→  1610→            <Label>Course</Label>
+  1611→  1611→            <Select value={courseId} onValueChange={setCourseId}>
+  1612→  1612→              <SelectTrigger className="h-11">
+  1613→  1613→                <SelectValue placeholder="Select course" />
+  1614→  1614→              </SelectTrigger>
+  1615→  1615→              <SelectContent>
+  1616→  1616→                {courses.map(c => (
+  1617→  1617→                  <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
+  1618→  1618→                ))}
+  1619→  1619→              </SelectContent>
+  1620→  1620→            </Select>
+  1621→  1621→          </div>
+  1622→  1622→
+  1623→  1623→          <Button
+  1624→  1624→            onClick={handleSave}
+  1625→  1625→            disabled={loading || !fullName}
+  1626→  1626→            className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+  1627→  1627→          >
+  1628→  1628→            {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+  1629→  1629→            Save Changes
+  1630→  1630→          </Button>
+  1631→  1631→        </CardContent>
+  1632→  1632→      </Card>
+  1633→  1633→    </div>
+  1634→  1634→  )
+  1635→  1635→}
+  1636→  1636→
