@@ -1,7 +1,40 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
+
+async function subscribeToPush(registration: ServiceWorkerRegistration) {
+  try {
+    const existing = await registration.pushManager.getSubscription()
+    if (existing) return
+
+    const publicKeyRes = await fetch('/api/push/public-key')
+    if (!publicKeyRes.ok) return
+    const { publicKey } = await publicKeyRes.json()
+    if (!publicKey) return
+
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: publicKey,
+    })
+
+    const sub = subscription.toJSON()
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({
+        endpoint: sub.endpoint,
+        p256dh: sub.keys?.p256dh,
+        auth: sub.keys?.auth,
+        userAgent: navigator.userAgent,
+      }),
+    })
+    console.log('[SW] Push subscribed')
+  } catch (e) {
+    // Permission denied or not available — silently skip
+    console.info('[SW] Push subscription skipped:', e)
+  }
+}
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
@@ -41,6 +74,14 @@ export function ServiceWorkerRegister() {
               })
             }
           }
+        }
+
+        const reg = registration
+        if (!reg) return
+        if (reg.active) {
+          subscribeToPush(reg)
+        } else {
+          reg.addEventListener('activate', () => subscribeToPush(reg), { once: true })
         }
       } catch (err) {
         console.warn('[SW] Registration failed:', err)

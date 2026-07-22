@@ -94,6 +94,30 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
   const [leaderboardData, setLeaderboardData] = useState<any[]>([])
   const [leaderboardLoading, setLeaderboardLoading] = useState(true)
   const [lastStudySession, setLastStudySession] = useState<any>(null)
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unavailable'>('default')
+
+  useEffect(() => {
+    if (!('Notification' in window)) { setNotifPerm('unavailable'); return }
+    setNotifPerm(Notification.permission)
+  }, [])
+
+  const requestNotifPermission = useCallback(async () => {
+    if (!('Notification' in window)) return
+    if (Notification.permission === 'default') {
+      const result = await Notification.requestPermission()
+      setNotifPerm(result)
+    }
+  }, [])
+
+  const sendCompletionNotification = useCallback((chapterName: string) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return
+    try {
+      new Notification('Session Complete! 🎉', {
+        body: `Great work on "${chapterName}"! Take a moment to reflect.`,
+        icon: '/favicon.ico',
+      })
+    } catch {}
+  }, [])
 
   const dailyQuote = useMemo(() => MOTIVATIONAL_QUOTES[new Date().getDate() % MOTIVATIONAL_QUOTES.length], [])
   const student = data?.student
@@ -229,7 +253,9 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
       timerInterval.current = setInterval(() => {
         setTimerSeconds(prev => {
           if (prev <= 1) {
+            const chapterName = chapters.find(c => c.id === selectedChapterId)?.name || 'Chapter'
             setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
+            sendCompletionNotification(chapterName)
             clearTimerState()
             if (timerInterval.current) clearInterval(timerInterval.current)
             return 0
@@ -245,6 +271,7 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
     let minutes = timerPreset
     if (timerPreset === -1) minutes = Math.min(parseInt(customMinutes) || 0, 300)
     if (minutes <= 0 || !selectedChapterId) return
+    requestNotifPermission()
     setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
     setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
     setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])

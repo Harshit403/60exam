@@ -52,6 +52,7 @@ model Student {
   blockedBy      BlockedUser[]
   ipLogs         IpLog[]
   adminNotificationReads AdminNotificationRead[]
+  pushSubscriptions     PushSubscription[]
 }
 
 // ==================== COURSE ====================
@@ -380,6 +381,18 @@ model AdminNotificationRead {
   readAt         DateTime @default(now())
 
   @@unique([notificationId, studentId])
+}
+
+// ==================== PUSH SUBSCRIPTION ====================
+model PushSubscription {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  endpoint     String   @unique
+  p256dh       String
+  auth         String
+  userAgent    String?
+  createdAt    DateTime @default(now())
 }
 
 // ==================== QUIZ CHAPTER LINK ====================

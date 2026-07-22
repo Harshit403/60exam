@@ -555,6 +555,7 @@ function SendNotificationPage() {
   const [message, setMessage] = useState('')
   const [target, setTarget] = useState<'all' | 'course'>('all')
   const [targetCourseId, setTargetCourseId] = useState('')
+  const [sendPush, setSendPush] = useState(true)
   const [sending, setSending] = useState(false)
   const [sentNotifications, setSentNotifications] = useState<any[]>([])
   const socketRef = useRef<Socket | null>(null)
@@ -592,7 +593,7 @@ function SendNotificationPage() {
         targetCourseId: target === 'course' ? targetCourseId : null,
       })
       toast.success('Notification sent successfully!')
-      setSentNotifications(prev => [{ title, message, target, sentAt: new Date() }, ...prev])
+      setSentNotifications(prev => [{ title, message, target, sentAt: new Date(), push: sendPush }, ...prev])
       setTitle('')
       setMessage('')
 
@@ -606,6 +607,23 @@ function SendNotificationPage() {
           targetRole: target === 'all' ? 'all' : 'student',
           targetCourseId: target === 'course' ? targetCourseId : null,
         })
+      }
+
+      // Send browser push notification if toggled on
+      if (sendPush) {
+        const pushRes = await fetch('/api/admin/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({
+            title: title.trim(),
+            message: message.trim(),
+            targetCourseId: target === 'course' ? targetCourseId : null,
+          }),
+        })
+        const pushData = await pushRes.json()
+        if (pushData.sent !== undefined) {
+          console.log(`[Push] Sent to ${pushData.sent}/${pushData.total} devices`)
+        }
       }
     } catch (e: any) {
       toast.error(e.message || 'Failed to send notification')
@@ -685,6 +703,17 @@ function SendNotificationPage() {
           />
         </div>
 
+        {/* Push Notification Toggle */}
+        <div className="flex items-center gap-3 pt-1">
+          <div className="flex items-center gap-2">
+            <BellRing className={`size-4 ${sendPush ? 'text-emerald-500' : 'text-muted-foreground'}`} />
+            <label className="text-sm font-medium cursor-pointer select-none" onClick={() => setSendPush(!sendPush)}>
+              Send as Browser Push Notification
+            </label>
+          </div>
+          <Switch checked={sendPush} onCheckedChange={setSendPush} className="data-[state=checked]:bg-emerald-500" />
+        </div>
+
         <div className="flex justify-end pt-2">
           <GradientButton onClick={handleSend} disabled={sending || !title.trim() || !message.trim()}>
             {sending && <Loader2 className="size-4 animate-spin mr-1" />}
@@ -708,6 +737,7 @@ function SendNotificationPage() {
                   <p className="text-sm text-muted-foreground line-clamp-1">{n.message}</p>
                   <p className="text-xs text-muted-foreground/60">
                     {n.target === 'all' ? 'All Students' : 'Specific Course'} · {new Date(n.sentAt).toLocaleString()}
+                    {n.push && ' · Push ✓'}
                   </p>
                 </div>
                 <BellRing className="size-4 text-emerald-500 mt-0.5 shrink-0" />
