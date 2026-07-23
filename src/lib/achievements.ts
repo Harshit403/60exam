@@ -1,3 +1,5 @@
+import { isSameISTDay } from '@/lib/date-utils'
+
 // Achievement definitions - 12 tiers
 export const ACHIEVEMENT_TIERS = [
   { name: 'Newcomer', description: 'Begin your CS journey', threshold: 25, icon: '🌱', order: 1 },
@@ -40,5 +42,5 @@ export function canSendStrike(lastStrikeAt: Date | null): boolean {
   if (!lastStrikeAt) return true
   const now = new Date()
   const last = new Date(lastStrikeAt)
-  return now.toDateString() !== last.toDateString()
+  return !isSameISTDay(now, last)
 }

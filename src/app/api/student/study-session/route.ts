@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
 import { calculateScore, ACHIEVEMENT_TIERS } from '@/lib/achievements'
+import { isSameISTDay } from '@/lib/date-utils'
 
 // POST /api/student/study-session
 export async function POST(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   const newTotalMin = student.totalStudyMin + durationMin
   const newScore = calculateScore(newTotalMin)
   
-  // Update streak
+  // Update streak (IST calendar day comparison)
   const now = new Date()
   const lastStudy = student.lastStudyAt
   let newStreak = student.currentStreak
@@ -36,12 +37,10 @@ export async function POST(req: NextRequest) {
     const diffHours = (now.getTime() - new Date(lastStudy).getTime()) / (1000 * 60 * 60)
     if (diffHours < 24) {
       // Within 24 hours — streak continues
-      if (now.toDateString() !== new Date(lastStudy).toDateString()) {
+      if (!isSameISTDay(now, new Date(lastStudy))) {
         newStreak = student.currentStreak + 1
       }
-      // Same calendar day: streak unchanged (already counted for today)
     } else {
-      // More than 24 hours since last study — streak broken, start fresh
       newStreak = 1
     }
   } else {

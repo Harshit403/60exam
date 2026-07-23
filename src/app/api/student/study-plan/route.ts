@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
+import { getISTTodayStart } from '@/lib/date-utils'
 
 // GET /api/student/study-plan
 export async function GET(req: NextRequest) {
@@ -21,9 +22,9 @@ export async function GET(req: NextRequest) {
   }
   
   // Get all upcoming plans
-  const today = new Date()
+  const todayStart = getISTTodayStart()
   const plans = await db.studyPlan.findMany({
-    where: { studentId: auth.id, plannedDate: { gte: today } },
+    where: { studentId: auth.id, plannedDate: { gte: todayStart } },
     include: { chapter: { include: { subject: true } } },
     orderBy: { plannedDate: 'asc' }
   })

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
 import { checkStreak, calculateScore } from '@/lib/achievements'
+import { getISTTodayStart, getISTTodayEnd } from '@/lib/date-utils'
 
 // GET /api/student/dashboard
 export async function GET(req: NextRequest) {
@@ -42,17 +43,17 @@ export async function GET(req: NextRequest) {
   const completedChapters = student.chapterCompletions.length
   const completionPercent = totalChapters > 0 ? Math.round((completedChapters / totalChapters) * 100) : 0
   
-  // Today's study time
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // Today's study time (IST)
+  const todayStart = getISTTodayStart()
+  const todayEnd = getISTTodayEnd()
   const todaySessions = await db.studySession.findMany({
-    where: { studentId: student.id, date: { gte: today } }
+    where: { studentId: student.id, date: { gte: todayStart, lte: todayEnd } }
   })
   const todayStudyMin = todaySessions.reduce((acc: number, s: any) => acc + s.durationMin, 0)
-  
+
   // Today's study plan
   const todayPlan = await db.studyPlan.findFirst({
-    where: { studentId: student.id, plannedDate: { gte: today, lt: new Date(today.getTime() + 86400000) } },
+    where: { studentId: student.id, plannedDate: { gte: todayStart, lte: todayEnd } },
     include: { chapter: { include: { subject: true } } }
   })
   

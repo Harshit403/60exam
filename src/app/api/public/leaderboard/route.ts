@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getISTTodayStart, getISTTodayEnd } from '@/lib/date-utils'
 
 // GET /api/public/leaderboard
 // PUBLIC endpoint — no auth required.
@@ -9,15 +10,13 @@ export async function GET(req: NextRequest) {
   const daily = req.nextUrl.searchParams.get('daily') === 'true'
 
   if (daily) {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const todayStart = getISTTodayStart()
+    const todayEnd = getISTTodayEnd()
 
     const sessions = await db.studySession.groupBy({
       by: ['studentId'],
       where: {
-        date: { gte: today, lt: tomorrow },
+        date: { gte: todayStart, lte: todayEnd },
         completed: true,
       },
       _sum: { durationMin: true },
