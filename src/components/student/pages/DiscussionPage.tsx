@@ -11,8 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageCircle, Plus, Send, Loader2, Users, Wifi, WifiOff, Circle, Reply } from 'lucide-react'
-import { io, Socket } from 'socket.io-client'
 import { api } from '@/lib/api-client'
+import { useSSE } from '@/hooks/useSSE'
 import { Discussion } from '../types'
 
 interface LiveMessage {
@@ -49,16 +49,25 @@ export function DiscussionPage() {
   // Live chat state
   const [liveMessages, setLiveMessages] = useState<LiveMessage[]>([])
   const [liveInput, setLiveInput] = useState('')
-  const [isConnected, setIsConnected] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
-  const [typingUsers, setTypingUsers] = useState<OnlineUser[]>([])
   const [showLiveChat, setShowLiveChat] = useState(false)
-  const socketRef = useRef<Socket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const typingTimeoutRef = useRef<any>(null)
   const [userId, setUserId] = useState('')
   const [userName, setUserName] = useState('')
   const [userRole, setUserRole] = useState<'student' | 'admin'>('student')
+
+  // SSE connection
+  const { isConnected } = useSSE({
+    channel: showLiveChat ? `room:${LIVE_ROOM_ID}` : '',
+    enabled: showLiveChat,
+    onEvent: (event, data) => {
+      if (event === 'room-history') {
+        setLiveMessages(data.messages || [])
+      } else if (event === 'new-message') {
+        setLiveMessages(prev => [...prev, data])
+      }
+    },
+  })
 
   // Extract user info from token
   useEffect(() => {
@@ -81,70 +90,6 @@ export function DiscussionPage() {
   }, [])
 
   useEffect(() => { fetchDiscussions() }, [fetchDiscussions])
-
-  // Connect to WebSocket when live chat is opened
-  useEffect(() => {
-    if (!showLiveChat) return
-
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const socket = io(`${origin}/?XTransformPort=3003`, {
-      path: '/',
-      transports: ['polling', 'websocket'],
-      forceNew: true,
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-      timeout: 15000,
-    })
-    socketRef.current = socket
-
-    socket.on('connect', () => {
-      setIsConnected(true)
-      setTimeout(() => socket.emit('auth', { userId, name: userName, role: userRole }), 100)
-    })
-
-    socket.on('disconnect', (reason) => {
-      setIsConnected(false)
-      if (reason === 'io server disconnect') socket.connect()
-    })
-    socket.on('connect_error', () => setIsConnected(false))
-
-    socket.on('auth-ok', () => {
-      socket.emit('join-room', { roomId: LIVE_ROOM_ID })
-    })
-
-    socket.on('room-history', (data: { messages: LiveMessage[] }) => {
-      setLiveMessages(data.messages || [])
-    })
-
-    socket.on('new-message', (msg: LiveMessage) => {
-      setLiveMessages(prev => [...prev, msg])
-    })
-
-    socket.on('user-joined', (data: { user: OnlineUser; message: LiveMessage }) => {
-      setLiveMessages(prev => [...prev, data.message])
-    })
-
-    socket.on('user-left', (data: { user: OnlineUser; message: LiveMessage }) => {
-      setLiveMessages(prev => [...prev, data.message])
-    })
-
-    socket.on('room-users', (data: { users: OnlineUser[] }) => {
-      setOnlineUsers(data.users || [])
-    })
-
-    socket.on('user-typing', (data: { user: OnlineUser; isTyping: boolean }) => {
-      setTypingUsers(prev => {
-        const filtered = prev.filter(u => u.id !== data.user.id)
-        return data.isTyping ? [...filtered, data.user] : filtered
-      })
-    })
-
-    return () => {
-      socket.disconnect()
-      socketRef.current = null
-    }
-  }, [showLiveChat, userId, userName, userRole])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -171,13 +116,12 @@ export function DiscussionPage() {
     finally { setFormLoading(false) }
   }
 
-  const sendLiveMessage = () => {
+  const sendLiveMessage = async () => {
     if (!liveInput.trim()) return
 
     const content = liveInput.trim()
     const optimisticId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
 
-    // Optimistically add message
     const optimisticMsg: LiveMessage = {
       id: optimisticId,
       roomId: LIVE_ROOM_ID,
@@ -191,25 +135,15 @@ export function DiscussionPage() {
     setLiveMessages(prev => [...prev, optimisticMsg])
     setLiveInput('')
 
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('send-message', { roomId: LIVE_ROOM_ID, content })
-      socketRef.current.emit('typing', { roomId: LIVE_ROOM_ID, isTyping: false })
+    try {
+      await api.realtimePublish({ action: 'room-message', roomId: LIVE_ROOM_ID, content })
+    } catch (err) {
+      console.error('Send message error:', err)
     }
   }
 
   const handleLiveInputChange = (value: string) => {
     setLiveInput(value)
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('typing', { roomId: LIVE_ROOM_ID, isTyping: value.length > 0 })
-    }
-
-    // Clear typing after 2s of inactivity
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-    if (socketRef.current && isConnected) {
-      typingTimeoutRef.current = setTimeout(() => {
-        socketRef.current?.emit('typing', { roomId: LIVE_ROOM_ID, isTyping: false })
-      }, 2000)
-    }
   }
 
   const formatTime = (ts: number) => {
@@ -322,13 +256,6 @@ export function DiscussionPage() {
                     )}
                   </div>
                 ))
-              )}
-              {/* Typing indicator */}
-              {typingUsers.length > 0 && (
-                <div className="flex gap-2 items-center text-xs text-slate-500 italic">
-                  <Circle className="w-2 h-2 fill-slate-400 text-slate-400 animate-pulse" />
-                  {typingUsers.map(u => u.name).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
-                </div>
               )}
               <div ref={messagesEndRef} />
             </div>

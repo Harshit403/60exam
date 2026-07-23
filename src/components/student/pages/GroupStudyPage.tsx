@@ -12,12 +12,11 @@ import {
   Users, MessageCircle, LogOut, Send, Clock, UserPlus, Crown, Circle, Loader2,
   BarChart3, Check, X, ArrowRight,
 } from 'lucide-react'
-import { io, Socket } from 'socket.io-client'
 import { api } from '@/lib/api-client'
+import { useSSE } from '@/hooks/useSSE'
 import { StudyGroup, GroupMemberInfo, TimerState, GroupMessage, ComparisonMember } from '../types'
 import { formatTimer, CircularProgressRing } from '../utils'
 
-// ─── Content Filter ─────────────────────────────────────────────────────
 const BLOCKED_TERMS = ['instagram', 'telegram', 'whatsapp', 'facebook', 'twitter', 'tiktok', 'snapchat', 'discord', 'youtube']
 
 function filterContent(text: string): string {
@@ -28,7 +27,6 @@ function filterContent(text: string): string {
   return filtered
 }
 
-// ─── Mini Timer Ring for member list ────────────────────────────────────
 function MiniTimerRing({ timerState }: { timerState: TimerState }) {
   const size = 28
   const strokeWidth = 3
@@ -42,7 +40,6 @@ function MiniTimerRing({ timerState }: { timerState: TimerState }) {
   )
 }
 
-// ─── Member Item ────────────────────────────────────────────────────────
 function MemberItem({ member, currentUserId }: { member: { userId: string; name: string; timerState?: TimerState | null }; currentUserId: string }) {
   const isSelf = member.userId === currentUserId
   const isStudying = member.timerState?.running === true
@@ -62,7 +59,6 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
             {(member.name || 'U').charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        {/* Status dot */}
         <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-900 ${
           isStudying ? 'bg-emerald-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
         }`} />
@@ -86,12 +82,15 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
   )
 }
 
-// ─── Chat Message ───────────────────────────────────────────────────────
 function ChatMessageBubble({ msg, currentUserId }: { msg: { id: string; userId: string; userName: string; content: string; type: string; timestamp: number | string }; currentUserId: string }) {
   const isSystem = msg.type === 'system'
   const isSelf = msg.userId === currentUserId
 
   if (isSystem) {
+    const isComparisonReq = msg.content === '__comparison_request__'
+    const isComparisonAccepted = msg.content === '__comparison_accepted__'
+    const isComparisonDeclined = msg.content === '__comparison_declined__'
+    if (isComparisonReq || isComparisonAccepted || isComparisonDeclined) return null
     return (
       <div className="flex justify-center py-1">
         <span className="text-[10px] text-slate-400 dark:text-slate-500 italic px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/50">
@@ -142,12 +141,7 @@ function ChatMessageBubble({ msg, currentUserId }: { msg: { id: string; userId: 
   )
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════
-
 export function GroupStudyPage() {
-  // ─── State ──────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<StudyGroup[]>([])
   const [currentGroup, setCurrentGroup] = useState<StudyGroup | null>(null)
   const [loading, setLoading] = useState(true)
@@ -158,8 +152,6 @@ export function GroupStudyPage() {
   const [members, setMembers] = useState<{ userId: string; name: string; timerState?: TimerState | null }[]>([])
   const [messages, setMessages] = useState<{ id: string; userId: string; userName: string; content: string; type: string; timestamp: number | string }[]>([])
   const [chatInput, setChatInput] = useState('')
-  const [isConnected, setIsConnected] = useState(false)
-  const [typingUsers, setTypingUsers] = useState<{ userId: string; userName: string }[]>([])
   const [leavingGroup, setLeavingGroup] = useState(false)
   const [showMobileMembers, setShowMobileMembers] = useState(false)
 
@@ -175,14 +167,51 @@ export function GroupStudyPage() {
   const [userId, setUserId] = useState('')
   const [userName, setUserName] = useState('')
 
-  // Refs
-  const socketRef = useRef<Socket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const timerSyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // ─── Get user info ──────────────────────────────────────────────────
+  // SSE connection
+  const channel = inRoom && currentGroup ? `group:${currentGroup.id}` : ''
+  const { isConnected } = useSSE({
+    channel,
+    enabled: inRoom && !!currentGroup,
+    onEvent: useCallback((event: string, data: any) => {
+      if (event === 'group-history') {
+        setMessages(data.messages || [])
+      } else if (event === 'group-chat-message') {
+        setMessages(prev => {
+          if (prev.some(m => m.id === data.id)) return prev
+          return [...prev, data]
+        })
+      } else if (event === 'group-members') {
+        setMembers(data.members || [])
+      }
+    }, []),
+  })
+
+  // Parse system messages for comparison requests
+  useEffect(() => {
+    if (!messages.length || !currentGroup) return
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg.type !== 'system') return
+
+    if (lastMsg.content === '__comparison_request__' && lastMsg.userId !== userId) {
+      const requesterName = lastMsg.userName
+      setComparisonRequesters(prev => {
+        if (prev.some(r => r.userId === lastMsg.userId)) return prev
+        return [...prev, { userId: lastMsg.userId, userName: requesterName }]
+      })
+    } else if (lastMsg.content === '__comparison_accepted__') {
+      setAcceptedForCompare(prev => {
+        if (prev.some(a => a.userId === lastMsg.userId)) return prev
+        return [...prev, { userId: lastMsg.userId, userName: lastMsg.userName }]
+      })
+    } else if (lastMsg.content === '__comparison_declined__') {
+      setComparisonRequesters(prev => prev.filter(r => r.userId !== lastMsg.userId))
+    }
+  }, [messages, currentGroup, userId])
+
+  // Get user info
   useEffect(() => {
     try {
       const token = localStorage.getItem('token')
@@ -194,7 +223,6 @@ export function GroupStudyPage() {
     } catch (e) { /* ignore */ }
   }, [])
 
-  // ─── Fetch groups ──────────────────────────────────────────────────
   const fetchGroups = useCallback(async () => {
     setLoading(true)
     try {
@@ -210,7 +238,6 @@ export function GroupStudyPage() {
 
   useEffect(() => { fetchGroups() }, [fetchGroups])
 
-  // ─── Join group ────────────────────────────────────────────────────
   const [joinError, setJoinError] = useState<string | null>(null)
 
   const handleJoinGroup = async (groupId: string) => {
@@ -224,7 +251,6 @@ export function GroupStudyPage() {
     try {
       await api.studentJoinGroup(groupId)
       await fetchGroups()
-      // Will enter room via the currentGroup update
     } catch (err: any) {
       console.error('Join group error:', err)
       const msg = err?.message || err?.error || 'Failed to join group'
@@ -234,26 +260,15 @@ export function GroupStudyPage() {
     }
   }
 
-  // ─── Leave group ───────────────────────────────────────────────────
   const handleLeaveGroup = async () => {
     if (!currentGroup) return
     setLeavingGroup(true)
     try {
-      // Emit leave to socket first
-      if (socketRef.current) {
-        socketRef.current.emit('group-leave', { groupId: currentGroup.id, userId })
-      }
       await api.studentLeaveGroup(currentGroup.id)
       setCurrentGroup(null)
       setInRoom(false)
       setMessages([])
       setMembers([])
-      setTypingUsers([])
-      // Disconnect socket
-      if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
-      }
       await fetchGroups()
     } catch (err) {
       console.error('Leave group error:', err)
@@ -262,170 +277,28 @@ export function GroupStudyPage() {
     }
   }
 
-  // ─── Enter room (socket connection) ────────────────────────────────
+  // Enter room
   const enterRoom = useCallback((group: StudyGroup) => {
     setInRoom(true)
     setMessages([])
     setMembers([])
-    setTypingUsers([])
+  }, [])
 
-    // Use current origin with the XTransformPort query param (Caddy proxy routing)
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const socket = io(`${origin}/?XTransformPort=3003`, {
-      path: '/',
-      transports: ['polling', 'websocket'],
-      forceNew: true,
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-      timeout: 15000,
-    })
-    socketRef.current = socket
-
-    socket.on('connect', () => {
-      setIsConnected(true)
-      // Small delay to ensure socket is fully initialized
-      setTimeout(() => socket.emit('auth', { userId, name: userName, role: 'student' }), 100)
-    })
-
-    socket.on('disconnect', (reason) => {
-      setIsConnected(false)
-      if (reason === 'io server disconnect') {
-        socket.connect()
-      }
-    })
-    socket.on('connect_error', (err) => {
-      setIsConnected(false)
-    })
-
-    socket.on('auth-ok', () => {
-      socket.emit('group-join', { groupId: group.id, userId, userName })
-    })
-
-    // Receive message history
-    socket.on('group-history', (data: { groupId: string; messages: any[] }) => {
-      setMessages(data.messages || [])
-    })
-
-    // New chat message (from others or system)
-    socket.on('group-chat-message', (msg: any) => {
-      setMessages(prev => [...prev, msg])
-    })
-
-    // Member list updates
-    socket.on('group-members', (data: { groupId: string; members: any[] }) => {
-      setMembers(data.members || [])
-    })
-
-    // User joined
-    socket.on('group-user-joined', (data: { member: any; message: any }) => {
-      setMessages(prev => [...prev, data.message])
-    })
-
-    // User left
-    socket.on('group-user-left', (data: { userId: string; message: any }) => {
-      setMessages(prev => [...prev, data.message])
-      setMembers(prev => prev.filter(m => m.userId !== data.userId))
-    })
-
-    // Typing indicator
-    socket.on('group-typing', (data: { groupId: string; userId: string; userName: string; isTyping: boolean }) => {
-      setTypingUsers(prev => {
-        const filtered = prev.filter(u => u.userId !== data.userId)
-        return data.isTyping ? [...filtered, { userId: data.userId, userName: data.userName }] : filtered
-      })
-    })
-
-    // Timer sync from other members
-    socket.on('group-member-timer', (data: { userId: string; timerState: TimerState }) => {
-      setMembers(prev => prev.map(m =>
-        m.userId === data.userId ? { ...m, timerState: data.timerState } : m
-      ))
-    })
-
-    // Comparison request received
-    socket.on('group-comparison-requested', (data: { groupId: string; requesterId: string; requesterName: string }) => {
-      if (data.requesterId !== userId) {
-        setComparisonRequesters(prev => {
-          if (prev.some(r => r.userId === data.requesterId)) return prev
-          return [...prev, { userId: data.requesterId, userName: data.requesterName }]
-        })
-      }
-    })
-
-    // Comparison accepted by someone
-    socket.on('group-comparison-accepted', (data: { groupId: string; userId: string; userName: string }) => {
-      setAcceptedForCompare(prev => {
-        if (prev.some(a => a.userId === data.userId)) return prev
-        return [...prev, { userId: data.userId, userName: data.userName }]
-      })
-    })
-
-    // Comparison declined by someone
-    socket.on('group-comparison-declined', (data: { groupId: string; userId: string; userName: string }) => {
-      setComparisonRequesters(prev => prev.filter(r => r.userId !== data.userId))
-    })
-  }, [userId, userName])
-
-  // ─── Auto-enter room if currentGroup exists ────────────────────────
+  // Auto-enter room if currentGroup exists
   useEffect(() => {
     if (currentGroup && !inRoom && userId) {
       enterRoom(currentGroup)
     }
   }, [currentGroup, inRoom, userId, enterRoom])
 
-  // ─── Cleanup socket and poll on unmount ─────────────────────────────
-  useEffect(() => {
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
-      }
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-  }, [])
-
-  // ─── Auto-scroll ───────────────────────────────────────────────────
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ─── Load chat history from API + periodic polling fallback ────────
-  const fetchMessages = useCallback(async () => {
-    if (!currentGroup || !inRoom) return
-    try {
-      const data = await api.studentGroupMessages(currentGroup.id)
-      if (data.messages && data.messages.length > 0) {
-        setMessages(prev => {
-          const existingIds = new Set(prev.map(m => m.id))
-          const newMsgs = data.messages.filter((m: any) => !existingIds.has(m.id))
-          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
-        })
-      }
-    } catch (err) {
-      // Silently fail - fallback
-    }
-  }, [currentGroup, inRoom])
-
+  // Timer sync
   useEffect(() => {
     if (!currentGroup || !inRoom) return
-    fetchMessages()
-    // Poll every 5 seconds as fallback for when WebSocket is down
-    pollRef.current = setInterval(fetchMessages, 5000)
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-  }, [currentGroup, inRoom, fetchMessages])
-
-  // ─── Broadcast timer state from localStorage ──────────────────────
-  useEffect(() => {
-    if (!currentGroup || !inRoom || !socketRef.current) return
 
     const syncTimer = () => {
       try {
@@ -439,14 +312,7 @@ export function GroupStudyPage() {
             total: parsed.total || 0,
             chapterName: parsed.chapterName || null,
           }
-          socketRef.current?.emit('group-timer-update', {
-            groupId: currentGroup.id,
-            userId,
-            userName,
-            timerState,
-          })
-
-          // Also update local member list for self
+          api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState }).catch(() => {})
           setMembers(prev => prev.map(m =>
             m.userId === userId ? { ...m, timerState } : m
           ))
@@ -454,23 +320,20 @@ export function GroupStudyPage() {
       } catch (e) { /* ignore */ }
     }
 
-    // Sync immediately and every 5 seconds
     syncTimer()
     timerSyncRef.current = setInterval(syncTimer, 5000)
 
     return () => {
       if (timerSyncRef.current) clearInterval(timerSyncRef.current)
     }
-  }, [currentGroup, inRoom, userId, userName])
+  }, [currentGroup, inRoom, userId])
 
-  // ─── Send chat message ─────────────────────────────────────────────
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!chatInput.trim() || !currentGroup) return
 
     const filtered = filterContent(chatInput.trim())
     const msgId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
 
-    // Optimistically add message to UI immediately
     const optimisticMsg = {
       id: msgId,
       userId,
@@ -482,71 +345,41 @@ export function GroupStudyPage() {
     setMessages(prev => [...prev, optimisticMsg])
     setChatInput('')
 
-    // Send via socket if connected
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('group-chat-message', {
-        groupId: currentGroup.id,
-        userId,
-        userName,
-        content: filtered,
-        type: 'text',
-      })
+    try {
+      await api.realtimePublish({ action: 'group-message', groupId: currentGroup.id, content: filtered })
+    } catch (err) {
+      console.error('Send message error:', err)
     }
 
-    // Persist to API as fallback
     api.studentSendGroupMessage(currentGroup.id, filtered, 'text').catch(err =>
       console.error('Send message API error:', err)
     )
-
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('group-typing', { groupId: currentGroup.id, userId, userName, isTyping: false })
-    }
   }
 
-  // ─── Request comparison from all group members ────────────────────
   const handleRequestComparison = () => {
-    if (!socketRef.current || !isConnected || !currentGroup) return
+    if (!currentGroup) return
     setComparisonSent(true)
-    setAcceptedForCompare([])
-    setComparisonData(null)
-    socketRef.current.emit('group-comparison-request', {
-      groupId: currentGroup.id,
-      requesterId: userId,
-      requesterName: userName,
-    })
-    // Add self as accepted
     setAcceptedForCompare([{ userId, userName }])
+    setComparisonData(null)
+    api.realtimePublish({ action: 'group-comparison-request', groupId: currentGroup.id }).catch(() => {})
   }
 
-  // ─── Accept comparison request ────────────────────────────────────
   const handleAcceptComparison = (requesterId: string) => {
-    if (!socketRef.current || !isConnected || !currentGroup) return
+    if (!currentGroup) return
     setComparisonRequesters(prev => prev.filter(r => r.userId !== requesterId))
-    socketRef.current.emit('group-comparison-response', {
-      groupId: currentGroup.id,
-      userId,
-      userName,
-      accepted: true,
-    })
+    api.realtimePublish({ action: 'group-comparison-response', groupId: currentGroup.id, accepted: true }).catch(() => {})
     setAcceptedForCompare(prev => {
       if (prev.some(a => a.userId === userId)) return prev
       return [...prev, { userId, userName }]
     })
   }
 
-  // ─── Decline comparison request ───────────────────────────────────
   const handleDeclineComparison = (requesterId: string) => {
-    if (!socketRef.current || !isConnected || !currentGroup) return
+    if (!currentGroup) return
     setComparisonRequesters(prev => prev.filter(r => r.userId !== requesterId))
-    socketRef.current.emit('group-comparison-response', {
-      groupId: currentGroup.id,
-      userId,
-      userName,
-      accepted: false,
-    })
+    api.realtimePublish({ action: 'group-comparison-response', groupId: currentGroup.id, accepted: false }).catch(() => {})
   }
 
-  // ─── Fetch comparison data ────────────────────────────────────────
   const handleViewComparison = async () => {
     if (!currentGroup) return
     const acceptedIds = acceptedForCompare.map(a => a.userId)
@@ -563,7 +396,6 @@ export function GroupStudyPage() {
     }
   }
 
-  // ─── Close comparison ─────────────────────────────────────────────
   const handleCloseComparison = () => {
     setShowComparison(false)
     setComparisonData(null)
@@ -571,50 +403,20 @@ export function GroupStudyPage() {
     setAcceptedForCompare([])
   }
 
-  // ─── Handle chat input change with typing indicator ────────────────
-  const handleInputChange = (value: string) => {
-    setChatInput(value)
-    if (!socketRef.current || !isConnected || !currentGroup) return
-
-    socketRef.current.emit('group-typing', {
-      groupId: currentGroup.id,
-      userId,
-      userName,
-      isTyping: value.length > 0,
-    })
-
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-    typingTimeoutRef.current = setTimeout(() => {
-      socketRef.current?.emit('group-typing', {
-        groupId: currentGroup!.id,
-        userId,
-        userName,
-        isTyping: false,
-      })
-    }, 2000)
-  }
-
-  // ─── Format time for messages ──────────────────────────────────────
   const formatMsgTime = (ts: number | string) => {
     const date = typeof ts === 'number' ? new Date(ts) : new Date(ts)
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // RENDER: Group List View
-  // ═══════════════════════════════════════════════════════════════════
   if (!inRoom || !currentGroup) {
     return (
       <div className="space-y-6 page-transition">
-        {/* Join Error Banner */}
         {joinError && (
           <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between">
             <p className="text-sm text-red-700 dark:text-red-400">{joinError}</p>
             <button onClick={() => setJoinError(null)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-3 text-lg font-bold">&times;</button>
           </div>
         )}
-
-        {/* Header */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center shadow-sm">
             <Users className="w-5 h-5 text-white" />
@@ -624,8 +426,6 @@ export function GroupStudyPage() {
             <p className="text-xs text-slate-500 dark:text-slate-400">Study together with peers in real-time</p>
           </div>
         </div>
-
-        {/* Currently in a group banner */}
         {currentGroup && !inRoom && (
           <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 overflow-hidden">
             <div className="h-1 bg-gradient-to-r from-emerald-400 to-green-400" />
@@ -657,8 +457,6 @@ export function GroupStudyPage() {
             </CardContent>
           </Card>
         )}
-
-        {/* Loading state */}
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map(i => (
@@ -676,7 +474,6 @@ export function GroupStudyPage() {
             ))}
           </div>
         ) : groups.length === 0 ? (
-          /* Empty state */
           <Card className="border-dashed border-slate-200 dark:border-slate-700 col-span-full">
             <CardContent className="py-12 sm:py-16 text-center">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 flex items-center justify-center mx-auto mb-4 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
@@ -689,26 +486,15 @@ export function GroupStudyPage() {
             </CardContent>
           </Card>
         ) : (
-          /* Group cards */
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {groups.map((group, idx) => {
               const isFull = group.memberCount >= group.maxCapacity
               const isCurrentGroup = currentGroup?.id === group.id
               return (
-                <Card
-                  key={group.id}
-                  className={`group overflow-hidden border transition-all duration-200 slide-up hover:shadow-md ${
-                    isCurrentGroup
-                      ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-200 dark:ring-emerald-800 shadow-sm'
-                      : 'border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800 hover:shadow-sm'
-                  }`}
-                  style={{ animationDelay: `${idx * 60}ms` }}
-                >
-                  <div className={`h-1.5 ${
-                    isCurrentGroup
-                      ? 'bg-gradient-to-r from-emerald-400 to-green-400'
-                      : 'bg-gradient-to-r from-emerald-200 to-green-200 dark:from-emerald-800 dark:to-green-800'
-                  }`} />
+                <Card key={group.id} className={`group overflow-hidden border transition-all duration-200 slide-up hover:shadow-md ${
+                  isCurrentGroup ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-200 dark:ring-emerald-800 shadow-sm' : 'border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800 hover:shadow-sm'
+                }`} style={{ animationDelay: `${idx * 60}ms` }}>
+                  <div className={`h-1.5 ${isCurrentGroup ? 'bg-gradient-to-r from-emerald-400 to-green-400' : 'bg-gradient-to-r from-emerald-200 to-green-200 dark:from-emerald-800 dark:to-green-800'}`} />
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -716,60 +502,31 @@ export function GroupStudyPage() {
                           {isCurrentGroup && <Crown className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />}
                           {group.name}
                         </h3>
-                        {group.description && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
-                            {group.description}
-                          </p>
-                        )}
+                        {group.description && <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">{group.description}</p>}
                       </div>
                       {isFull && !isCurrentGroup ? (
-                        <Badge variant="secondary" className="text-[10px] bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800 flex-shrink-0">
-                          Full
-                        </Badge>
+                        <Badge variant="secondary" className="text-[10px] bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800 flex-shrink-0">Full</Badge>
                       ) : group.memberCount >= group.maxCapacity * 0.8 && !isCurrentGroup ? (
-                        <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex-shrink-0">
-                          Almost Full
-                        </Badge>
+                        <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex-shrink-0">Almost Full</Badge>
                       ) : null}
                     </div>
-
-                    {/* Capacity bar */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <Users className="w-3 h-3 text-slate-400" />
-                          <span className={`text-[11px] font-medium ${
-                            isFull ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
-                          }`}>
+                          <span className={`text-[11px] font-medium ${isFull ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                             {group.memberCount}/{group.maxCapacity} joined
                           </span>
                         </div>
-                        {group.subject && (
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
-                            <BookOpen2 className="w-2.5 h-2.5" />
-                            {group.subject.name}
-                          </span>
-                        )}
                       </div>
                       <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isFull
-                              ? 'bg-slate-300 dark:bg-slate-600'
-                              : 'bg-gradient-to-r from-emerald-400 to-green-500'
-                          }`}
-                          style={{ width: `${Math.min((group.memberCount / group.maxCapacity) * 100, 100)}%` }}
-                        />
+                        <div className={`h-full rounded-full transition-all duration-500 ${isFull ? 'bg-slate-300 dark:bg-slate-600' : 'bg-gradient-to-r from-emerald-400 to-green-500'}`}
+                          style={{ width: `${Math.min((group.memberCount / group.maxCapacity) * 100, 100)}%` }} />
                       </div>
                     </div>
-
                     <div className="flex justify-end">
                       {isCurrentGroup ? (
-                        <Button
-                          size="sm"
-                          onClick={() => enterRoom(group)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
-                        >
+                        <Button size="sm" onClick={() => enterRoom(group)} className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs">
                           <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Go to Room
                         </Button>
                       ) : isFull ? (
@@ -777,18 +534,8 @@ export function GroupStudyPage() {
                           <Users className="w-3.5 h-3.5 mr-1.5" /> Group Full
                         </Button>
                       ) : (
-                        <Button
-                          size="sm"
-                          onClick={() => handleJoinGroup(group.id)}
-                          disabled={joinLoading === group.id}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
-                        >
-                          {joinLoading === group.id ? (
-                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                          ) : (
-                            <UserPlus className="w-3.5 h-3.5 mr-1.5" />
-                          )}
-                          Join
+                        <Button size="sm" onClick={() => handleJoinGroup(group.id)} disabled={joinLoading === group.id} className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs">
+                          {joinLoading === group.id ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5 mr-1.5" />} Join
                         </Button>
                       )}
                     </div>
@@ -802,9 +549,6 @@ export function GroupStudyPage() {
     )
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // RENDER: Group Room View
-  // ═══════════════════════════════════════════════════════════════════
   const studyingMembers = members.filter(m => m.timerState?.running).length
 
   return (
@@ -838,24 +582,14 @@ export function GroupStudyPage() {
             </div>
           </div>
           {members.length > 1 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={comparisonSent && acceptedForCompare.length > 1 ? handleViewComparison : handleRequestComparison}
-              disabled={comparisonLoading}
-              className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30 h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3 shrink-0"
-            >
+            <Button variant="outline" size="sm" onClick={comparisonSent && acceptedForCompare.length > 1 ? handleViewComparison : handleRequestComparison}
+              disabled={comparisonLoading} className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30 h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3 shrink-0">
               {comparisonLoading ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5 animate-spin" /> : <BarChart3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5" />}
               <span className="hidden sm:inline">{comparisonSent ? 'View Compare' : 'Compare'}</span><span className="sm:hidden">{comparisonSent ? 'View' : 'Cmp'}</span>
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLeaveGroup}
-            disabled={leavingGroup}
-            className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30 h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3 shrink-0"
-          >
+          <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leavingGroup}
+            className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30 h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3 shrink-0">
             {leavingGroup ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5 animate-spin" /> : <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5" />}
             <span className="hidden sm:inline">Leave</span><span className="sm:hidden">Exit</span>
           </Button>
@@ -872,16 +606,10 @@ export function GroupStudyPage() {
                 <strong>{r.userName}</strong> wants to compare progress
               </span>
               <div className="flex gap-1.5 shrink-0">
-                <button
-                  onClick={() => handleAcceptComparison(r.userId)}
-                  className="w-6 h-6 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors"
-                >
+                <button onClick={() => handleAcceptComparison(r.userId)} className="w-6 h-6 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors">
                   <Check className="w-3 h-3" />
                 </button>
-                <button
-                  onClick={() => handleDeclineComparison(r.userId)}
-                  className="w-6 h-6 rounded-full bg-slate-300 hover:bg-slate-400 dark:bg-slate-600 dark:hover:bg-slate-500 text-white flex items-center justify-center transition-colors"
-                >
+                <button onClick={() => handleDeclineComparison(r.userId)} className="w-6 h-6 rounded-full bg-slate-300 hover:bg-slate-400 dark:bg-slate-600 dark:hover:bg-slate-500 text-white flex items-center justify-center transition-colors">
                   <X className="w-3 h-3" />
                 </button>
               </div>
@@ -898,9 +626,7 @@ export function GroupStudyPage() {
               <BarChart3 className="w-3 h-3 inline mr-1" />
               {acceptedForCompare.length}/{members.length} accepted comparison
               {acceptedForCompare.length > 1 && (
-                <button onClick={handleViewComparison} className="ml-2 underline font-medium">
-                  View now
-                </button>
+                <button onClick={handleViewComparison} className="ml-2 underline font-medium">View now</button>
               )}
             </span>
             <button onClick={() => { setComparisonSent(false); setAcceptedForCompare([]) }} className="text-emerald-400 hover:text-emerald-600">
@@ -910,26 +636,16 @@ export function GroupStudyPage() {
         </div>
       )}
 
-      {/* Main Content: Members Panel + Chat Panel */}
+      {/* Main Content */}
       <div className="flex-1 flex min-h-0">
-        {/* Members Panel (left on desktop, slide-over on mobile) */}
         <div className="w-full md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/10 order-2 md:order-1">
-          {/* Mobile: members toggle + slide-over */}
           <div className="md:hidden">
-            <button
-              onClick={() => setShowMobileMembers(prev => !prev)}
-              className="w-full flex items-center justify-between px-3 py-2 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-colors"
-            >
+            <button onClick={() => setShowMobileMembers(prev => !prev)} className="w-full flex items-center justify-between px-3 py-2 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-colors">
               <div className="flex items-center gap-2">
                 <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                  {members.length} member{members.length !== 1 ? 's' : ''}
-                </span>
+                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{members.length} member{members.length !== 1 ? 's' : ''}</span>
               </div>
-              <svg
-                className={`w-3.5 h-3.5 text-emerald-500 transition-transform ${showMobileMembers ? 'rotate-180' : ''}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-              >
+              <svg className={`w-3.5 h-3.5 text-emerald-500 transition-transform ${showMobileMembers ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
@@ -937,9 +653,7 @@ export function GroupStudyPage() {
               <div className="border-t border-emerald-100 dark:border-emerald-900/50 bg-white dark:bg-slate-900">
                 <ScrollArea className="max-h-48">
                   <div className="p-2 space-y-0.5">
-                    {members.map(m => (
-                      <MemberItem key={m.userId} member={m} currentUserId={userId} />
-                    ))}
+                    {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
                     {members.length === 0 && (
                       <div className="py-4 text-center">
                         <Users className="w-5 h-5 mx-auto text-emerald-300 dark:text-emerald-700 mb-1" />
@@ -951,19 +665,13 @@ export function GroupStudyPage() {
               </div>
             )}
           </div>
-
-          {/* Desktop: vertical member list */}
           <div className="hidden md:block h-full">
             <div className="px-3 py-2 border-b border-emerald-100 dark:border-emerald-900/50">
-              <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
-                Members ({members.length})
-              </p>
+              <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Members ({members.length})</p>
             </div>
             <ScrollArea className="h-[calc(100%-36px)]">
               <div className="p-2 space-y-0.5">
-                {members.map(m => (
-                  <MemberItem key={m.userId} member={m} currentUserId={userId} />
-                ))}
+                {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
                 {members.length === 0 && (
                   <div className="py-6 text-center">
                     <Users className="w-6 h-6 mx-auto text-emerald-300 dark:text-emerald-700 mb-1" />
@@ -977,7 +685,6 @@ export function GroupStudyPage() {
 
         {/* Chat Panel */}
         <div className="flex-1 flex flex-col min-w-0 order-1 md:order-2">
-          {/* Messages area */}
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-2">
               {messages.length === 0 ? (
@@ -989,63 +696,28 @@ export function GroupStudyPage() {
                   <p className="text-xs text-slate-400 dark:text-slate-500">Say hi to your study group members</p>
                 </div>
               ) : (
-                messages.map(msg => (
-                  <ChatMessageBubble key={msg.id} msg={msg} currentUserId={userId} />
-                ))
+                messages.map(msg => (<ChatMessageBubble key={msg.id} msg={msg} currentUserId={userId} />))
               )}
-
-              {/* Typing indicator */}
-              {typingUsers.length > 0 && (
-                <div className="flex items-center gap-1.5 py-1 px-2 fade-in">
-                  <div className="flex gap-0.5">
-                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                  <span className="text-[10px] text-slate-400 italic">
-                    {typingUsers.map(u => u.userName).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
-                  </span>
-                </div>
-              )}
-
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
 
-          {/* Input area */}
           <div className="flex-shrink-0 p-3 border-t border-emerald-100 dark:border-emerald-900/50 bg-white dark:bg-slate-900">
             <div className="flex gap-2">
-              <Input
-                placeholder={isConnected ? 'Type a message...' : 'Send a message...'}
-                value={chatInput}
-                onChange={(e) => handleInputChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    sendMessage()
-                  }
-                }}
-                className="flex-1 h-9 text-sm border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500"
-              />
-              <Button
-                onClick={sendMessage}
-                disabled={!chatInput.trim()}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4"
-              >
+              <Input placeholder={isConnected ? 'Type a message...' : 'Send a message...'} value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+                className="flex-1 h-9 text-sm border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500" />
+              <Button onClick={sendMessage} disabled={!chatInput.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4">
                 <Send className="w-4 h-4" />
               </Button>
             </div>
-            {!isConnected && (
-              <p className="text-[9px] text-amber-500 mt-1">Reconnecting... messages will be sent when online</p>
-            )}
-            {isConnected && (
-              <p className="text-[9px] text-slate-400 mt-1">Press Enter to send · Social media links are filtered</p>
-            )}
+            {!isConnected && <p className="text-[9px] text-amber-500 mt-1">Reconnecting... messages will be sent when online</p>}
+            {isConnected && <p className="text-[9px] text-slate-400 mt-1">Press Enter to send · Social media links are filtered</p>}
           </div>
         </div>
       </div>
 
-      {/* ─── Comparison Dashboard Overlay ─────────────────────────────── */}
+      {/* Comparison Dashboard Overlay */}
       {showComparison && comparisonData && (
         <div className="absolute inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col">
           <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30">
@@ -1059,7 +731,6 @@ export function GroupStudyPage() {
           </div>
           <ScrollArea className="flex-1 p-4">
             <div className="max-w-3xl mx-auto space-y-5">
-              {/* Overview Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {[
                   { label: 'Study Hours', key: 'totalStudyHours' as const, suffix: 'h', color: 'text-emerald-600' },
@@ -1069,21 +740,15 @@ export function GroupStudyPage() {
                   { label: 'Sessions (30d)', key: 'sessionsLast30' as const, suffix: '', color: 'text-purple-600' },
                 ].map(metric => {
                   const values = comparisonData.map(m => ({
-                    id: m.userId,
-                    val: typeof m[metric.key] === 'number' ? (m[metric.key] as number) : 0,
-                    isRequester: m.isRequester,
+                    id: m.userId, val: typeof m[metric.key] === 'number' ? (m[metric.key] as number) : 0, isRequester: m.isRequester,
                   }))
                   return (
                     <div key={metric.key} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-2">{metric.label}</p>
                       {values.map(v => (
                         <div key={v.id} className="flex items-center justify-between text-xs py-0.5">
-                          <span className={`truncate max-w-[60%] ${v.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
-                            {v.isRequester ? 'You' : 'Peer'}
-                          </span>
-                          <span className={`font-bold ${metric.color}`}>
-                            {metric.format ? metric.format(v.val) : v.val}{metric.suffix}
-                          </span>
+                          <span className={`truncate max-w-[60%] ${v.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{v.isRequester ? 'You' : 'Peer'}</span>
+                          <span className={`font-bold ${metric.color}`}>{metric.format ? metric.format(v.val) : v.val}{metric.suffix}</span>
                         </div>
                       ))}
                     </div>
@@ -1091,14 +756,12 @@ export function GroupStudyPage() {
                 })}
               </div>
 
-              {/* Daily Minutes Chart (text-based) */}
+              {/* Daily Minutes Chart */}
               <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                 <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Daily Study (Last 7 Days)</h4>
                 {comparisonData[0]?.dailyMinutes.map((day, di) => (
                   <div key={day.date} className="mb-2">
-                    <p className="text-[10px] text-slate-400 mb-1">
-                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    </p>
+                    <p className="text-[10px] text-slate-400 mb-1">{new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
                     {comparisonData.map(m => {
                       const memberDay = m.dailyMinutes.find(d => d.date === day.date)
                       const minutes = memberDay?.minutes || 0
@@ -1106,14 +769,9 @@ export function GroupStudyPage() {
                       const width = Math.max((minutes / maxMin) * 100, 2)
                       return (
                         <div key={m.userId} className="flex items-center gap-2 text-[10px] mb-0.5">
-                          <span className={`w-8 text-right ${m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                            {m.isRequester ? 'You' : 'Peer'}
-                          </span>
+                          <span className={`w-8 text-right ${m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>{m.isRequester ? 'You' : 'Peer'}</span>
                           <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${m.isRequester ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-indigo-400 to-purple-500'}`}
-                              style={{ width: `${width}%` }}
-                            />
+                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-indigo-400 to-purple-500'}`} style={{ width: `${width}%` }} />
                           </div>
                           <span className="w-10 text-right text-slate-600 dark:text-slate-300">{minutes}m</span>
                         </div>
@@ -1127,57 +785,41 @@ export function GroupStudyPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {comparisonData.map(m => (
                   <div key={m.userId} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-                    <h4 className={`text-xs font-semibold mb-3 ${m.isRequester ? 'text-emerald-700 dark:text-emerald-400' : 'text-indigo-700 dark:text-indigo-400'}`}>
-                      {m.isRequester ? 'Your Subjects' : 'Peer Subjects'}
-                    </h4>
-                    {m.subjectDistribution.length === 0 ? (
-                      <p className="text-[10px] text-slate-400">No study data yet</p>
-                    ) : (
-                      m.subjectDistribution.map(s => {
-                        const totalMin = m.subjectDistribution.reduce((sum, ss) => sum + ss.minutes, 0)
-                        const pct = totalMin > 0 ? Math.round((s.minutes / totalMin) * 100) : 0
-                        return (
-                          <div key={s.name} className="flex items-center gap-2 mb-1.5 text-[10px]">
-                            <span className="w-20 truncate text-slate-600 dark:text-slate-400">{s.name}</span>
-                            <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${m.isRequester ? 'bg-emerald-400' : 'bg-indigo-400'}`} style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-12 text-right text-slate-500">{s.minutes}m</span>
+                    <h4 className={`text-xs font-semibold mb-3 ${m.isRequester ? 'text-emerald-700 dark:text-emerald-400' : 'text-indigo-700 dark:text-indigo-400'}`}>{m.isRequester ? 'Your Subjects' : 'Peer Subjects'}</h4>
+                    {m.subjectDistribution.length === 0 ? <p className="text-[10px] text-slate-400">No study data yet</p> : m.subjectDistribution.map(s => {
+                      const totalMin = m.subjectDistribution.reduce((sum, ss) => sum + ss.minutes, 0)
+                      const pct = totalMin > 0 ? Math.round((s.minutes / totalMin) * 100) : 0
+                      return (
+                        <div key={s.name} className="flex items-center gap-2 mb-1.5 text-[10px]">
+                          <span className="w-20 truncate text-slate-600 dark:text-slate-400">{s.name}</span>
+                          <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-emerald-400' : 'bg-indigo-400'}`} style={{ width: `${pct}%` }} />
                           </div>
-                        )
-                      })
-                    )}
+                          <span className="w-12 text-right text-slate-500">{s.minutes}m</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
 
               {/* Achievement & Quiz Stats */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Achievements */}
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Achievements</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
-                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>
-                        {m.isRequester ? 'You' : 'Peer'}
-                      </span>
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        {m.achievementsUnlocked} / {m.totalAchievements}
-                      </span>
+                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">{m.achievementsUnlocked} / {m.totalAchievements}</span>
                     </div>
                   ))}
                 </div>
-                {/* Quiz Stats */}
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Quizzes</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
-                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>
-                        {m.isRequester ? 'You' : 'Peer'}
-                      </span>
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        {m.totalQuizzes} attempts · {m.quizAccuracy}% accuracy
-                      </span>
+                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">{m.totalQuizzes} attempts · {m.quizAccuracy}% accuracy</span>
                     </div>
                   ))}
                 </div>
@@ -1190,7 +832,6 @@ export function GroupStudyPage() {
   )
 }
 
-// ─── Inline BookOpen2 icon (small utility) ──────────────────────────────
 function BookOpen2({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>

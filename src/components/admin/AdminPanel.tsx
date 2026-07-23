@@ -28,7 +28,7 @@ import { GroupsPage } from './GroupsPage'
 import {
   LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone,
 } from 'lucide-react'
-import { io, Socket } from 'socket.io-client'
+
 
 // ─── CSS Keyframes (injected once) ─────────────────────────────────
 const ANIM_STYLES = `
@@ -558,26 +558,7 @@ function SendNotificationPage() {
   const [sendPush, setSendPush] = useState(true)
   const [sending, setSending] = useState(false)
   const [sentNotifications, setSentNotifications] = useState<any[]>([])
-  const socketRef = useRef<Socket | null>(null)
   const { data: courses } = useFetch<any[]>(() => api.adminCourses().then(r => r.data || r.courses || r), [])
-
-  // Connect socket for real-time broadcast
-  useEffect(() => {
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-      const s = io(`${origin}/?XTransformPort=3003`, {
-        path: '/',
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: 3,
-        timeout: 5000,
-      })
-      socketRef.current = s
-      // Auth as admin
-      s.emit('auth', { userId: 'admin', name: 'Admin', role: 'admin' })
-    } catch (e) { /* best-effort */ }
-    return () => { socketRef.current?.disconnect() }
-  }, [])
 
   const MAX_CHARS = 500
 
@@ -596,18 +577,6 @@ function SendNotificationPage() {
       setSentNotifications(prev => [{ title, message, target, sentAt: new Date(), push: sendPush }, ...prev])
       setTitle('')
       setMessage('')
-
-      // Broadcast in real-time via socket
-      if (socketRef.current && result.notification) {
-        socketRef.current.emit('admin-notification', {
-          id: result.notification.id,
-          title: result.notification.title,
-          message: result.notification.message,
-          type: result.notification.type,
-          targetRole: target === 'all' ? 'all' : 'student',
-          targetCourseId: target === 'course' ? targetCourseId : null,
-        })
-      }
 
       // Send browser push notification if toggled on
       if (sendPush) {

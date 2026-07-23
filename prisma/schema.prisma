@@ -306,13 +306,14 @@ model StudyGroup {
 }
 
 model GroupMember {
-  id        String   @id @default(cuid())
-  groupId   String
-  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  studentId String
-  student   Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  joinedAt  DateTime  @default(now())
-  leftAt    DateTime?
+  id         String   @id @default(cuid())
+  groupId    String
+  group      StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  timerState Json?     // { running, paused, remaining, total, chapterName }
 }
 
 model GroupMessage {
@@ -324,6 +325,20 @@ model GroupMessage {
   content   String
   type      String    @default("text") // text, image
   createdAt DateTime  @default(now())
+}
+
+// ==================== ROOM MESSAGE (Live Chat) ====================
+model RoomMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  userName  String
+  userRole  String   @default("student") // student, admin
+  content   String
+  type      String   @default("message") // message, system, admin-reply
+  createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
 }
 
 // ==================== BLOCKED USER (from Group Study) ====================

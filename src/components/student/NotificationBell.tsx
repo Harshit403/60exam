@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Bell, CheckCircle2, Trophy, MessageCircle, Flame, Info, X, BellRing } from 'lucide-react'
-import { io, Socket } from 'socket.io-client'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
 
@@ -63,32 +62,11 @@ export function NotificationBell({ onNavigate }: { onNavigate?: (page: string) =
     finally { setLoading(false) }
   }, [])
 
-  // Fetch on mount and every 60s
+  // Fetch on mount and every 30s
   useEffect(() => {
     fetchNotifications()
-    const interval = setInterval(fetchNotifications, 60000)
+    const interval = setInterval(fetchNotifications, 30000)
     return () => clearInterval(interval)
-  }, [fetchNotifications])
-
-  // Socket connection for real-time admin-notification events
-  useEffect(() => {
-    let socket: Socket | null = null
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-      socket = io(`${origin}/?XTransformPort=3003`, {
-        path: '/',
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: 3,
-        timeout: 5000,
-      })
-      socket.on('admin-notification', () => {
-        fetchNotifications()
-      })
-    } catch (e) {
-      // Socket connection best-effort
-    }
-    return () => { socket?.disconnect() }
   }, [fetchNotifications])
 
   // Close dropdown when clicking outside

@@ -1,4 +1,0 @@
-$ bun --hot index.ts
-[WS] MISSION CS Real-time service running on port 3003
-$ bun --hot index.ts
-[WS] MISSION CS Real-time service running on port 3003

@@ -250,6 +250,9 @@ export const api = {
   adminRemoveGroupMember: (groupId: string, memberId: string) =>
     apiFetch(`/admin/groups/${groupId}/members/${memberId}`, { method: 'DELETE' }),
 
+  // Realtime publish (SSE)
+  realtimePublish: (data: any) => apiFetch('/realtime/publish', { method: 'POST', body: JSON.stringify(data) }),
+
   // Public
   publicReviews: () => apiFetch('/public/reviews'),
   publicCourses: () => apiFetch('/public/courses'),
