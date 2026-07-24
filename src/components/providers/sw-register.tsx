@@ -41,7 +41,8 @@ async function subscribeToPush(registration: ServiceWorkerRegistration) {
       }),
     })
     if (!res.ok) {
-      console.warn('[SW] Push subscribe failed:', res.status)
+      const body = await res.text().catch(() => '')
+      console.warn('[SW] Push subscribe failed:', res.status, body, `token=${token.slice(0, 8)}...${token.slice(-4)}`)
       return
     }
     console.log('[SW] Push subscribed')

@@ -3,8 +3,12 @@ import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
+  const authHeader = req.headers.get('authorization')
+  console.log('[push/subscribe] auth header present:', !!authHeader, 'starts with Bearer:', authHeader?.startsWith('Bearer '))
+
   const auth = verifyAuth(req)
   if (!auth || auth.role !== 'student') {
+    console.log('[push/subscribe] auth failed, role:', auth?.role)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
