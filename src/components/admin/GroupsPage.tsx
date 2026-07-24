@@ -108,9 +108,9 @@ export function GroupsPage() {
 
   // Chat room dialog
   const [chatGroup, setChatGroup] = useState<Group | null>(null)
-  const [chatMembers, setChatMembers] = useState<{ userId: string; name: string }[]>([])
+  const [chatMembers, setChatMembers] = useState<{ userId: string; name: string; email?: string }[]>([])
   const [chatMessages, setChatMessages] = useState<any[]>([])
-  const [revealStudent, setRevealStudent] = useState<{ userId: string; name: string } | null>(null)
+  const [revealStudent, setRevealStudent] = useState<{ userId: string; name: string; email?: string; ipAddress?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const chatChannel = chatGroup ? `group:${chatGroup.id}` : ''
@@ -1168,8 +1168,14 @@ export function GroupsPage() {
                                 <div className="flex-shrink-0 self-end pb-0.5">
                                   {showAvatar ? (
                                     <Avatar className="h-7 w-7 ring-2 ring-white dark:ring-slate-800 shadow-sm">
-                                      <AvatarFallback className="text-[9px] font-bold bg-gradient-to-br from-indigo-500 to-blue-500 text-white">
-                                        {(msg.userName || 'U').charAt(0).toUpperCase()}
+                                      <AvatarFallback className={`text-[9px] font-bold ${
+                                        msg.gender === 'male'
+                                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                                          : msg.gender === 'female'
+                                          ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-400'
+                                          : 'bg-gradient-to-br from-indigo-500 to-blue-500 text-white'
+                                      }`}>
+                                        {msg.gender === 'male' ? '♂' : msg.gender === 'female' ? '♀' : (msg.userName || 'U').charAt(0).toUpperCase()}
                                       </AvatarFallback>
                                     </Avatar>
                                   ) : (
@@ -1181,7 +1187,7 @@ export function GroupsPage() {
                                     <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5 hover:underline cursor-pointer"
                                       onClick={() => {
                                         const real = chatMembers.find(m => m.userId === msg.userId)
-                                        setRevealStudent({ userId: msg.userId, name: real?.name || msg.userName })
+                                        setRevealStudent({ userId: msg.userId, name: real?.name || msg.userName, email: real?.email, ipAddress: msg.ipAddress })
                                       }}>
                                       {msg.userName}
                                     </span>
@@ -1192,6 +1198,9 @@ export function GroupsPage() {
                                       <span className="text-[10px] leading-none ml-2 text-slate-400 dark:text-slate-500 select-none">
                                         {formatMsgTime(msg.timestamp)}
                                       </span>
+                                      {msg.ipAddress && (
+                                        <span className="block text-[9px] font-mono text-slate-400 dark:text-slate-500 mt-0.5">{msg.ipAddress}</span>
+                                      )}
                                     </div>
                                     <Button
                                       variant="ghost" size="icon"
@@ -1261,12 +1270,15 @@ export function GroupsPage() {
                 {groupMessages.map((m) => (
                   <div key={m.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors group">
                     <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/20 to-purple-500/20 text-violet-700 dark:text-violet-300 font-semibold text-xs shrink-0 mt-0.5">
-                      {(m.studentName || '?').charAt(0).toUpperCase()}
+                      {m.gender === 'male' ? '♂' : m.gender === 'female' ? '♀' : (m.studentName || '?').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">{m.studentName}</span>
                         <span className="text-[10px] text-muted-foreground">{formatDateTime(m.createdAt)}</span>
+                        {m.ipAddress && (
+                          <span className="text-[9px] font-mono text-muted-foreground/60">{m.ipAddress}</span>
+                        )}
                       </div>
                       <p className="text-sm mt-0.5 text-foreground break-words">{m.content}</p>
                     </div>
@@ -1320,6 +1332,18 @@ export function GroupsPage() {
                 <span className="text-slate-500 dark:text-slate-400">Student ID</span>
                 <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{revealStudent?.userId}</span>
               </div>
+              {revealStudent?.email && (
+                <div className="flex items-center justify-between text-sm mt-2">
+                  <span className="text-slate-500 dark:text-slate-400">Email</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-400">{revealStudent.email}</span>
+                </div>
+              )}
+              {revealStudent?.ipAddress && (
+                <div className="flex items-center justify-between text-sm mt-2">
+                  <span className="text-slate-500 dark:text-slate-400">IP Address</span>
+                  <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{revealStudent.ipAddress}</span>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

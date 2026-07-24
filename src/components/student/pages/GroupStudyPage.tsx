@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Users, MessageCircle, LogOut, Send, Clock, UserPlus, Crown, Circle, Loader2,
-  BarChart3, Check, X, ArrowLeft, MoreVertical, ChevronDown, User, Dot,
+  BarChart3, Check, X, ArrowLeft, MoreVertical, ChevronDown, User, Dot, Eye, EyeOff,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useSSE } from '@/hooks/useSSE'
@@ -118,8 +118,14 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
         <div className="flex-shrink-0 self-end pb-0.5">
           {showAvatar ? (
             <Avatar className="h-8 w-8 ring-2 ring-white dark:ring-slate-800 shadow-sm">
-              <AvatarFallback className="text-xs font-semibold bg-gradient-to-br from-indigo-500 to-blue-500 text-white">
-                {(msg.userName || 'U').charAt(0).toUpperCase()}
+              <AvatarFallback className={`text-xs font-semibold ${
+                msg.gender === 'male'
+                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                  : msg.gender === 'female'
+                  ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-400'
+                  : 'bg-gradient-to-br from-indigo-500 to-blue-500 text-white'
+              }`}>
+                {msg.gender === 'male' ? '♂' : msg.gender === 'female' ? '♀' : (msg.userName || 'U').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
           ) : (
@@ -142,6 +148,15 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
           }`}>
             {time}
           </span>
+          {msg.disappearAfter && (
+            <span className={`inline-block ml-1 ${isSelf ? 'text-white/60' : 'text-slate-400'}`} title={
+              msg.disappearAfter === 'view_once' ? 'View once' :
+              msg.disappearAfter === '30m' ? 'Disappears in 30 min' :
+              msg.disappearAfter === '24h' ? 'Disappears in 24h' : ''
+            }>
+              <Clock className="w-2.5 h-2.5 inline" />
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -195,6 +210,9 @@ export function GroupStudyPage() {
   const [anonymousColor, setAnonymousColor] = useState('bg-indigo-500')
   const [showGenderPicker, setShowGenderPicker] = useState(false)
 
+  const [disappearTimer, setDisappearTimer] = useState<string | null>(null)
+  const [showDisappearPicker, setShowDisappearPicker] = useState(false)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const timerSyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -242,7 +260,8 @@ export function GroupStudyPage() {
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]))
         setUserId(payload.id || '')
-        setUserName(payload.fullName || payload.email?.split('@')[0] || 'Student')
+        const rawName = payload.fullName || payload.email?.split('@')[0] || 'Student'
+        setUserName(rawName.split(' ')[0])
       }
     } catch (e) { /* ignore */ }
   }, [])
@@ -309,11 +328,14 @@ export function GroupStudyPage() {
     const filtered = filterContent(chatInput.trim())
     const displayName = anonymousMode && anonymousName ? anonymousName : userName
     const optId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-    setMessages(prev => [...prev, { id: optId, userId, userName: displayName, content: filtered, type: 'text', timestamp: Date.now() }])
+    setMessages(prev => [...prev, { id: optId, userId, userName: displayName, content: filtered, type: 'text', timestamp: Date.now(), gender: anonymousMode ? anonymousGender : null, disappearAfter: disappearTimer, expiresAt: null }])
     setChatInput('')
+    setDisappearTimer(null)
     try {
       const payload: any = { action: 'group-message', groupId: currentGroup.id, content: filtered }
       if (anonymousMode && anonymousName) payload.anonymousName = anonymousName
+      if (anonymousMode && anonymousGender) payload.anonymousGender = anonymousGender
+      if (disappearTimer) payload.disappearAfter = disappearTimer
       const result = await api.realtimePublish(payload)
       if (result?.message?.id) {
         setMessages(prev => prev.map(m => m.id === optId ? { ...m, id: result.message.id } : m))
@@ -364,6 +386,22 @@ export function GroupStudyPage() {
     })
     return groups
   }
+
+  // Remove expired and view_once messages locally
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setMessages(prev => prev.filter(msg => {
+        if (msg.disappearAfter === 'view_once') {
+          const msgTime = typeof msg.timestamp === 'number' ? msg.timestamp : new Date(msg.timestamp).getTime()
+          return now - msgTime < 10000
+        }
+        if (msg.expiresAt && now > msg.expiresAt) return false
+        return true
+      }))
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Filter groups by search
   const filteredGroups = groups.filter(g =>
@@ -869,6 +907,39 @@ export function GroupStudyPage() {
             {/* ── Input bar ── */}
             <div className="flex-shrink-0 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-2 sm:px-4 py-3 border-t border-slate-200 dark:border-slate-700 shadow-lg">
               <div className="flex items-center gap-2 max-w-4xl mx-auto">
+                {/* Disappear timer button */}
+                <div className="relative">
+                  <button onClick={() => setShowDisappearPicker(!showDisappearPicker)}
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
+                      disappearTimer ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400'
+                    }`}
+                    title={disappearTimer === 'view_once' ? 'View once' : disappearTimer === '30m' ? 'Disappears in 30m' : disappearTimer === '24h' ? 'Disappears in 24h' : 'Disappearing messages'}>
+                    <Clock className="w-4 h-4" />
+                  </button>
+                  {showDisappearPicker && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowDisappearPicker(false)} />
+                      <div className="absolute bottom-full mb-2 left-0 z-50 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 min-w-[160px]">
+                        <button onClick={() => { setDisappearTimer(null); setShowDisappearPicker(false) }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors ${!disappearTimer ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                          <EyeOff className="w-3.5 h-3.5" /> Off
+                        </button>
+                        <button onClick={() => { setDisappearTimer('view_once'); setShowDisappearPicker(false) }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors ${disappearTimer === 'view_once' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                          <Eye className="w-3.5 h-3.5" /> View once
+                        </button>
+                        <button onClick={() => { setDisappearTimer('30m'); setShowDisappearPicker(false) }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors ${disappearTimer === '30m' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                          <Clock className="w-3.5 h-3.5" /> 30 minutes
+                        </button>
+                        <button onClick={() => { setDisappearTimer('24h'); setShowDisappearPicker(false) }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors ${disappearTimer === '24h' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                          <Clock className="w-3.5 h-3.5" /> 24 hours
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-2xl px-4 py-2 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
                   <input
                     ref={inputRef}
@@ -890,6 +961,15 @@ export function GroupStudyPage() {
                   <Send className="w-5 h-5" />
                 </button>
               </div>
+              {/* Active timer indicator */}
+              {disappearTimer && (
+                <div className="flex items-center gap-1.5 mt-1.5 px-1">
+                  <Clock className="w-3 h-3 text-amber-500" />
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                    {disappearTimer === 'view_once' ? 'Messages will disappear after being read' : `Messages will disappear in ${disappearTimer === '30m' ? '30 minutes' : '24 hours'}`}
+                  </span>
+                </div>
+              )}
               {!isConnected && (
                 <p className="text-[10px] text-amber-500 text-center mt-1.5">Reconnecting... messages will be sent when online</p>
               )}
@@ -901,8 +981,7 @@ export function GroupStudyPage() {
       {showGenderPicker && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowGenderPicker(false)}>
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-72 mx-4 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 text-center mb-1">Chat Anonymously</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-4">Select your gender to get a random American famous identity</p>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 text-center mb-4">Chat Anonymously</h3>
             <div className="grid grid-cols-2 gap-3">
               <button onClick={() => { setAnonymousGender('male'); const r = getRandomName('male'); setAnonymousName(r.name); setAnonymousColor(r.color); setAnonymousMode(true); setShowGenderPicker(false) }}
                 className="flex flex-col items-center gap-2 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/50 transition-all active:scale-95">

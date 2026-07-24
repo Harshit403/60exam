@@ -602,26 +602,28 @@ function SendNotificationPage() {
       if (result?.notification) {
         setSentNotifications(prev => [result.notification, ...prev])
       }
+      const notifTitle = title.trim()
+      const notifMessage = message.trim()
       setTitle('')
       setMessage('')
 
       if (sendPush) {
         try {
-          const pushRes = await fetch('/api/admin/notifications/knock-send', {
+          const pushRes = await fetch('/api/admin/push/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
             body: JSON.stringify({
-              title: title.trim(),
-              message: message.trim(),
+              title: notifTitle,
+              message: notifMessage,
               targetCourseId: target === 'course' ? targetCourseId : null,
             }),
           })
           const pushData = await pushRes.json()
           if (pushData.sent !== undefined) {
-            console.log(`[KnockPush] Sent to ${pushData.sent}/${pushData.total} devices`)
+            toast.success(`Push sent to ${pushData.sent} device(s)`)
           }
         } catch (pushErr) {
-          console.warn('[KnockPush] Send failed:', pushErr)
+          console.warn('[Push] Send failed:', pushErr)
         }
       }
     } catch (e: any) {

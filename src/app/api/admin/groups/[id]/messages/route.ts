@@ -26,6 +26,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         createdAt: m.createdAt,
         studentId: m.studentId,
         studentName: m.student.fullName,
+        anonymousName: m.anonymousName,
+        ipAddress: m.ipAddress,
+        gender: m.anonymousGender,
       })),
     })
   } catch (e: any) {

@@ -30,8 +30,18 @@ export async function POST(req: NextRequest) {
 
     // ─── Group: send chat message ───────────────────────────────────
     case 'group-message': {
-      const { groupId, content, anonymousName } = body
+      const { groupId, content, anonymousName, anonymousGender, disappearAfter } = body
       if (!groupId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      const forwarded = req.headers.get('x-forwarded-for')
+      const ipAddress = forwarded ? forwarded.split(',')[0].trim() : (req.headers.get('x-real-ip') || null)
+
+      let expiresAt: Date | null = null
+      if (disappearAfter === '30m') {
+        expiresAt = new Date(Date.now() + 30 * 60 * 1000)
+      } else if (disappearAfter === '24h') {
+        expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      }
 
       const msg = await db.groupMessage.create({
         data: {
@@ -40,6 +50,10 @@ export async function POST(req: NextRequest) {
           content,
           type: 'text',
           anonymousName: anonymousName || null,
+          anonymousGender: anonymousGender || null,
+          ipAddress,
+          disappearAfter: disappearAfter || null,
+          expiresAt,
         },
       })
       await db.groupMember.updateMany({

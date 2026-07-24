@@ -8,8 +8,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { UserCog, CheckCircle2, AlertCircle, Loader2, Camera } from 'lucide-react'
+import { UserCog, CheckCircle2, AlertCircle, Loader2, Camera, Bell, BellOff, CalendarClock, Clock } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { DashboardData } from '../types'
 import { LoadingSkeleton } from '../utils'
@@ -25,13 +26,26 @@ export function EditProfilePage({ data, onRefresh }: { data: DashboardData | nul
   const [error, setError] = useState('')
   const [initialized, setInitialized] = useState(false)
 
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(true)
+  const [dailyPlanReminderEnabled, setDailyPlanReminderEnabled] = useState(true)
+  const [dailyPlanReminderTime, setDailyPlanReminderTime] = useState('09:00')
+  const [notifLoading, setNotifLoading] = useState(false)
+  const [notifSuccess, setNotifSuccess] = useState(false)
+
   useEffect(() => {
     const init = async () => {
       try {
-        const [profileData, coursesData] = await Promise.all([api.studentProfile(), api.publicCourses()])
+        const [profileData, coursesData, notifPrefs] = await Promise.all([
+          api.studentProfile(),
+          api.publicCourses(),
+          api.getNotificationPreferences(),
+        ])
         const s = profileData.student
         setFullName(s.fullName); setEmail(s.email); setMobile(s.mobile)
         setCourseId(s.courseId); setCourses(coursesData.courses || []); setInitialized(true)
+        setPushNotificationsEnabled(notifPrefs.pushNotificationsEnabled)
+        setDailyPlanReminderEnabled(notifPrefs.dailyPlanReminderEnabled)
+        setDailyPlanReminderTime(notifPrefs.dailyPlanReminderTime || '09:00')
       } catch (err) { console.error('Profile init error:', err) }
     }
     init()
@@ -47,6 +61,19 @@ export function EditProfilePage({ data, onRefresh }: { data: DashboardData | nul
     finally { setLoading(false) }
   }
 
+  const handleNotifSave = async () => {
+    setNotifLoading(true); setNotifSuccess(false)
+    try {
+      await api.updateNotificationPreferences({
+        pushNotificationsEnabled,
+        dailyPlanReminderEnabled,
+        dailyPlanReminderTime,
+      })
+      setNotifSuccess(true); setTimeout(() => setNotifSuccess(false), 3000)
+    } catch (err: any) { setError(err.message || 'Failed to update preferences') }
+    finally { setNotifLoading(false) }
+  }
+
   if (!initialized) return <LoadingSkeleton />
 
   return (
@@ -57,7 +84,7 @@ export function EditProfilePage({ data, onRefresh }: { data: DashboardData | nul
         </div>
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Edit Profile</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Update your personal information</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Update your personal information and notification preferences</p>
         </div>
       </div>
 
@@ -118,6 +145,80 @@ export function EditProfilePage({ data, onRefresh }: { data: DashboardData | nul
           <Button onClick={handleSave} disabled={loading || !fullName}
             className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 w-full sm:w-auto active:scale-[0.98] transition-transform">
             {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />} Save Changes
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Notification Preferences */}
+      <Card className="max-w-lg overflow-hidden">
+        <CardContent className="pt-6 space-y-5 p-4 sm:p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <Bell className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Notification Preferences</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Control what notifications you receive</p>
+            </div>
+          </div>
+
+          {notifSuccess && (
+            <Alert className="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 pop-in">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <AlertDescription className="text-emerald-700 dark:text-emerald-400">Notification preferences updated!</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-4">
+            {/* Push Notifications */}
+            <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3 min-w-0">
+                {pushNotificationsEnabled ? (
+                  <Bell className="w-5 h-5 text-indigo-600 shrink-0" />
+                ) : (
+                  <BellOff className="w-5 h-5 text-slate-400 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <Label className="text-sm font-medium text-slate-800 dark:text-slate-200 cursor-pointer">Admin Push Notifications</Label>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Receive broadcast notifications from admin</p>
+                </div>
+              </div>
+              <Switch checked={pushNotificationsEnabled} onCheckedChange={setPushNotificationsEnabled} className="data-[state=checked]:bg-indigo-600 shrink-0" />
+            </div>
+
+            {/* Daily Plan Reminder */}
+            <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3 min-w-0">
+                <CalendarClock className="w-5 h-5 text-indigo-600 shrink-0" />
+                <div className="min-w-0">
+                  <Label className="text-sm font-medium text-slate-800 dark:text-slate-200 cursor-pointer">Daily Study Plan Reminder</Label>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Get a daily push notification with your planned chapters</p>
+                </div>
+              </div>
+              <Switch checked={dailyPlanReminderEnabled} onCheckedChange={setDailyPlanReminderEnabled} className="data-[state=checked]:bg-indigo-600 shrink-0" />
+            </div>
+
+            {/* Time picker - shown only when daily reminder is enabled */}
+            {dailyPlanReminderEnabled && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50">
+                <Clock className="w-5 h-5 text-indigo-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs font-medium text-indigo-700 dark:text-indigo-400">Reminder Time</Label>
+                  <p className="text-[10px] text-indigo-500 dark:text-indigo-500">Choose when to receive your daily study plan</p>
+                </div>
+                <input
+                  type="time"
+                  value={dailyPlanReminderTime}
+                  onChange={(e) => setDailyPlanReminderTime(e.target.value)}
+                  className="h-10 px-3 rounded-lg bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-sm text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-400/50"
+                />
+              </div>
+            )}
+          </div>
+
+          <Button onClick={handleNotifSave} disabled={notifLoading}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white w-full sm:w-auto active:scale-[0.98] transition-transform">
+            {notifLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />} Save Notification Preferences
           </Button>
         </CardContent>
       </Card>

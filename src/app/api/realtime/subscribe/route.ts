@@ -101,28 +101,39 @@ export async function GET(req: NextRequest) {
         const groupId = channel.slice(6)
 
         ;(async () => {
+          const messageWhere: any = { groupId }
+          if (userRole !== 'admin') {
+            messageWhere.OR = [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ]
+          }
           const [messages, members] = await Promise.all([
             db.groupMessage.findMany({
-              where: { groupId },
+              where: messageWhere,
               orderBy: { createdAt: 'asc' },
               take: 50,
               include: { student: { select: { fullName: true } } },
             }),
             db.groupMember.findMany({
               where: { groupId, leftAt: null },
-              include: { student: { select: { id: true, fullName: true } } },
+              include: { student: { select: { id: true, fullName: true, email: true } } },
             }),
           ])
           sendSSE(res, 'group-history', {
             messages: messages.map(m => ({
-              id: m.id, userId: m.studentId, userName: m.anonymousName || m.student.fullName,
+              id: m.id, userId: m.studentId,
+              userName: m.anonymousName || m.student.fullName.split(' ')[0],
               content: m.content, type: m.type === 'text' ? 'text' : 'system',
               timestamp: m.createdAt.getTime(),
+              ipAddress: m.ipAddress, gender: m.anonymousGender,
+              disappearAfter: m.disappearAfter, expiresAt: m.expiresAt?.getTime() || null,
             })),
           })
           sendSSE(res, 'group-members', {
             members: members.map(m => ({
-              userId: m.studentId, name: m.student.fullName,
+              userId: m.studentId, name: m.student.fullName.split(' ')[0],
+              email: userRole === 'admin' ? m.student.email : undefined,
               timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
             })),
           })
@@ -138,28 +149,40 @@ export async function GET(req: NextRequest) {
               data: { leftAt: new Date() },
             })
 
+            const whereNew: any = { groupId, createdAt: { gt: new Date(lastPoll) } }
+            if (userRole !== 'admin') {
+              whereNew.OR = [
+                { expiresAt: null },
+                { expiresAt: { gt: new Date() } },
+              ]
+            }
             const [newMessages, currentMembers] = await Promise.all([
               db.groupMessage.findMany({
-                where: { groupId, createdAt: { gt: new Date(lastPoll) } },
+                where: whereNew,
                 orderBy: { createdAt: 'asc' },
                 include: { student: { select: { fullName: true } } },
               }),
               db.groupMember.findMany({
                 where: { groupId, leftAt: null },
-                include: { student: { select: { id: true, fullName: true } } },
+                include: { student: { select: { id: true, fullName: true, email: true } } },
               }),
             ])
             if (newMessages.length > 0) {
               for (const m of newMessages) {
+                if (m.studentId === userId) continue
                 sendSSE(res, 'group-chat-message', {
-                  id: m.id, userId: m.studentId, userName: m.anonymousName || m.student.fullName,
+                  id: m.id, userId: m.studentId,
+                  userName: m.anonymousName || m.student.fullName.split(' ')[0],
                   content: m.content, type: m.type === 'text' ? 'text' : 'system',
                   timestamp: m.createdAt.getTime(),
+                  ipAddress: m.ipAddress, gender: m.anonymousGender,
+                  disappearAfter: m.disappearAfter, expiresAt: m.expiresAt?.getTime() || null,
                 })
               }
             }
             const currentMembersData = currentMembers.map(m => ({
-              userId: m.studentId, name: m.student.fullName,
+              userId: m.studentId, name: m.student.fullName.split(' ')[0],
+              email: userRole === 'admin' ? m.student.email : undefined,
               timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
             }))
             sendSSE(res, 'group-members', { members: currentMembersData })

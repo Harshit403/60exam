@@ -64,6 +64,51 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// ─── Push Event ────────────────────────────────────────────────────
+// Receive push notifications from the server
+self.addEventListener('push', (event) => {
+  let data = { title: 'Mission CS', message: '' };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      data.title = parsed.title || data.title;
+      data.message = parsed.message || '';
+    }
+  } catch {}
+
+  const options = {
+    body: data.message,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    vibrate: [200, 100, 200],
+    requireInteraction: true,
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
+
+// ─── Notification Click Event ──────────────────────────────────────
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      if (clientList.length > 0) {
+        clientList[0].focus();
+      } else {
+        clients.openWindow('/');
+      }
+    })
+  );
+});
+
+// ─── Message Event ──────────────────────────────────────────────────
+// Listen for SKIP_WAITING from the client to activate new SW immediately
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // ─── Fetch Event ────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event;

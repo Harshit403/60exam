@@ -38,6 +38,9 @@ model Student {
   verified              Boolean  @default(false)
   studyReminderEnabled  Boolean  @default(true)
   lastReminderSentAt    DateTime?
+  pushNotificationsEnabled Boolean @default(true)
+  dailyPlanReminderEnabled Boolean @default(true)
+  dailyPlanReminderTime    String   @default("09:00")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -54,6 +57,7 @@ model Student {
   blockedBy      BlockedUser[]
   ipLogs         IpLog[]
   adminNotificationReads AdminNotificationRead[]
+  pushSubscriptions     PushSubscription[]
 }
 
 // ==================== COURSE ====================
@@ -320,15 +324,19 @@ model GroupMember {
 }
 
 model GroupMessage {
-  id            String   @id @default(cuid())
-  groupId       String
-  group         StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  studentId     String
-  student       Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  content       String
-  type          String    @default("text") // text, image
-  anonymousName String?
-  createdAt     DateTime  @default(now())
+  id              String    @id @default(cuid())
+  groupId         String
+  group           StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  studentId       String
+  student         Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  content         String
+  type            String     @default("text") // text, image
+  anonymousName   String?
+  anonymousGender String?
+  ipAddress       String?
+  disappearAfter  String?   // null=never, view_once, 30m, 24h
+  expiresAt       DateTime? // calculated expiry time
+  createdAt       DateTime  @default(now())
 }
 
 // ==================== ROOM MESSAGE (Live Chat) ====================
@@ -400,6 +408,18 @@ model AdminNotificationRead {
   readAt         DateTime @default(now())
 
   @@unique([notificationId, studentId])
+}
+
+// ==================== PUSH SUBSCRIPTION ====================
+model PushSubscription {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
 }
 
 // ==================== QUIZ CHAPTER LINK ====================

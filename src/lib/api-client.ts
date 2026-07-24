@@ -139,6 +139,11 @@ export const api = {
   // Study Reminder Preference
   getReminderPreference: () => apiFetch('/student/reminder-preference'),
   setReminderPreference: (enabled: boolean) => apiFetch('/student/reminder-preference', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+
+  // Notification Preferences
+  getNotificationPreferences: () => apiFetch('/student/notification-preferences'),
+  updateNotificationPreferences: (data: { pushNotificationsEnabled?: boolean; dailyPlanReminderEnabled?: boolean; dailyPlanReminderTime?: string }) =>
+    apiFetch('/student/notification-preferences', { method: 'PATCH', body: JSON.stringify(data) }),
   
   // Student Strike
   studentSendStrike: () => apiFetch('/student/strike', { method: 'POST' }),
