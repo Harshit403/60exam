@@ -33,6 +33,14 @@ export async function POST(req: NextRequest) {
       const { groupId, content, anonymousName, anonymousGender, disappearAfter } = body
       if (!groupId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
+      // Block chat if user has an active timer
+      const activeMembership = await db.groupMember.findFirst({
+        where: { groupId, studentId: auth.id, leftAt: null },
+      })
+      if (activeMembership?.timerState && (activeMembership.timerState as any).running && !(activeMembership.timerState as any).paused) {
+        return NextResponse.json({ error: 'Cannot chat while a study session is running' }, { status: 400 })
+      }
+
       const forwarded = req.headers.get('x-forwarded-for')
       const ipAddress = forwarded ? forwarded.split(',')[0].trim() : (req.headers.get('x-real-ip') || null)
 

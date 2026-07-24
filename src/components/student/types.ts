@@ -98,7 +98,9 @@ export interface GroupMemberInfo {
 }
 
 export interface TimerState {
-  running: boolean; paused: boolean; remaining: number; total: number; chapterName?: string | null
+  running: boolean; paused: boolean; remaining: number; total: number
+  chapterName?: string | null; subjectName?: string | null
+  phase?: 'work' | 'break' | null; phaseLabel?: string | null
 }
 
 export interface GroupMessage {

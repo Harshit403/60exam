@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Users, MessageCircle, LogOut, Send, Clock, UserPlus, Crown, Circle, Loader2,
-  BarChart3, Check, X, ArrowLeft, MoreVertical, ChevronDown, User, Dot, Eye, EyeOff,
+  BarChart3, Check, X, ArrowLeft, MoreVertical, ChevronDown, User, Dot, Eye, EyeOff, Play,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useSSE } from '@/hooks/useSSE'
@@ -60,8 +60,22 @@ function MiniTimerRing({ timerState }: { timerState: TimerState }) {
 
 function MemberItem({ member, currentUserId }: { member: { userId: string; name: string; timerState?: TimerState | null }; currentUserId: string }) {
   const isSelf = member.userId === currentUserId
-  const isStudying = member.timerState?.running === true
-  const isPaused = member.timerState?.paused === true && member.timerState?.running === false
+  const ts = member.timerState
+  const isStudying = ts?.running === true
+  const isPaused = ts?.paused === true && ts?.running === false
+  const isOnBreak = ts?.phase === 'break' && isStudying
+
+  const statusText = isStudying
+    ? (isOnBreak ? `Break · ${formatTimer(ts!.remaining)}` : ts?.subjectName
+        ? `${ts.subjectName} · ${formatTimer(ts!.remaining)}`
+        : `Studying · ${formatTimer(ts!.remaining)}`)
+    : isPaused
+      ? `Paused · ${formatTimer(ts!.remaining)}`
+      : 'Idle'
+
+  const dotColor = isStudying
+    ? (isOnBreak ? 'bg-amber-400' : 'bg-emerald-500')
+    : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
 
   return (
     <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
@@ -75,19 +89,20 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
             {(member.name || 'U').charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-[3px] ring-white dark:ring-slate-800 ${
-          isStudying ? 'bg-emerald-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
-        }`} />
+        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-[3px] ring-white dark:ring-slate-800 ${dotColor}`} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
           {member.name} {isSelf && <span className="text-indigo-600 dark:text-indigo-400 text-xs">(You)</span>}
         </p>
         <p className={`text-xs ${isStudying ? 'text-indigo-600 dark:text-indigo-400 font-medium' : isPaused ? 'text-amber-500' : 'text-slate-400'}`}>
-          {isStudying ? `Studying · ${formatTimer(member.timerState!.remaining)}` : isPaused ? `Paused · ${formatTimer(member.timerState!.remaining)}` : 'Idle'}
+          {statusText}
         </p>
+        {ts?.phaseLabel && (
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{ts.phaseLabel}</p>
+        )}
       </div>
-      {member.timerState?.running && <MiniTimerRing timerState={member.timerState} />}
+      {ts?.running && <MiniTimerRing timerState={ts} />}
     </div>
   )
 }
@@ -213,6 +228,12 @@ export function GroupStudyPage() {
   const [disappearTimer, setDisappearTimer] = useState<string | null>(null)
   const [showDisappearPicker, setShowDisappearPicker] = useState(false)
 
+  const [showStudyStarter, setShowStudyStarter] = useState(false)
+  const [studySubjects, setStudySubjects] = useState<{ id: string; name: string; chapters: { id: string; name: string }[] }[]>([])
+  const [selectedSubj, setSelectedSubj] = useState('')
+  const [selectedChap, setSelectedChap] = useState('')
+  const [studyMinutes, setStudyMinutes] = useState(30)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const timerSyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -279,7 +300,15 @@ export function GroupStudyPage() {
 
   const [joinError, setJoinError] = useState<string | null>(null)
 
+  const isTimerActive = (): boolean => {
+    try {
+      const d = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
+      return !!(d.timerRunning && !d.timerPaused)
+    } catch { return false }
+  }
+
   const handleJoinGroup = async (groupId: string) => {
+    if (isTimerActive()) { setJoinError('Cannot join a group while a study session is running. Stop your timer first.'); return }
     const group = groups.find(g => g.id === groupId)
     if (group && group.activeMembers >= group.maxCapacity) { setJoinError('This group is full. Please try another group.'); return }
     setJoinLoading(groupId); setJoinError(null)
@@ -300,7 +329,10 @@ export function GroupStudyPage() {
     } catch (err) { console.error('Leave group error:', err) } finally { setLeavingGroup(false) }
   }
 
-  const enterRoom = useCallback((group: StudyGroup) => { setInRoom(true); setMessages([]); setMembers([]); setShowMembersPanel(false); setShowMobileMenu(false) }, [])
+  const enterRoom = useCallback((group: StudyGroup) => {
+    if (isTimerActive()) return
+    setInRoom(true); setMessages([]); setMembers([]); setShowMembersPanel(false); setShowMobileMenu(false)
+  }, [])
 
   useEffect(() => { if (currentGroup && !inRoom && userId) enterRoom(currentGroup) }, [currentGroup, inRoom, userId, enterRoom])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -312,7 +344,16 @@ export function GroupStudyPage() {
         const timerData = localStorage.getItem('mission-cs-pomodoro-state')
         if (timerData) {
           const parsed = JSON.parse(timerData)
-          const timerState: TimerState = { running: parsed.timerRunning || false, paused: parsed.timerPaused || false, remaining: parsed.timerSeconds || 0, total: parsed.timerTotalSeconds || 0, chapterName: parsed.chapterName || null }
+          const timerState: TimerState = {
+            running: parsed.timerRunning || false,
+            paused: parsed.timerPaused || false,
+            remaining: parsed.timerSeconds || 0,
+            total: parsed.timerTotalSeconds || 0,
+            chapterName: parsed.chapterName || null,
+            subjectName: parsed.subjectName || null,
+            phase: parsed.timerRunning && !parsed.timerPaused ? 'work' : null,
+            phaseLabel: parsed.timerRunning && !parsed.timerPaused ? 'Focus' : null,
+          }
           api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState, timerStartedAt: parsed.timerStartedAt || null }).catch(() => {})
           setMembers(prev => prev.map(m => m.userId === userId ? { ...m, timerState } : m))
         }
@@ -325,6 +366,13 @@ export function GroupStudyPage() {
 
   const sendMessage = async () => {
     if (!chatInput.trim() || !currentGroup) return
+
+    // Block chatting while Pomodoro is running
+    try {
+      const timerData = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
+      if (timerData.timerRunning && !timerData.timerPaused) return
+    } catch {}
+
     const filtered = filterContent(chatInput.trim())
     const displayName = anonymousMode && anonymousName ? anonymousName : userName
     const optId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
@@ -341,6 +389,51 @@ export function GroupStudyPage() {
         setMessages(prev => prev.map(m => m.id === optId ? { ...m, id: result.message.id } : m))
       }
     } catch (e) { console.error(e) }
+  }
+
+  const fetchStudySubjects = useCallback(async () => {
+    try {
+      const data = await api.studentDashboard()
+      if (data?.subjects) setStudySubjects(data.subjects)
+    } catch {}
+  }, [])
+
+  const startStudySession = async () => {
+    if (!selectedSubj || !selectedChap || !currentGroup) return
+    const subject = studySubjects.find(s => s.id === selectedSubj)
+    const chapter = subject?.chapters.find(c => c.id === selectedChap)
+    const subjectName = subject?.name || ''
+    const chapterName = chapter?.name || ''
+    const total = studyMinutes * 60
+    const timerState: TimerState = {
+      running: true, paused: false, remaining: total, total,
+      chapterName, subjectName, phase: 'work', phaseLabel: 'Focus',
+    }
+    // Save to localStorage so TimerContext picks it up
+    try {
+      const existing = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
+      localStorage.setItem('mission-cs-pomodoro-state', JSON.stringify({
+        ...existing,
+        selectedSubjectId: selectedSubj,
+        selectedChapterId: selectedChap,
+        chapterName,
+        subjectName,
+        timerSeconds: total,
+        timerTotalSeconds: total,
+        timerRunning: true,
+        timerPaused: false,
+        timerStartedAt: Date.now(),
+        timestamp: Date.now(),
+        sessionQuote: existing.sessionQuote || '',
+      }))
+    } catch {}
+    // Publish to group
+    await api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState, timerStartedAt: new Date().toISOString() })
+    // Update local member state
+    setMembers(prev => prev.map(m => m.userId === userId ? { ...m, timerState } : m))
+    setShowStudyStarter(false)
+    setSelectedSubj('')
+    setSelectedChap('')
   }
 
   const handleRequestComparison = () => {
@@ -604,6 +697,12 @@ export function GroupStudyPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="px-3 pt-3 pb-1.5">
+              <button onClick={() => { setShowStudyStarter(true); fetchStudySubjects(); setShowMembersPanel(false) }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all active:scale-95">
+                <Play className="w-3.5 h-3.5" /> Start Studying
+              </button>
+            </div>
             <ScrollArea className="flex-1">
               <div className="p-2 space-y-0.5">
                 {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
@@ -857,6 +956,12 @@ export function GroupStudyPage() {
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700/80">
               <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Members ({members.length})</p>
             </div>
+            <div className="px-3 pt-2 pb-1">
+              <button onClick={() => { setShowStudyStarter(true); fetchStudySubjects() }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all active:scale-95">
+                <Play className="w-3.5 h-3.5" /> Start Studying
+              </button>
+            </div>
             <ScrollArea className="flex-1">
               <div className="p-2 space-y-0.5">
                 {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
@@ -977,6 +1082,49 @@ export function GroupStudyPage() {
           </div>
         </div>
       </div>
+    {/* Study starter dialog */}
+      {showStudyStarter && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowStudyStarter(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 w-80 mx-4 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-4">Start Study Session</h3>
+
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 block">Subject</label>
+            <select value={selectedSubj} onChange={e => { setSelectedSubj(e.target.value); setSelectedChap('') }}
+              className="w-full mb-3 px-3 py-2 rounded-xl text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-400/50">
+              <option value="">Select subject</option>
+              {studySubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 block">Chapter</label>
+            <select value={selectedChap} onChange={e => setSelectedChap(e.target.value)}
+              className="w-full mb-3 px-3 py-2 rounded-xl text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-400/50">
+              <option value="">Select chapter</option>
+              {studySubjects.find(s => s.id === selectedSubj)?.chapters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 block">Duration</label>
+            <div className="flex gap-2 mb-4">
+              {[15, 25, 30, 45, 60].map(m => (
+                <button key={m} onClick={() => setStudyMinutes(m)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all ${studyMinutes === m ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                  {m}m
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={() => setShowStudyStarter(false)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                Cancel
+              </button>
+              <button onClick={startStudySession} disabled={!selectedSubj || !selectedChap}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md shadow-indigo-500/20">
+                <Play className="w-3.5 h-3.5 inline mr-1 -mt-0.5" /> Start
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     {/* Gender picker dialog */}
       {showGenderPicker && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowGenderPicker(false)}>

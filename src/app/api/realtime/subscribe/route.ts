@@ -142,12 +142,22 @@ export async function GET(req: NextRequest) {
         pollTimer = setInterval(async () => {
           if (closed) return
           try {
-            // Auto-exit members inactive for > 1 hour
+            // Auto-exit members inactive for > 1 hour (skip if timer is running)
             const inactiveThreshold = new Date(Date.now() - 60 * 60 * 1000)
-            await db.groupMember.updateMany({
+            const staleMembers = await db.groupMember.findMany({
               where: { groupId, leftAt: null, lastActiveAt: { lt: inactiveThreshold } },
-              data: { leftAt: new Date() },
             })
+            const toExit = staleMembers.filter(m => {
+              if (!m.timerState) return true
+              const ts = m.timerState as any
+              return !(ts.running && !ts.paused)
+            })
+            if (toExit.length > 0) {
+              await db.groupMember.updateMany({
+                where: { id: { in: toExit.map(m => m.id) } },
+                data: { leftAt: new Date() },
+              })
+            }
 
             const whereNew: any = { groupId, createdAt: { gt: new Date(lastPoll) } }
             if (userRole !== 'admin') {
