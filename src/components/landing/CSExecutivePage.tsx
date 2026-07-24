@@ -9,7 +9,7 @@ import {
   BookOpen, Briefcase, CheckCircle2, ArrowRight, ExternalLink,
   GraduationCap, Shield, Award, TrendingUp, FileText, Users,
   Target, Clock, Zap, BarChart3, BookMarked, Gavel, ChevronRight,
-  ArrowLeft, Star, Trophy, Lightbulb, Scale, Building2, PieChart,
+  Star, Trophy, Lightbulb, Scale, Building2, PieChart,
   LayoutList, PenTool,
 } from 'lucide-react'
 
@@ -20,23 +20,7 @@ interface CSExecutivePageProps {
 export default function CSExecutivePage({ onNavigate }: CSExecutivePageProps) {
   usePageMeta('cs-executive')
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-xl shadow-sm">
-        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2 cursor-pointer group" onClick={() => onNavigate('landing')}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
-              <GraduationCap className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-bold text-lg tracking-tight text-foreground">MISSION CS</span>
-            <Badge variant="secondary" className="hidden sm:inline-flex text-[10px] px-1.5 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">Test Series</Badge>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => onNavigate('landing')} className="hover:bg-muted/80 transition-colors duration-200">
-            <ArrowLeft className="h-4 w-4 mr-1" />Back to Home
-          </Button>
-        </div>
-      </header>
-
+    <>
       <main className="flex-1">
         {/* Hero Section */}
         <section className="relative overflow-hidden">
@@ -411,6 +395,6 @@ export default function CSExecutivePage({ onNavigate }: CSExecutivePageProps) {
           </div>
         </div>
       </footer>
-    </div>
+    </>
   )
 }

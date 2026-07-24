@@ -30,6 +30,7 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
   const [courseId, setCourseId] = useState('')
   const [courses, setCourses] = useState<Course[]>([])
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [pendingApproval, setPendingApproval] = useState(false)
   const [coursesLoading, setCoursesLoading] = useState(true)
@@ -48,9 +49,30 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
     fetchCourses()
   }, [])
 
+  const validate = (): boolean => {
+    const errors: Record<string, string> = {}
+
+    if (!email.trim()) {
+      errors.email = 'Email is required'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errors.email = 'Please enter a valid email address'
+    }
+
+    const mobileClean = mobile.replace(/\D/g, '')
+    if (!mobileClean) {
+      errors.mobile = 'Mobile number is required'
+    } else if (mobileClean.length !== 10) {
+      errors.mobile = 'Mobile number must be exactly 10 digits'
+    }
+
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (!validate()) return
     setLoading(true)
 
     try {
@@ -81,7 +103,7 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
 
   if (pendingApproval) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
+    <div className="min-h-0 flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
         <div className="w-full max-w-md">
           <Card className="shadow-lg border-slate-200 dark:border-slate-800">
             <CardContent className="pt-8 pb-8 text-center space-y-4">
@@ -109,7 +131,7 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
+    <div className="min-h-0 flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -155,11 +177,12 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
                   type="email"
                   placeholder="Enter your email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })) }}
                   required
                   disabled={loading}
-                  className="h-11"
+                  className={`h-11 ${fieldErrors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                 />
+                {fieldErrors.email && <p className="text-xs text-red-500 mt-1">{fieldErrors.email}</p>}
               </div>
 
               <div className="space-y-2">
@@ -169,11 +192,13 @@ export default function StudentSignup({ onSignup, onNavigateToLogin }: StudentSi
                   type="tel"
                   placeholder="Enter your mobile number"
                   value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
+                  onChange={(e) => { setMobile(e.target.value); setFieldErrors(prev => ({ ...prev, mobile: '' })) }}
                   required
                   disabled={loading}
-                  className="h-11"
+                  maxLength={10}
+                  className={`h-11 ${fieldErrors.mobile ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                 />
+                {fieldErrors.mobile && <p className="text-xs text-red-500 mt-1">{fieldErrors.mobile}</p>}
               </div>
 
               <div className="space-y-2">

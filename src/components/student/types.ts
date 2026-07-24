@@ -2,7 +2,7 @@
 
 export interface StudentPanelProps { onLogout: () => void }
 
-export type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'syllabus' | 'profile' | 'quiz' | 'quiz-history' | 'notes' | 'analytics' | 'leaderboard' | 'materials' | 'group-study' | 'reviews'
+export type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'live-chat' | 'syllabus' | 'profile' | 'quiz' | 'quiz-history' | 'notes' | 'analytics' | 'leaderboard' | 'materials' | 'group-study' | 'reviews'
 
 export interface Subject {
   id: string; name: string; orderNum: number; chapters: Chapter[]
@@ -85,7 +85,10 @@ export interface Note {
 export interface StudyGroup {
   id: string; name: string; description?: string | null
   maxCapacity: number; subjectId?: string | null; isActive: boolean
-  memberCount: number; subject?: { id: string; name: string } | null
+  activeMembers: number; totalMembers: number; isFull: boolean
+  isCurrentUserMember: boolean
+  subjectName?: string | null
+  members: { studentId: string; studentName: string; joinedAt: string }[]
   createdAt: string
 }
 

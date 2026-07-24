@@ -41,6 +41,10 @@ export async function POST(req: NextRequest) {
           type: 'text',
         },
       })
+      await db.groupMember.updateMany({
+        where: { groupId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      })
       return NextResponse.json({ message: msg })
     }
 
@@ -50,8 +54,8 @@ export async function POST(req: NextRequest) {
       if (!groupId || !timerState) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
       await db.groupMember.updateMany({
-        where: { groupId, studentId: auth.id },
-        data: { timerState },
+        where: { groupId, studentId: auth.id, leftAt: null },
+        data: { timerState, lastActiveAt: new Date() },
       })
       return NextResponse.json({ ok: true })
     }
@@ -69,6 +73,10 @@ export async function POST(req: NextRequest) {
           type: 'system',
         },
       })
+      await db.groupMember.updateMany({
+        where: { groupId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      })
       return NextResponse.json({ ok: true })
     }
 
@@ -84,6 +92,10 @@ export async function POST(req: NextRequest) {
           content: accepted ? '__comparison_accepted__' : '__comparison_declined__',
           type: 'system',
         },
+      })
+      await db.groupMember.updateMany({
+        where: { groupId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
       })
       return NextResponse.json({ ok: true })
     }

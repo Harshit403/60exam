@@ -79,6 +79,18 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!auth || auth.role !== 'admin') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   
   const { id } = await params
-  await db.student.delete({ where: { id } })
+
+  // Delete all related records before deleting the student (foreign key constraints)
+  await db.$transaction([
+    db.studySession.deleteMany({ where: { studentId: id } }),
+    db.studyPlan.deleteMany({ where: { studentId: id } }),
+    db.chapterCompletion.deleteMany({ where: { studentId: id } }),
+    db.studentAchievement.deleteMany({ where: { studentId: id } }),
+    db.discussion.deleteMany({ where: { studentId: id } }),
+    db.quizAttempt.deleteMany({ where: { studentId: id } }),
+    db.review.deleteMany({ where: { studentId: id } }),
+    db.student.delete({ where: { id } }),
+  ])
+
   return NextResponse.json({ success: true })
 }

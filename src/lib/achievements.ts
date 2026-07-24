@@ -29,11 +29,11 @@ export function checkStreak(lastStudyAt: Date | null, currentStreak: number): { 
   const last = new Date(lastStudyAt)
   const diffHours = (now.getTime() - last.getTime()) / (1000 * 60 * 60)
 
-  if (diffHours < 24) {
-    // Studied within the last 24 hours
+  if (diffHours < 48) {
+    // Studied within the last 48 hours
     return { streak: currentStreak, verified: currentStreak >= 7 }
   }
-  // More than 24 hours since last study — streak broken
+  // More than 48 hours since last study — streak broken
   return { streak: 0, verified: false }
 }
 

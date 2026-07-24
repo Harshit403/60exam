@@ -23,72 +23,29 @@ import {
   MOTIVATIONAL_QUOTES, SESSION_QUOTES, MOCK_LEADERBOARD,
   formatTimer, formatMinutes, CircularProgressRing, TimerCountdownRing, Confetti, LoadingSkeleton,
 } from '../utils'
-
-// ─── Timer Persistence Helpers ─────────────────────────────────────────
-const TIMER_STORAGE_KEY = 'mission-cs-pomodoro-state'
-
-interface TimerPersistState {
-  selectedSubjectId: string
-  selectedChapterId: string
-  timerSeconds: number
-  timerTotalSeconds: number
-  timerRunning: boolean
-  timerPaused: boolean
-  timestamp: number // when the state was saved
-  sessionQuote: string
-}
-
-function saveTimerState(state: TimerPersistState) {
-  try { localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state)) } catch {}
-}
-
-function loadTimerState(): TimerPersistState | null {
-  try {
-    const raw = localStorage.getItem(TIMER_STORAGE_KEY)
-    if (!raw) return null
-    const state = JSON.parse(raw) as TimerPersistState
-    // If timer was running, calculate elapsed time since last save
-    if (state.timerRunning && !state.timerPaused) {
-      const elapsed = Math.floor((Date.now() - state.timestamp) / 1000)
-      state.timerSeconds = Math.max(0, state.timerSeconds - elapsed)
-      if (state.timerSeconds <= 0) {
-        state.timerRunning = false
-        state.timerPaused = false
-      }
-    }
-    return state
-  } catch { return null }
-}
-
-function clearTimerState() {
-  try { localStorage.removeItem(TIMER_STORAGE_KEY) } catch {}
-}
+import { useTimer } from '../TimerContext'
 
 // ═══════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE (Redesigned)
 // ═══════════════════════════════════════════════════════════════════════
 
 export function DashboardPage({ data, onRefresh, onNavigate }: { data: DashboardData | null; onRefresh: () => void; onNavigate?: (page: string) => void }) {
-  const [selectedSubjectId, setSelectedSubjectId] = useState('')
-  const [selectedChapterId, setSelectedChapterId] = useState('')
+  const {
+    selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds,
+    timerRunning, timerPaused, timerCompleted, screenLocked, sessionQuote, chapterName,
+    setSelectedSubjectId, setSelectedChapterId, setTimerRunning, setTimerPaused,
+    setTimerSeconds, setTimerTotalSeconds, setTimerCompleted, setSessionQuote, setChapterName,
+    startTimer: contextStartTimer, resetTimer: contextResetTimer,
+  } = useTimer()
   const [timerPreset, setTimerPreset] = useState(0)
   const [customMinutes, setCustomMinutes] = useState('')
-  const [timerRunning, setTimerRunning] = useState(false)
-  const [timerPaused, setTimerPaused] = useState(false)
-  const [timerSeconds, setTimerSeconds] = useState(0)
-  const [timerTotalSeconds, setTimerTotalSeconds] = useState(0)
-  const [timerCompleted, setTimerCompleted] = useState(false)
   const [strikeAnimating, setStrikeAnimating] = useState(false)
   const [strikeLoading, setStrikeLoading] = useState(false)
   const [strikeFlash, setStrikeFlash] = useState(false)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
-  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null)
-  const [screenLocked, setScreenLocked] = useState(false)
   const [achievementsData, setAchievementsData] = useState<any>(null)
   const [showConfetti, setShowConfetti] = useState(false)
-  const [sessionQuote, setSessionQuote] = useState('')
   const [dailyGoalMin] = useState(120)
   const [sessionNotes, setSessionNotes] = useState('')
   const [leaderboardData, setLeaderboardData] = useState<any[]>([])
@@ -125,92 +82,15 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
   const selectedSubject = subjects.find(s => s.id === selectedSubjectId)
   const chapters = selectedSubject?.chapters || []
 
-  // ─── Restore timer from localStorage on mount ────────────────────────
+  // ─── Watch for timer completion (triggered by context) ───────────────
+  const prevCompleted = useRef(timerCompleted)
   useEffect(() => {
-    const saved = loadTimerState()
-    if (saved && saved.timerSeconds > 0) {
-      setSelectedSubjectId(saved.selectedSubjectId)
-      setSelectedChapterId(saved.selectedChapterId)
-      setTimerSeconds(saved.timerSeconds)
-      setTimerTotalSeconds(saved.timerTotalSeconds)
-      setTimerRunning(saved.timerRunning)
-      setTimerPaused(saved.timerPaused)
-      setSessionQuote(saved.sessionQuote)
+    if (timerCompleted && !prevCompleted.current) {
+      setShowConfetti(true)
+      sendCompletionNotification(chapterName || 'Chapter')
     }
-  }, [])
-
-  // ─── Screen Wake Lock: keep screen on while timer is running ──────────
-  useEffect(() => {
-    const requestWakeLock = async () => {
-      if (!('wakeLock' in navigator)) return
-      try {
-        const sentinel = await navigator.wakeLock.request('screen')
-        wakeLockRef.current = sentinel
-        setScreenLocked(true)
-        sentinel.addEventListener('release', () => {
-          setScreenLocked(false)
-          wakeLockRef.current = null
-        })
-      } catch (err) {
-        console.warn('Wake Lock request failed:', err)
-        setScreenLocked(false)
-      }
-    }
-
-    const releaseWakeLock = async () => {
-      try {
-        if (wakeLockRef.current) {
-          await wakeLockRef.current.release()
-          wakeLockRef.current = null
-          setScreenLocked(false)
-        }
-      } catch {}
-    }
-
-    if (timerRunning && !timerPaused) {
-      requestWakeLock()
-    } else {
-      releaseWakeLock()
-    }
-
-    return () => { releaseWakeLock() }
-  }, [timerRunning, timerPaused])
-
-  // Re-acquire wake lock when page becomes visible again (user switched tabs and came back)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && timerRunning && !timerPaused && !wakeLockRef.current && 'wakeLock' in navigator) {
-        navigator.wakeLock.request('screen').then(sentinel => {
-          wakeLockRef.current = sentinel
-          setScreenLocked(true)
-          sentinel.addEventListener('release', () => {
-            setScreenLocked(false)
-            wakeLockRef.current = null
-          })
-        }).catch(() => setScreenLocked(false))
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [timerRunning, timerPaused])
-
-  // ─── Save timer state to localStorage on change ──────────────────────
-  useEffect(() => {
-    if (timerRunning || timerPaused) {
-      saveTimerState({
-        selectedSubjectId,
-        selectedChapterId,
-        timerSeconds,
-        timerTotalSeconds,
-        timerRunning,
-        timerPaused,
-        timestamp: Date.now(),
-        sessionQuote,
-      })
-    } else if (timerSeconds === 0 && timerTotalSeconds === 0) {
-      clearTimerState()
-    }
-  }, [timerRunning, timerPaused, timerSeconds, timerTotalSeconds, selectedSubjectId, selectedChapterId, sessionQuote])
+    prevCompleted.current = timerCompleted
+  }, [timerCompleted, chapterName, sendCompletionNotification])
 
   // ─── Fetch data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -247,41 +127,20 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
     fetchLastSession()
   }, [data])
 
-  // ─── Timer logic ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (timerRunning && !timerPaused && timerSeconds > 0) {
-      timerInterval.current = setInterval(() => {
-        setTimerSeconds(prev => {
-          if (prev <= 1) {
-            const chapterName = chapters.find(c => c.id === selectedChapterId)?.name || 'Chapter'
-            setTimerRunning(false); setTimerCompleted(true); setShowConfetti(true)
-            sendCompletionNotification(chapterName)
-            clearTimerState()
-            if (timerInterval.current) clearInterval(timerInterval.current)
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-    }
-    return () => { if (timerInterval.current) clearInterval(timerInterval.current) }
-  }, [timerRunning, timerPaused, timerSeconds])
-
   const startTimer = () => {
     let minutes = timerPreset
     if (timerPreset === -1) minutes = Math.min(parseInt(customMinutes) || 0, 300)
     if (minutes <= 0 || !selectedChapterId) return
     requestNotifPermission()
-    setTimerTotalSeconds(minutes * 60); setTimerSeconds(minutes * 60)
-    setTimerRunning(true); setTimerPaused(false); setTimerCompleted(false)
+    const name = chapters.find(c => c.id === selectedChapterId)?.name || 'Chapter'
+    setChapterName(name)
     setSessionQuote(SESSION_QUOTES[Math.floor(Math.random() * SESSION_QUOTES.length)])
+    contextStartTimer(minutes)
   }
 
   const resetTimer = () => {
-    setTimerRunning(false); setTimerPaused(false); setTimerSeconds(0)
-    setTimerTotalSeconds(0); setTimerCompleted(false); setSessionQuote('')
-    clearTimerState()
-    if (timerInterval.current) clearInterval(timerInterval.current)
+    contextResetTimer()
+    setSessionNotes('')
   }
 
   const handleTimerComplete = async (completed: boolean) => {

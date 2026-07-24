@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -11,17 +11,17 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { ThemeToggle } from '@/components/theme-toggle'
 import {
-  BookOpen, Trophy, Clock, Users, Star, ChevronRight, GraduationCap,
+  BookOpen, Trophy, Clock, Users, Star, GraduationCap,
   Target, CheckCircle2, ArrowRight, Download, ExternalLink, MessageCircle,
-  Shield, Award, TrendingUp, FileText, Menu, X, Send, Zap, BarChart3,
+  Shield, Award, TrendingUp, FileText, Send, Zap, BarChart3,
   BookMarked, Calculator, Briefcase, Gavel, Heart, Instagram, Youtube,
   Linkedin, Phone, Mail, MapPin, ChevronUp, CircleDot, XIcon, CheckIcon,
   Crown, Medal, Flame,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { usePageMeta } from '@/lib/seo'
+import { siteConfig } from '@/lib/site-config'
 import { toast } from 'sonner'
 
 const SITE_URL = 'https://missioncstestseries.com'
@@ -118,16 +118,13 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
   const [stats, setStats] = useState<Stats | null>(null)
   const [courses, setCourses] = useState<CourseData[]>([])
   const [loading, setLoading] = useState(true)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [reviewForm, setReviewForm] = useState({ text: '', rating: '5', courseId: '' })
   const [submittingReview, setSubmittingReview] = useState(false)
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [leaderboardLoading, setLeaderboardLoading] = useState(true)
   const [discussions, setDiscussions] = useState<any[]>([])
-  const [scrolled, setScrolled] = useState(false)
 
   const coursesRef = useRef<HTMLElement>(null)
   const reviewsRef = useRef<HTMLElement>(null)
@@ -157,32 +154,13 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
   }, [])
 
   useEffect(() => {
-    const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e) }
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [])
-
-  useEffect(() => {
-    const onScroll = () => {
-      setShowScrollTop(window.scrollY > 400)
-      setScrolled(window.scrollY > 20)
-    }
+    const onScroll = () => setShowScrollTop(window.scrollY > 400)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  const handleInstallApp = () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt()
-      deferredPrompt.userChoice.then(() => setDeferredPrompt(null))
-    } else {
-      toast('Open this site in Chrome/Edge and use the address bar install button, or on iOS use Share → Add to Home Screen')
-    }
-  }
-
   const scrollToSection = (ref: React.RefObject<HTMLElement | null>) => {
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    setMobileMenuOpen(false)
   }
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -204,12 +182,6 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
       setSubmittingReview(false)
     }
   }
-
-  const navLinks = [
-    { label: 'Courses', ref: coursesRef },
-    { label: 'Reviews', page: 'reviews' as const },
-    { label: 'Discussion', ref: discussionRef, page: 'discussions' as const },
-  ]
 
   const marqueeReviews = reviews.length > 0 ? reviews : [
     { id: '1', authorName: 'Priya Sharma', text: 'Mission CS Test Series helped me secure AIR 12 in CS Executive. The evaluation quality is unmatched!', rating: 5, course: { title: 'CS Executive' }, createdAt: '' },
@@ -319,7 +291,7 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
     { question: 'How many times can I attempt CS Executive and Professional exams?', answer: 'There is no limit on attempts. However, your registration is valid for 5 years for both Executive and Professional, which can be renewed. Each registration period allows you to appear for multiple exam sessions held in June and December each year.' },
     { question: 'What is the passing criteria for CS examinations?', answer: 'For CSEET, you need 40% in each paper and 50% aggregate overall. For CS Executive and Professional, the qualifying marks are 40% in each individual paper and 50% aggregate in each module. Papers you have already cleared are credited for subsequent attempts.' },
     { question: 'Does Mission CS offer chapter-wise tests or only full mock tests?', answer: 'Mission CS offers both! Our test series includes chapter-wise tests for granular preparation, subject-wise tests for focused practice, and full-length mock tests that replicate the complete exam experience. This layered approach ensures comprehensive syllabus coverage.' },
-    { question: 'How do I enroll in Mission CS Test Series?', answer: 'Enrolling is simple — create a free account, choose your course (CSEET, CS Executive, or CS Professional), and start attempting tests immediately. Visit missioncstestseries.com for additional enrollment options and the complete test schedule.' },
+    { question: 'How do I enroll in Mission CS Test Series?', answer: 'Enrolling is simple — create a free account, choose your course (CSEET, CS Executive, or CS Professional), and start attempting tests immediately. Visit MISSION CS Test Series for additional enrollment options and the complete test schedule.' },
   ]
 
   const comparisonFeatures = [
@@ -376,91 +348,7 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
   // and to reduce client-side bundle size.
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* ============ HEADER ============ */}
-      <header className={`sticky top-0 z-50 w-full border-b transition-all duration-300 ${scrolled ? 'bg-background/80 backdrop-blur-xl shadow-sm border-border/60' : 'bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-border'}`}>
-        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2 cursor-pointer group" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow duration-300">
-              <GraduationCap className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-bold text-lg tracking-tight text-foreground">MISSION CS</span>
-            <Badge variant="secondary" className="hidden sm:inline-flex text-[10px] px-1.5 bg-gradient-to-r from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200/50 dark:border-emerald-800/30">Test Series</Badge>
-          </div>
-          <nav className="hidden lg:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <button key={link.label} onClick={() => link.page ? onNavigate(link.page) : scrollToSection(link.ref)}
-                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-all duration-200 rounded-lg hover:bg-muted/80 relative">
-                {link.label}
-              </button>
-            ))}
-            <Separator orientation="vertical" className="h-5 mx-1" />
-            <button onClick={() => onNavigate('cs-executive')}
-              className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-all duration-200 rounded-lg hover:bg-muted/80 relative">
-              CS Executive
-            </button>
-            <button onClick={() => onNavigate('cs-professional')}
-              className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-all duration-200 rounded-lg hover:bg-muted/80 relative">
-              CS Professional
-            </button>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleInstallApp} className="hidden sm:flex hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors duration-200">
-              <Download className="h-4 w-4 mr-1" />Download App
-            </Button>
-            {isLoggedIn ? (
-              <Button size="sm" onClick={() => onNavigate(userRole === 'admin' ? 'admin' : 'student')} className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-sm hover:shadow-md transition-all duration-200">
-                Dashboard<ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            ) : (
-              <>
-                <ThemeToggle />
-                <Button variant="ghost" size="sm" onClick={() => onNavigate('student-login')} className="hidden sm:flex hover:bg-muted/80 transition-colors duration-200">Login</Button>
-                <Button size="sm" onClick={() => onNavigate('student-signup')} className="bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-sm hover:shadow-md transition-all duration-200">Sign Up Free</Button>
-              </>
-            )}
-            <Button variant="ghost" size="icon" className="lg:hidden hover:bg-muted/80 transition-colors duration-200" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
-          </div>
-        </div>
-
-        {/* Mobile Nav - CSS transition */}
-        <div className={`lg:hidden border-t bg-background/95 backdrop-blur-xl overflow-hidden transition-all duration-300 ease-out ${mobileMenuOpen ? 'max-h-[420px] opacity-100' : 'max-h-0 opacity-0'}`}>
-          <div className="px-4 py-3 space-y-1">
-            {navLinks.map((link) => (
-              <button key={link.label} onClick={() => link.page ? onNavigate(link.page) : scrollToSection(link.ref)}
-                className="block w-full text-left px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-all duration-200">
-                {link.label}
-              </button>
-            ))}
-            <div className="my-2 border-t border-border/50" />
-            <button onClick={() => { onNavigate('cs-executive'); setMobileMenuOpen(false) }}
-              className="block w-full text-left px-3 py-2.5 text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:text-foreground hover:bg-muted/60 rounded-lg transition-all duration-200">
-              CS Executive Test Series
-            </button>
-            <button onClick={() => { onNavigate('cs-professional'); setMobileMenuOpen(false) }}
-              className="block w-full text-left px-3 py-2.5 text-sm font-medium text-amber-700 dark:text-amber-400 hover:text-foreground hover:bg-muted/60 rounded-lg transition-all duration-200">
-              CS Professional Test Series
-            </button>
-            <button onClick={handleInstallApp}
-              className="flex items-center gap-2 w-full text-left px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-all duration-200">
-              <Download className="h-4 w-4" />Download App
-            </button>
-            {!isLoggedIn && (
-              <div className="pt-2 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { onNavigate('student-login'); setMobileMenuOpen(false) }} className="flex-1 hover:bg-muted/80 transition-colors duration-200">
-                  Sign In
-                </Button>
-                <Button size="sm" onClick={() => { onNavigate('student-signup'); setMobileMenuOpen(false) }} className="flex-1 bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-sm">
-                  Sign Up Free
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
+    <>
       <main className="flex-1">
         {/* ============ HERO SECTION ============ */}
         <section className="relative overflow-hidden">
@@ -789,7 +677,7 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
         </section>
 
         {/* ============ COURSE TABS SECTION ============ */}
-        <section ref={coursesRef} className="py-16 sm:py-20 bg-muted/30 scroll-mt-16 relative overflow-hidden">
+        <section ref={coursesRef} id="courses-section" className="py-16 sm:py-20 bg-muted/30 scroll-mt-16 relative overflow-hidden">
           {/* Background pattern */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.015]" style={{
             backgroundImage: 'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
@@ -1507,6 +1395,6 @@ export default function LandingPage({ onNavigate, isLoggedIn, userRole }: Landin
           background-size: 200% 100%;
         }
       `}</style>
-    </div>
+    </>
   )
 }

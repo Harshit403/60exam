@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { getISTTodayStart, getISTTodayEnd } from '@/lib/date-utils'
 
 // GET /api/student/notifications - Get recent notifications for student
 // Generates notifications based on recent activities: admin replies, achievement unlocks, etc.
@@ -175,6 +176,41 @@ export async function GET(req: NextRequest) {
         read: readSet.has(n.id),
         link: null,
       })
+    }
+
+    // 7. Study plan reminder (if reminder was sent today)
+    const todayStart = getISTTodayStart()
+    const todayEnd = getISTTodayEnd()
+    const studentData = await db.student.findUnique({
+      where: { id: studentId },
+      select: { studyReminderEnabled: true, lastReminderSentAt: true },
+    })
+
+    if (studentData?.lastReminderSentAt) {
+      const reminderDate = new Date(studentData.lastReminderSentAt)
+      if (reminderDate >= todayStart && reminderDate <= todayEnd) {
+        const todayPlans = await db.studyPlan.findMany({
+          where: { studentId, plannedDate: { gte: todayStart, lte: todayEnd } },
+          include: { chapter: { include: { subject: { select: { name: true } } } } },
+        })
+
+        if (todayPlans.length > 0) {
+          const subjects = [...new Set(todayPlans.map(p => p.chapter?.subject?.name).filter(Boolean))].join(', ')
+          const message = subjects
+            ? `You planned to study ${subjects} today. Please start studying — exams are coming!`
+            : 'You have study plans for today. Please start studying — exams are coming!'
+
+          notifications.push({
+            id: `reminder-${reminderDate.getTime()}`,
+            type: 'info',
+            title: '📚 Study Reminder',
+            message,
+            timestamp: reminderDate,
+            read: false,
+            link: 'planner',
+          })
+        }
+      }
     }
 
     // Sort by timestamp desc

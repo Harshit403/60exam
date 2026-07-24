@@ -3,6 +3,13 @@
 import { useEffect } from 'react'
 import { toast } from 'sonner'
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  return new Uint8Array([...rawData].map(char => char.charCodeAt(0)))
+}
+
 async function subscribeToPush(registration: ServiceWorkerRegistration) {
   try {
     const existing = await registration.pushManager.getSubscription()
@@ -15,7 +22,7 @@ async function subscribeToPush(registration: ServiceWorkerRegistration) {
 
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: publicKey,
+      applicationServerKey: urlBase64ToUint8Array(publicKey) as any,
     })
 
     const sub = subscription.toJSON()

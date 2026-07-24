@@ -75,6 +75,12 @@ export const CSS_ANIMATIONS = `
 }
 .fade-in { animation: fade-in 0.2s ease-out forwards; }
 
+@keyframes slide-in-right {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(0); }
+}
+.slide-in-right { animation: slide-in-right 0.25s ease-out forwards; }
+
 @keyframes grow-in {
   0% { opacity: 0; max-height: 0; } 100% { opacity: 1; max-height: 500px; }
 }

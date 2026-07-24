@@ -1,6 +1,7 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import { siteConfig } from '@/lib/site-config'
 import { ArrowLeft, Shield } from 'lucide-react'
 
 interface Props {
@@ -132,7 +133,7 @@ export default function PrivacyPolicyPage({ onNavigate }: Props) {
           <ul className="list-disc pl-5 space-y-1">
             <li><strong>Email:</strong> misssioncs@gmail.com</li>
             <li><strong>Phone:</strong> +918929592998</li>
-            <li><strong>Website:</strong> https://missioncstestseries.com</li>
+            <li><strong>Website:</strong> {siteConfig.fullName}</li>
           </ul>
         </div>
 

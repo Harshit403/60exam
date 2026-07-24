@@ -8,10 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Calendar } from '@/components/ui/calendar'
-import { CalendarCheck, Plus, Loader2 } from 'lucide-react'
+import { CalendarCheck, Plus, Loader2, Bell, BellOff } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { Subject, StudyPlan } from '../types'
 import { formatDate } from '../utils'
+import { toast } from 'sonner'
 
 export function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
@@ -23,8 +24,30 @@ export function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
   const [formNotes, setFormNotes] = useState('')
   const [formLoading, setFormLoading] = useState(false)
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  const [reminderEnabled, setReminderEnabled] = useState(true)
+  const [reminderLoading, setReminderLoading] = useState(false)
 
   const chapters = subjects.find(s => s.id === formSubjectId)?.chapters || []
+
+  useEffect(() => {
+    api.getReminderPreference().then(res => {
+      setReminderEnabled(res.studyReminderEnabled)
+    }).catch(() => {})
+  }, [])
+
+  const toggleReminder = async () => {
+    setReminderLoading(true)
+    try {
+      const newVal = !reminderEnabled
+      await api.setReminderPreference(newVal)
+      setReminderEnabled(newVal)
+      toast.success(newVal ? 'Study reminders enabled' : 'Study reminders disabled')
+    } catch {
+      toast.error('Failed to update preference')
+    } finally {
+      setReminderLoading(false)
+    }
+  }
 
   const fetchPlans = useCallback(async () => {
     if (!selectedDate) return
@@ -70,10 +93,28 @@ export function StudyPlannerPage({ subjects }: { subjects: Subject[] }) {
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center shadow-sm">
           <CalendarCheck className="w-5 h-5 text-white" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Study Planner</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Plan your study schedule ahead</p>
         </div>
+        <button
+          onClick={toggleReminder}
+          disabled={reminderLoading}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+            reminderEnabled
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'
+              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          {reminderLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : reminderEnabled ? (
+            <Bell className="w-3.5 h-3.5" />
+          ) : (
+            <BellOff className="w-3.5 h-3.5" />
+          )}
+          <span className="hidden sm:inline">{reminderEnabled ? 'Reminders ON' : 'Reminders OFF'}</span>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-4 md:gap-6">

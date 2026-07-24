@@ -1,38 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { MessageCircle, Plus, Send, Loader2, Users, Wifi, WifiOff, Circle, Reply } from 'lucide-react'
+import { MessageCircle, Plus, Send, Loader2, Reply, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '@/lib/api-client'
-import { useSSE } from '@/hooks/useSSE'
 import { Discussion } from '../types'
-
-interface LiveMessage {
-  id: string
-  roomId: string
-  userId: string
-  userName: string
-  userRole: 'student' | 'admin'
-  content: string
-  timestamp: number
-  type: 'message' | 'system' | 'admin-reply'
-}
-
-interface OnlineUser {
-  id: string
-  name: string
-  role: 'student' | 'admin'
-}
-
-const LIVE_ROOM_ID = 'mission-cs-public'
 
 export function DiscussionPage() {
   const [discussions, setDiscussions] = useState<Discussion[]>([])
@@ -41,46 +17,11 @@ export function DiscussionPage() {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [formLoading, setFormLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const [replyId, setReplyId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [replyLoading, setReplyLoading] = useState(false)
-
-  // Live chat state
-  const [liveMessages, setLiveMessages] = useState<LiveMessage[]>([])
-  const [liveInput, setLiveInput] = useState('')
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
-  const [showLiveChat, setShowLiveChat] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [userId, setUserId] = useState('')
-  const [userName, setUserName] = useState('')
-  const [userRole, setUserRole] = useState<'student' | 'admin'>('student')
-
-  // SSE connection
-  const { isConnected } = useSSE({
-    channel: showLiveChat ? `room:${LIVE_ROOM_ID}` : '',
-    enabled: showLiveChat,
-    onEvent: (event, data) => {
-      if (event === 'room-history') {
-        setLiveMessages(data.messages || [])
-      } else if (event === 'new-message') {
-        setLiveMessages(prev => [...prev, data])
-      }
-    },
-  })
-
-  // Extract user info from token
-  useEffect(() => {
-    try {
-      const token = localStorage.getItem('token')
-      if (token) {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        setUserName(payload.email?.split('@')[0] || 'Student')
-        setUserId(payload.id || 'anon')
-        setUserRole(payload.role || 'student')
-      }
-    } catch (e) { /* ignore */ }
-  }, [])
 
   const fetchDiscussions = useCallback(async () => {
     setLoading(true)
@@ -90,11 +31,6 @@ export function DiscussionPage() {
   }, [])
 
   useEffect(() => { fetchDiscussions() }, [fetchDiscussions])
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [liveMessages])
 
   const handleReply = async (discussionId: string) => {
     if (!replyText.trim()) return
@@ -116,40 +52,6 @@ export function DiscussionPage() {
     finally { setFormLoading(false) }
   }
 
-  const sendLiveMessage = async () => {
-    if (!liveInput.trim()) return
-
-    const content = liveInput.trim()
-    const optimisticId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-
-    const optimisticMsg: LiveMessage = {
-      id: optimisticId,
-      roomId: LIVE_ROOM_ID,
-      userId,
-      userName,
-      userRole,
-      content,
-      timestamp: Date.now(),
-      type: 'message',
-    }
-    setLiveMessages(prev => [...prev, optimisticMsg])
-    setLiveInput('')
-
-    try {
-      await api.realtimePublish({ action: 'room-message', roomId: LIVE_ROOM_ID, content })
-    } catch (err) {
-      console.error('Send message error:', err)
-    }
-  }
-
-  const handleLiveInputChange = (value: string) => {
-    setLiveInput(value)
-  }
-
-  const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-  }
-
   const timeAgo = (dateStr: string) => {
     const now = new Date()
     const date = new Date(dateStr)
@@ -165,243 +67,173 @@ export function DiscussionPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-5 max-w-3xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-sky-500 flex items-center justify-center shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-sky-500 flex items-center justify-center shadow-sm shrink-0">
             <MessageCircle className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Discussion</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Ask doubts & chat with peers</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Discussion</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Ask doubts and help your peers</p>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setShowLiveChat(!showLiveChat)} className="min-h-[44px]">
-            <Users className="w-4 h-4 mr-2" /> {showLiveChat ? 'Hide Live Chat' : 'Live Chat'}
-            {onlineUsers.length > 0 && showLiveChat && (
-              <Badge variant="secondary" className="ml-2 text-[10px]">{onlineUsers.length} online</Badge>
-            )}
-          </Button>
-          <Button onClick={() => setShowForm(!showForm)}
-            className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 min-h-[44px]">
-            <Plus className="w-4 h-4 mr-2" /> Ask a Doubt
-          </Button>
-        </div>
+        <Button onClick={() => { setShowForm(!showForm); setExpandedId(null) }}
+          className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 h-9 text-xs sm:text-sm">
+          <Plus className="w-4 h-4 mr-1.5" /> Ask a Doubt
+        </Button>
       </div>
 
-      {/* Live Chat Panel */}
-      {showLiveChat && (
-        <Card className="grow-in overflow-hidden">
-          <CardHeader className="pb-3 bg-gradient-to-r from-cyan-50 to-sky-50 dark:from-cyan-950/20 dark:to-sky-950/20 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="w-4 h-4 text-cyan-500" />
-                  Live Chat Room
-                </CardTitle>
-                <Badge variant={isConnected ? 'default' : 'secondary'} className={`text-[10px] ${isConnected ? 'bg-emerald-500' : 'bg-slate-400'}`}>
-                  {isConnected ? <><Wifi className="w-2.5 h-2.5 mr-1" /> Connected</> : <><WifiOff className="w-2.5 h-2.5 mr-1" /> Disconnected</>}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-1">
-                {onlineUsers.slice(0, 5).map(u => (
-                  <div key={u.id} className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400" title={u.name}>
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold ${u.role === 'admin' ? 'bg-rose-500' : 'bg-emerald-500'}`}>
-                      {(u.name || 'U').charAt(0).toUpperCase()}
-                    </div>
-                  </div>
-                ))}
-                {onlineUsers.length > 5 && (
-                  <span className="text-[10px] text-slate-500">+{onlineUsers.length - 5}</span>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {/* Messages */}
-            <div className="h-80 overflow-y-auto p-4 space-y-2 bg-slate-50/50 dark:bg-slate-900/30">
-              {liveMessages.length === 0 ? (
-                <div className="text-center py-8">
-                  <MessageCircle className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                  <p className="text-xs text-slate-500">No messages yet. Start the conversation!</p>
-                </div>
-              ) : (
-                liveMessages.map(msg => (
-                  <div key={msg.id} className={`flex gap-2 ${msg.type === 'system' ? 'justify-center' : ''}`}>
-                    {msg.type === 'system' ? (
-                      <span className="text-[10px] text-slate-400 italic px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800">
-                        {msg.content}
-                      </span>
-                    ) : (
-                      <>
-                        <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ${
-                          msg.userRole === 'admin' ? 'bg-rose-500' : 'bg-emerald-500'
-                        }`}>
-                          {(msg.userName || 'U').charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2">
-                            <span className={`text-xs font-medium ${msg.userRole === 'admin' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                              {msg.userName}
-                            </span>
-                            {msg.userRole === 'admin' && (
-                              <Badge variant="secondary" className="text-[9px] py-0 h-3.5 bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">Admin</Badge>
-                            )}
-                            <span className="text-[10px] text-slate-400">{formatTime(msg.timestamp)}</span>
-                          </div>
-                          <p className="text-sm text-slate-700 dark:text-slate-300 break-words">{msg.content}</p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-            {/* Input */}
-            <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Type a message..."
-                  value={liveInput}
-                  onChange={(e) => handleLiveInputChange(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLiveMessage() } }}
-                  className="flex-1"
-                />
-                <Button
-                  onClick={sendLiveMessage}
-                  disabled={!liveInput.trim()}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white"
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
-              {!isConnected && (
-                <p className="text-[10px] text-amber-500 mt-1.5">Reconnecting... messages will be sent when online</p>
-              )}
-              {isConnected && (
-                <p className="text-[10px] text-slate-400 mt-1.5">Press Enter to send · Shift+Enter for new line</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+      {/* New Discussion Form */}
       {showForm && (
-        <div className="grow-in">
-          <Card>
-            <CardContent className="pt-4 space-y-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Title</Label>
-                <Input placeholder="What's your doubt about?" value={title} onChange={(e) => setTitle(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Details</Label>
-                <Textarea placeholder="Describe your doubt in detail..." value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleSubmit} disabled={!title || !content || formLoading}
-                  className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
-                  {formLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />} Post Doubt
-                </Button>
-                <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grow-in bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 shadow-sm">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Title</label>
+            <input
+              placeholder="What&apos;s your doubt about?"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full h-10 px-3 text-sm bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-400/50 text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Details</label>
+            <textarea
+              placeholder="Describe your doubt in detail..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={3}
+              className="w-full resize-none px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-400/50 text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button onClick={handleSubmit} disabled={!title || !content || formLoading}
+              className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 h-9 text-xs">
+              {formLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Send className="w-4 h-4 mr-1.5" />} Post Doubt
+            </Button>
+            <Button variant="outline" onClick={() => setShowForm(false)} className="h-9 text-xs">Cancel</Button>
+          </div>
         </div>
       )}
 
+      {/* Loading */}
       {loading ? (
-        <div className="space-y-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-2/3 rounded-lg" />
+                  <Skeleton className="h-3 w-1/3 rounded-lg" />
+                </div>
+              </div>
+              <Skeleton className="h-12 w-full rounded-lg" />
+            </div>
+          ))}
+        </div>
+      // Empty state
       ) : discussions.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <MessageCircle className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
-            <p className="text-slate-500 dark:text-slate-400">No doubts posted yet</p>
-            <p className="text-sm text-slate-400 dark:text-slate-500">Click &quot;Ask a Doubt&quot; to get help</p>
-          </CardContent>
-        </Card>
+        <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+          <div className="w-14 h-14 rounded-full bg-cyan-50 dark:bg-cyan-900/20 flex items-center justify-center mx-auto mb-4">
+            <MessageCircle className="w-7 h-7 text-cyan-400 dark:text-cyan-500" />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No doubts posted yet</h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Click &quot;Ask a Doubt&quot; to get help from your peers</p>
+        </div>
+      // Discussion list
       ) : (
-        <div className="space-y-4">
-          {discussions.map(d => (
-            <Card key={d.id} className="card-hover overflow-hidden">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-base">{d.title}</CardTitle>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-400 to-sky-500 flex items-center justify-center text-[8px] font-bold text-white">
-                        {(d.student?.name || 'U').charAt(0).toUpperCase()}
+        <div className="space-y-2">
+          {discussions.map(d => {
+            const isExpanded = expandedId === d.id
+            return (
+              <div key={d.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-shadow hover:shadow-sm">
+                {/* Main discussion */}
+                <div
+                  className="p-4 cursor-pointer select-none"
+                  onClick={() => setExpandedId(isExpanded ? null : d.id)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-400 to-sky-500 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
+                          {(d.student?.name || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{d.student?.name || 'Unknown'}</span>
+                        <span className="text-[10px] text-slate-400">{timeAgo(d.createdAt)}</span>
                       </div>
-                      <span className="text-xs text-slate-500 font-medium">{d.student?.name || 'Unknown'}</span>
-                      <span className="text-xs text-slate-400">{timeAgo(d.createdAt)}</span>
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">{d.title}</h3>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">{d.content}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0 pt-1">
+                      {d.replies && d.replies.length > 0 && (
+                        <Badge variant="secondary" className="text-[10px] bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400 border-0 px-2 py-0.5 rounded-full">
+                          {d.replies.length} {d.replies.length === 1 ? 'reply' : 'replies'}
+                        </Badge>
+                      )}
+                      <div className="text-slate-300 dark:text-slate-600">
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
                     </div>
                   </div>
-                  {d.replies && d.replies.length > 0 && (
-                    <Badge variant="secondary" className="text-[10px] bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400">
-                      <MessageCircle className="w-2.5 h-2.5 mr-1" /> {d.replies.length}
-                    </Badge>
-                  )}
                 </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <p className="text-sm text-slate-700 dark:text-slate-300">{d.content}</p>
-                {/* Replies */}
-                <div className="mt-4 space-y-3">
-                  {d.replies && d.replies.length > 0 && (
-                    <>
-                      <Separator />
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        Replies ({d.replies.length})
-                      </p>
-                      {d.replies.map(r => (
-                        <div key={r.id} className="ml-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border-l-4 border-l-slate-300 dark:border-l-slate-700">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-slate-500">
+
+                {/* Expanded: replies + reply input */}
+                {isExpanded && (
+                  <div className="grow-in border-t border-slate-100 dark:border-slate-800">
+                    {/* Replies */}
+                    {d.replies && d.replies.length > 0 && (
+                      <div className="px-4 py-3 space-y-2.5 bg-slate-50/50 dark:bg-slate-800/30">
+                        {d.replies.map(r => (
+                          <div key={r.id} className="flex gap-2.5">
+                            <div className="w-6 h-6 rounded-full bg-slate-300 dark:bg-slate-600 flex items-center justify-center text-[8px] font-bold text-white shrink-0 mt-0.5">
                               {(r.student?.name || 'R').charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                              {r.student?.name || 'Student'}
-                            </span>
-                            <span className="text-[10px] text-slate-400">{timeAgo(r.createdAt)}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline gap-2 mb-0.5">
+                                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{r.student?.name || 'Student'}</span>
+                                <span className="text-[10px] text-slate-400">{timeAgo(r.createdAt)}</span>
+                              </div>
+                              <p className="text-sm text-slate-700 dark:text-slate-300">{r.content}</p>
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-700 dark:text-slate-300">{r.content}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Reply input */}
+                    <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+                      {replyId === d.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            placeholder="Write your reply..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(d.id) } }}
+                            className="flex-1 h-9 px-3 text-sm bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-emerald-400/50 text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+                            autoFocus
+                          />
+                          <Button size="sm" onClick={() => handleReply(d.id)} disabled={!replyText.trim() || replyLoading}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-3">
+                            {replyLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setReplyId(null); setReplyText('') }} className="h-9 px-2">
+                            Cancel
+                          </Button>
                         </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-                {/* Reply Input */}
-                <div className="mt-4">
-                  {replyId === d.id ? (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Write your reply..."
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(d.id) } }}
-                        className="flex-1 text-sm"
-                        autoFocus
-                      />
-                      <Button size="sm" onClick={() => handleReply(d.id)} disabled={!replyText.trim() || replyLoading}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                        {replyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setReplyId(null); setReplyText('') }}>
-                        Cancel
-                      </Button>
+                      ) : (
+                        <button onClick={() => setReplyId(d.id)}
+                          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                          <Reply className="w-3.5 h-3.5" /> Reply
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => setReplyId(d.id)}
-                      className="text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-xs">
-                      <Reply className="size-3.5 mr-1.5" /> Reply
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

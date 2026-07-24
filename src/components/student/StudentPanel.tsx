@@ -3,20 +3,22 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
-  LayoutDashboard, CalendarDays, CalendarCheck, MessageCircle, ListChecks,
-  UserCog, LogOut, CheckCircle2, BookOpen, Menu, Moon, Sun, Brain, StickyNote, BarChart3, Trophy, History, BookMarked, Users, Star, Download,
+  LayoutDashboard, CalendarDays, CalendarCheck, MessageCircle, MessageSquare, ListChecks,
+  UserCog, LogOut, CheckCircle2, BookOpen, Menu, Moon, Sun, Brain, StickyNote, BarChart3, Trophy, History, BookMarked, Users, Star, Download, Clock, Play, Pause,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { api } from '@/lib/api-client'
 import { usePWAInstall } from '@/hooks/use-pwa-install'
 
 import { StudentPanelProps, Page, DashboardData } from './types'
-import { CSS_ANIMATIONS, LoadingSkeleton } from './utils'
+import { CSS_ANIMATIONS, LoadingSkeleton, formatTimer } from './utils'
+import { TimerProvider, useTimer } from './TimerContext'
 import {
-  DashboardPage, TrackStudyPage, StudyPlannerPage, DiscussionPage, SyllabusPage, EditProfilePage,
+  DashboardPage, TrackStudyPage, StudyPlannerPage, DiscussionPage, LiveChatPage, SyllabusPage, EditProfilePage,
   QuizPage, QuizHistoryPage, NotesPage, AnalyticsPage, LeaderboardPage, MaterialsPage, GroupStudyPage, ReviewsPage,
 } from './pages'
 import { NotificationBell } from './NotificationBell'
+import { PwaInstallDialog } from '@/components/pwa-install-dialog'
 
 const MOTIVATIONAL_QUOTES = [
   { text: 'The secret of success is to do the common things uncommonly well.', author: 'John D. Rockefeller' },
@@ -62,6 +64,51 @@ const MOTIVATIONAL_QUOTES = [
 ]
 
 // ═══════════════════════════════════════════════════════════════════════
+// FLOATING MINI TIMER
+// ═══════════════════════════════════════════════════════════════════════
+
+function FloatingTimer({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: Page) => void }) {
+  const { timerRunning, timerPaused, timerSeconds, timerTotalSeconds, chapterName, screenLocked, setTimerPaused } = useTimer()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  if (!mounted) return null
+  const showOnPages: Page[] = ['dashboard', 'group-study', 'discussion', 'quiz', 'quiz-history', 'track', 'planner', 'notes', 'analytics', 'leaderboard', 'materials', 'reviews', 'syllabus', 'profile']
+  if (!timerRunning && !timerPaused) return null
+  if (currentPage === 'dashboard') return null
+
+  const progress = timerTotalSeconds > 0 ? (timerSeconds / timerTotalSeconds) * 100 : 0
+  const barColor = progress < 25 ? 'bg-red-500' : progress < 50 ? 'bg-amber-500' : 'bg-emerald-500'
+
+  return (
+    <button onClick={() => onNavigate('dashboard')}
+      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all group">
+      <div className="relative">
+        <Clock className={`w-4 h-4 ${timerPaused ? 'text-amber-500' : 'text-emerald-500'} ${timerRunning && !timerPaused ? 'animate-pulse' : ''}`} />
+        {screenLocked && timerRunning && !timerPaused && (
+          <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-800" />
+        )}
+      </div>
+      <div className="text-right">
+        <div className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+          {formatTimer(timerSeconds)}
+        </div>
+        <div className="text-[9px] text-slate-400 dark:text-slate-500 leading-tight">
+          {timerPaused ? 'Paused' : chapterName || 'Studying'}
+        </div>
+      </div>
+      <div className="w-10 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden hidden sm:block">
+        <div className={`h-full rounded-full transition-all duration-1000 ${barColor}`} style={{ width: `${progress}%` }} />
+      </div>
+      <div onClick={(e) => { e.stopPropagation(); setTimerPaused(prev => !prev) }}
+        className="ml-1 w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors opacity-0 group-hover:opacity-100">
+        {timerPaused ? <Play className="w-3 h-3 text-emerald-500" /> : <Pause className="w-3 h-3 text-amber-500" />}
+      </div>
+    </button>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -71,7 +118,8 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const { theme, setTheme } = useTheme()
-  const { canInstall, install } = usePWAInstall()
+  const { canInstall, install, deferredPrompt } = usePWAInstall()
+  const [showInstallDialog, setShowInstallDialog] = useState(false)
 
   // Daily quote seeded by date (changes daily)
   const dailyQuote = useMemo(() => {
@@ -101,6 +149,7 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
     { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'Learning' },
     { id: 'leaderboard', label: 'Leaderboard', icon: Trophy, section: 'Learning' },
     { id: 'materials', label: 'Study Materials', icon: BookMarked, section: 'Learning' },
+    { id: 'live-chat', label: 'Live Chat', icon: MessageSquare, section: 'Social' },
     { id: 'group-study', label: 'Group Study', icon: Users, section: 'Social' },
     { id: 'discussion', label: 'Discussion', icon: MessageCircle, section: 'Social' },
     { id: 'reviews', label: 'Reviews', icon: Star, section: 'Social' },
@@ -227,6 +276,7 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
       case 'leaderboard': return <LeaderboardPage />
       case 'materials': return <MaterialsPage />
       case 'group-study': return <GroupStudyPage />
+      case 'live-chat': return <LiveChatPage />
       case 'discussion': return <DiscussionPage />
       case 'reviews': return <ReviewsPage />
       case 'syllabus': return <SyllabusPage />
@@ -234,8 +284,17 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
     }
   }
 
+  // Log student IP on mount
+  useEffect(() => {
+    fetch('/api/ip-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: window.location.pathname, action: 'visit' }),
+    }).catch(() => {})
+  }, [])
+
   return (
-    <>
+    <TimerProvider>
       <style>{CSS_ANIMATIONS}</style>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
         {/* Desktop Sidebar */}
@@ -281,7 +340,7 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 {canInstall && (
-                  <button onClick={install}
+                  <button onClick={async () => { const ok = await install(); if (!ok) setShowInstallDialog(true) }}
                     className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] sm:text-xs font-medium transition-colors"
                   >
                     <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
@@ -289,6 +348,7 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
                     <span className="sm:hidden">App</span>
                   </button>
                 )}
+                <FloatingTimer currentPage={currentPage} onNavigate={handleNavClick} />
                 <NotificationBell onNavigate={(p) => handleNavClick(p as Page)} />
               </div>
             </div>
@@ -308,7 +368,8 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
           </div>
         </main>
       </div>
-    </>
+      <PwaInstallDialog open={showInstallDialog} onClose={() => setShowInstallDialog(false)} deferredPrompt={deferredPrompt} />
+    </TimerProvider>
   )
 }
 

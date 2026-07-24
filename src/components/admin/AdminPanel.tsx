@@ -24,9 +24,10 @@ import { QuizzesPage } from './QuizzesPage'
 import { AnalyticsPage } from './AnalyticsPage'
 import { MaterialsPage } from './MaterialsPage'
 import { GroupsPage } from './GroupsPage'
+import { IpLogsPage } from './IpLogsPage'
 
 import {
-  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone,
+  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone, Globe,
 } from 'lucide-react'
 
 
@@ -90,7 +91,7 @@ function InjectStyles() {
 
 // ─── Types ───────────────────────────────────────────────────────
 interface AdminPanelProps { onLogout: () => void }
-type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'notifications' | 'settings'
+type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'notifications' | 'ip-logs' | 'settings'
 
 interface DashboardData { totalStudents:number; totalCourses:number; totalSubjects:number; totalChapters:number; totalReviews:number; totalDiscussions:number; totalQuizzes?:number; totalQuizAttempts?:number; totalNotes?:number; recentSignups:any[]; weeklySignups?:any[]; activityLog?:any[] }
 interface Student { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; status:string; createdAt:string }
@@ -143,6 +144,7 @@ const navSections: { label:string; items:{ key:PageKey; label:string; icon:React
     { key:'notifications', label:'Send Notification', icon:BellRing, color:'bg-purple-500/10 text-purple-600' },
   ]},
   { label:'System', items:[
+    { key:'ip-logs', label:'IP Logs', icon:Globe, color:'bg-sky-500/10 text-sky-600' },
     { key:'settings', label:'Settings', icon:Settings, color:'bg-slate-500/10 text-slate-600' },
   ]},
 ]
@@ -763,6 +765,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       case 'materials': return <MaterialsPage />
       case 'groups': return <GroupsPage />
       case 'notifications': return <SendNotificationPage />
+      case 'ip-logs': return <IpLogsPage />
       case 'settings': return <SettingsPage />
     }
   }
@@ -1452,7 +1455,7 @@ function ReviewsPage() {
   const handleAdd=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await api.adminCreateReview({authorName:fd.get('authorName'),text:fd.get('text'),rating:Number(fd.get('rating')),courseId:fd.get('courseId')||null});toast.success('Review created');setAddOpen(false);refresh()}catch(e:any){toast.error(e.message)}}
   const handleStatusChange=async(id:string,status:string)=>{try{await api.adminUpdateReview(id,{status});toast.success(`Review ${status.toLowerCase()}`);refresh()}catch(e:any){toast.error(e.message)}}
   const handleDelete=async()=>{if(!deleteReview)return;try{await api.adminDeleteReview(deleteReview.id);toast.success('Review deleted');setDeleteReview(null);refresh()}catch(e:any){toast.error(e.message)}}
-  const sourceBadge=(s:string)=>s==='ADMIN'?'bg-slate-100 text-slate-700 border-slate-200':'bg-amber-100 text-amber-700 border-amber-200'
+  const sourceBadge=(s:string)=>s==='admin'?'bg-slate-100 text-slate-700 border-slate-200':'bg-amber-100 text-amber-700 border-amber-200'
 
   return <div className="space-y-4">
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -1470,9 +1473,9 @@ function ReviewsPage() {
           <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[200px] truncate">{r.text}</TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
           <TableCell className="hidden md:table-cell">{r.course?.title||'—'}</TableCell>
           <TableCell><Badge variant="outline" className={sourceBadge(r.source)}>{r.source}</Badge></TableCell>
-          <TableCell><Badge variant={r.status==='APPROVED'?'default':r.status==='REJECTED'?'destructive':'secondary'} className={r.status==='APPROVED'?'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20':''}>{r.status}</Badge></TableCell>
+          <TableCell><Badge variant={r.status==='approved'?'default':r.status==='rejected'?'destructive':'secondary'} className={r.status==='approved'?'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20':''}>{r.status}</Badge></TableCell>
           <TableCell className="text-right"><div className="flex items-center justify-end gap-0.5">
-            {r.status==='PENDING'&&r.studentId&&<><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'APPROVED')} className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"><Check className="size-3.5" /> Approve</Button><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'REJECTED')} className="text-destructive hover:text-red-700 hover:bg-destructive/10"><X className="size-3.5" /> Reject</Button></>}
+            {r.status==='pending'&&r.studentId&&<><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'approved')} className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"><Check className="size-3.5" /> Approve</Button><Button variant="ghost" size="sm" onClick={()=>handleStatusChange(r.id,'rejected')} className="text-destructive hover:text-red-700 hover:bg-destructive/10"><X className="size-3.5" /> Reject</Button></>}
             <ActionButton icon={Trash2} tooltip="Delete" onClick={()=>setDeleteReview(r)} className="text-destructive hover:text-destructive/80" />
           </div></TableCell>
         </TableRow>

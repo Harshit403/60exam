@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
-import { ThemeToggle } from '@/components/theme-toggle'
 import {
   MessageCircle, Search, ChevronLeft, Shield, CheckCircle2,
   GraduationCap, ArrowRight, ChevronRight, Users, Clock,
@@ -124,42 +123,7 @@ export default function DiscussionLandingPage({ onNavigate, isLoggedIn, userRole
   })
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="max-w-6xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => onNavigate('landing')} className="hover:bg-muted/80 transition-colors duration-200">
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate('landing')}>
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-amber-600 flex items-center justify-center shadow-sm">
-                <GraduationCap className="h-5 w-5 text-white" />
-              </div>
-              <span className="font-bold text-lg tracking-tight text-foreground hidden sm:inline">MISSION CS</span>
-            </div>
-            <Separator orientation="vertical" className="h-5 mx-1 hidden sm:block" />
-            <div className="hidden sm:flex items-center gap-2">
-              <MessageCircle className="h-5 w-5 text-emerald-600" />
-              <span className="font-semibold text-foreground">Discussion Forum</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            {isLoggedIn ? (
-              <Button size="sm" onClick={() => onNavigate(userRole === 'admin' ? 'admin' : 'student')} className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-sm">
-                Dashboard <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => onNavigate('student-signup')} className="bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-700 hover:to-amber-700 shadow-sm">
-                Sign Up Free
-              </Button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
+    <>
       <main className="flex-1">
         {/* Hero Banner */}
         <section className="relative overflow-hidden border-b">
@@ -551,6 +515,6 @@ export default function DiscussionLandingPage({ onNavigate, isLoggedIn, userRole
           </div>
         </div>
       </footer>
-    </div>
+    </>
   )
 }

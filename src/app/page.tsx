@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useSyncExternalStore, useRef } from 'react'
 import { useAuthStore } from '@/lib/store'
+import SiteHeader from '@/components/layout/SiteHeader'
 import LandingPage from '@/components/landing/LandingPage'
 import CSExecutivePage from '@/components/landing/CSExecutivePage'
 import CSProfessionalPage from '@/components/landing/CSProfessionalPage'
@@ -137,8 +138,24 @@ export default function Home() {
     return <StudentPanel onLogout={handleLogout} />
   }
 
+  const isPublic = !['admin', 'student'].includes(effectiveView)
+  const wrap = (children: React.ReactNode) => isPublic ? (
+    <div className="min-h-screen flex flex-col bg-background">
+      <SiteHeader view={effectiveView} onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />
+      <main className="flex-1">{children}</main>
+    </div>
+  ) : <>{children}</>
+
+  if (effectiveView === 'admin') {
+    return <AdminPanel onLogout={handleLogout} />
+  }
+
+  if (effectiveView === 'student') {
+    return <StudentPanel onLogout={handleLogout} />
+  }
+
   if (effectiveView === 'student-login') {
-    return (
+    return wrap(
       <StudentLogin
         onLogin={handleStudentLogin}
         onNavigateToSignup={() => setCurrentView('student-signup')}
@@ -148,7 +165,7 @@ export default function Home() {
   }
 
   if (effectiveView === 'student-signup') {
-    return (
+    return wrap(
       <StudentSignup
         onSignup={handleStudentLogin}
         onNavigateToLogin={() => setCurrentView('student-login')}
@@ -157,7 +174,7 @@ export default function Home() {
   }
 
   if (effectiveView === 'forgot-password') {
-    return (
+    return wrap(
       <ForgotPassword
         onBack={() => setCurrentView('student-login')}
       />
@@ -165,32 +182,32 @@ export default function Home() {
   }
 
   if (effectiveView === 'cs-executive') {
-    return <CSExecutivePage onNavigate={handleNavigate} />
+    return wrap(<CSExecutivePage onNavigate={handleNavigate} />)
   }
 
   if (effectiveView === 'cs-professional') {
-    return <CSProfessionalPage onNavigate={handleNavigate} />
+    return wrap(<CSProfessionalPage onNavigate={handleNavigate} />)
   }
 
   if (effectiveView === 'reviews') {
-    return <ReviewsLandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />
+    return wrap(<ReviewsLandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />)
   }
 
   if (effectiveView === 'discussions') {
-    return <DiscussionLandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />
+    return wrap(<DiscussionLandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />)
   }
 
   if (effectiveView === 'privacy-policy') {
-    return <PrivacyPolicyPage onNavigate={handleNavigate} />
+    return wrap(<PrivacyPolicyPage onNavigate={handleNavigate} />)
   }
 
   if (effectiveView === 'terms-conditions') {
-    return <TermsAndConditionsPage onNavigate={handleNavigate} />
+    return wrap(<TermsAndConditionsPage onNavigate={handleNavigate} />)
   }
 
   if (effectiveView === 'refund-policy') {
-    return <RefundPolicyPage onNavigate={handleNavigate} />
+    return wrap(<RefundPolicyPage onNavigate={handleNavigate} />)
   }
 
-  return <LandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />
+  return wrap(<LandingPage onNavigate={handleNavigate} isLoggedIn={isLoggedIn} userRole={userRole} />)
 }

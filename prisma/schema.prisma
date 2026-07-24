@@ -35,9 +35,11 @@ model Student {
   currentStreak Int      @default(0)
   lastStrikeAt  DateTime?
   lastStudyAt   DateTime?
-  verified      Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  verified              Boolean  @default(false)
+  studyReminderEnabled  Boolean  @default(true)
+  lastReminderSentAt    DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   studySessions  StudySession[]
   studyPlans     StudyPlan[]
@@ -190,7 +192,7 @@ model Discussion {
   content     String
   parentReplyId String?
   replies     Discussion[] @relation("DiscussionReplies")
-  parentReply Discussion?  @relation("DiscussionReplies", fields: [parentReplyId], references: [id])
+  parentReply Discussion?  @relation("DiscussionReplies", fields: [parentReplyId], references: [id], onDelete: SetNull)
   adminReply  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -306,14 +308,15 @@ model StudyGroup {
 }
 
 model GroupMember {
-  id         String   @id @default(cuid())
-  groupId    String
-  group      StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  studentId  String
-  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  joinedAt   DateTime  @default(now())
-  leftAt     DateTime?
-  timerState Json?     // { running, paused, remaining, total, chapterName }
+  id           String   @id @default(cuid())
+  groupId      String
+  group        StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  joinedAt     DateTime  @default(now())
+  leftAt       DateTime?
+  lastActiveAt DateTime  @default(now())
+  timerState   Json?     // { running, paused, remaining, total, chapterName }
 }
 
 model GroupMessage {

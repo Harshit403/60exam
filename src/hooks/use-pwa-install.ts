@@ -44,5 +44,5 @@ export function usePWAInstall() {
     return result.outcome === 'accepted'
   }
 
-  return { canInstall: canInstall && !isInstalled, install, isInstalled }
+  return { canInstall: canInstall && !isInstalled, install, isInstalled, deferredPrompt }
 }

@@ -132,6 +132,10 @@ export const api = {
   studentStudyPlans: (date?: string) => apiFetch(`/student/study-plan${date ? `?date=${date}` : ''}`),
   studentCreatePlan: (data: any) => apiFetch('/student/study-plan', { method: 'POST', body: JSON.stringify(data) }),
   studentUpdatePlan: (id: string, data: any) => apiFetch(`/student/study-plan/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Study Reminder Preference
+  getReminderPreference: () => apiFetch('/student/reminder-preference'),
+  setReminderPreference: (enabled: boolean) => apiFetch('/student/reminder-preference', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   
   // Student Strike
   studentSendStrike: () => apiFetch('/student/strike', { method: 'POST' }),
@@ -158,10 +162,11 @@ export const api = {
     apiFetch('/student/syllabus', { method: 'POST', body: JSON.stringify({ chapterId, completed }) }),
 
   // Student Leaderboard
-  studentLeaderboard: (limit?: number, courseId?: string) => {
+  studentLeaderboard: (limit?: number, courseId?: string, period?: 'all' | 'today' | '24h') => {
     const params = new URLSearchParams()
     if (limit) params.set('limit', String(limit))
     if (courseId) params.set('courseId', courseId)
+    if (period && period !== 'all') params.set('period', period)
     const qs = params.toString()
     return apiFetch(`/student/leaderboard${qs ? `?${qs}` : ''}`)
   },

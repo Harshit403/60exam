@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
 
   if (lastStudy) {
     const diffHours = (now.getTime() - new Date(lastStudy).getTime()) / (1000 * 60 * 60)
-    if (diffHours < 24) {
-      // Within 24 hours — streak continues
+    if (diffHours < 48) {
+      // Within 48 hours — streak continues
       if (!isSameISTDay(now, new Date(lastStudy))) {
         newStreak = student.currentStreak + 1
       }

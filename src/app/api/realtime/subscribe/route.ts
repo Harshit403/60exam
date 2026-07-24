@@ -123,6 +123,13 @@ export async function GET(req: NextRequest) {
         pollTimer = setInterval(async () => {
           if (closed) return
           try {
+            // Auto-exit members inactive for > 1 hour
+            const inactiveThreshold = new Date(Date.now() - 60 * 60 * 1000)
+            await db.groupMember.updateMany({
+              where: { groupId, leftAt: null, lastActiveAt: { lt: inactiveThreshold } },
+              data: { leftAt: new Date() },
+            })
+
             const [newMessages, currentMembers] = await Promise.all([
               db.groupMessage.findMany({
                 where: { groupId, createdAt: { gt: new Date(lastPoll) } },

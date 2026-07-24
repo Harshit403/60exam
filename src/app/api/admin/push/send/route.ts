@@ -44,18 +44,18 @@ export async function POST(req: NextRequest) {
     const payload = JSON.stringify({ title, message, timestamp: Date.now() })
     let sent = 0
 
-    const results = await Promise.allSettled(
-      subscriptions.map(sub =>
-        webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload,
-        ).then(() => { sent++ }).catch(() => {
-          // If subscription is invalid, remove it
-          if (sub.endpoint) {
-            db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {})
-          }
-        })
-      )
+    await Promise.allSettled(
+      subscriptions.map(async sub => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+          )
+          sent++
+        } catch {
+          await db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {})
+        }
+      })
     )
 
     return NextResponse.json({ sent, total: subscriptions.length })
