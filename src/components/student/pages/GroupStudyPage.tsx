@@ -294,7 +294,7 @@ export function GroupStudyPage() {
         if (timerData) {
           const parsed = JSON.parse(timerData)
           const timerState: TimerState = { running: parsed.timerRunning || false, paused: parsed.timerPaused || false, remaining: parsed.timerSeconds || 0, total: parsed.timerTotalSeconds || 0, chapterName: parsed.chapterName || null }
-          api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState }).catch(() => {})
+          api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState, timerStartedAt: parsed.timerStartedAt || null }).catch(() => {})
           setMembers(prev => prev.map(m => m.userId === userId ? { ...m, timerState } : m))
         }
       } catch (e) { /* ignore */ }

@@ -7,6 +7,14 @@ const LIVE_ROOM_ID = 'mission-cs-public'
 const POLL_INTERVAL = 3000
 const HEARTBEAT_INTERVAL = 30000
 
+function computeTimerState(timerState: any, timerStartedAt: string | Date | null): any {
+  if (!timerState || !timerState.running || !timerStartedAt) return timerState
+  const startedAt = new Date(timerStartedAt).getTime()
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+  const remaining = Math.max(0, (timerState.total || 0) - elapsed)
+  return { ...timerState, remaining, running: remaining > 0 }
+}
+
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
@@ -115,7 +123,7 @@ export async function GET(req: NextRequest) {
           sendSSE(res, 'group-members', {
             members: members.map(m => ({
               userId: m.studentId, name: m.student.fullName,
-              timerState: m.timerState as any,
+              timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
             })),
           })
         })()
@@ -152,7 +160,7 @@ export async function GET(req: NextRequest) {
             }
             const currentMembersData = currentMembers.map(m => ({
               userId: m.studentId, name: m.student.fullName,
-              timerState: m.timerState as any,
+              timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
             }))
             sendSSE(res, 'group-members', { members: currentMembersData })
             lastPoll = Date.now()

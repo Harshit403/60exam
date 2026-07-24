@@ -13,6 +13,7 @@ interface TimerPersistState {
   timestamp: number
   sessionQuote: string
   chapterName: string
+  timerStartedAt: number | null
 }
 
 interface TimerContextType {
@@ -51,7 +52,8 @@ function loadTimerState(): TimerPersistState | null {
     if (!raw) return null
     const state = JSON.parse(raw) as TimerPersistState
     if (state.timerRunning && !state.timerPaused && state.timerSeconds > 0) {
-      const elapsed = Math.floor((Date.now() - state.timestamp) / 1000)
+      const start = state.timerStartedAt || state.timestamp
+      const elapsed = Math.floor((Date.now() - start) / 1000)
       state.timerSeconds = Math.max(0, state.timerSeconds - elapsed)
     }
     return state
@@ -73,6 +75,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [sessionQuote, setSessionQuote] = useState('')
   const [chapterName, setChapterName] = useState('')
   const [screenLocked, setScreenLocked] = useState(false)
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null)
 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -114,11 +117,12 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       saveTimerState({
         selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds,
         timerRunning, timerPaused, timestamp: Date.now(), sessionQuote, chapterName,
+        timerStartedAt,
       })
     } else if (timerSeconds === 0 && timerTotalSeconds === 0) {
       clearTimerState()
     }
-  }, [selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds, timerRunning, timerPaused, sessionQuote, chapterName])
+  }, [selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds, timerRunning, timerPaused, sessionQuote, chapterName, timerStartedAt])
 
   // ─── Wake Lock ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -204,6 +208,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setTimerRunning(true)
     setTimerPaused(false)
     setTimerCompleted(false)
+    setTimerStartedAt(Date.now())
   }, [])
 
   const resetTimer = useCallback(() => {
@@ -214,6 +219,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setTimerCompleted(false)
     setSessionQuote('')
     setChapterName('')
+    setTimerStartedAt(null)
     clearTimerState()
     if (timerInterval.current) {
       clearInterval(timerInterval.current)

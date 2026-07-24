@@ -51,12 +51,15 @@ export async function POST(req: NextRequest) {
 
     // ─── Group: sync timer state ────────────────────────────────────
     case 'group-timer': {
-      const { groupId, timerState } = body
+      const { groupId, timerState, timerStartedAt } = body
       if (!groupId || !timerState) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      const updateData: any = { timerState, lastActiveAt: new Date() }
+      if (timerStartedAt) updateData.timerStartedAt = new Date(timerStartedAt)
 
       await db.groupMember.updateMany({
         where: { groupId, studentId: auth.id, leftAt: null },
-        data: { timerState, lastActiveAt: new Date() },
+        data: updateData,
       })
       return NextResponse.json({ ok: true })
     }

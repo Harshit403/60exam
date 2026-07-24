@@ -307,15 +307,16 @@ model StudyGroup {
 }
 
 model GroupMember {
-  id           String   @id @default(cuid())
-  groupId      String
-  group        StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  studentId    String
-  student      Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  joinedAt     DateTime  @default(now())
-  leftAt       DateTime?
-  lastActiveAt DateTime  @default(now())
-  timerState   Json?     // { running, paused, remaining, total, chapterName }
+  id             String    @id @default(cuid())
+  groupId        String
+  group          StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+  lastActiveAt   DateTime  @default(now())
+  timerState     Json?     // { running, paused, remaining, total, chapterName }
+  timerStartedAt DateTime?
 }
 
 model GroupMessage {
