@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  Users, Plus, Pencil, Trash2, Shield, ShieldOff, Search, Loader2, UserX, CheckCircle2, XCircle, MessageSquare, Hash, Eye, UserMinus, Ban, Mail,
+  Users, Plus, Pencil, Trash2, Shield, ShieldOff, Search, Loader2, UserX, CheckCircle2, XCircle, MessageSquare, Hash, Eye, UserMinus, Ban, Mail, Trash,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -96,6 +96,12 @@ export function GroupsPage() {
   // View members dialog
   const [viewGroup, setViewGroup] = useState<Group | null>(null)
   const [memberActionLoading, setMemberActionLoading] = useState<string | null>(null)
+
+  // View messages dialog
+  const [viewMessagesGroup, setViewMessagesGroup] = useState<Group | null>(null)
+  const [groupMessages, setGroupMessages] = useState<any[]>([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
 
   // ─── Fetch Groups ────────────────────────────────────────────
   const fetchGroups = useCallback(async () => {
@@ -330,6 +336,33 @@ export function GroupsPage() {
       toast.error(err.message || 'Failed to block student')
     } finally {
       setMemberActionLoading(null)
+    }
+  }
+
+  // ─── Messages helpers ──────────────────────────────────────────
+  const fetchGroupMessages = async (groupId: string) => {
+    setMessagesLoading(true)
+    try {
+      const data = await api.adminGroupMessages(groupId)
+      setGroupMessages(data.messages || [])
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load messages')
+    } finally {
+      setMessagesLoading(false)
+    }
+  }
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!viewMessagesGroup) return
+    setDeletingMessageId(messageId)
+    try {
+      await api.adminDeleteGroupMessage(viewMessagesGroup.id, messageId)
+      setGroupMessages(prev => prev.filter(m => m.id !== messageId))
+      toast.success('Message deleted')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete message')
+    } finally {
+      setDeletingMessageId(null)
     }
   }
 
@@ -590,6 +623,9 @@ export function GroupsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => { setViewMessagesGroup(g); fetchGroupMessages(g.id) }} title="View messages" className="h-8 w-8 hover:bg-violet-500/10 hover:text-violet-600">
+                            <MessageSquare className="size-3.5" />
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => setViewGroup(g)} title="View members" className="h-8 w-8 hover:bg-sky-500/10 hover:text-sky-600">
                             <Eye className="size-3.5" />
                           </Button>
@@ -987,6 +1023,62 @@ export function GroupsPage() {
               ))}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── View Messages Dialog ──────────────────────────────── */}
+      <Dialog open={!!viewMessagesGroup} onOpenChange={(open) => { if (!open) { setViewMessagesGroup(null); setGroupMessages([]) } }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader className="dialog-gradient-header -m-6 mb-0 p-6 pb-4 rounded-t-lg">
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="size-5 text-violet-600" />
+              Messages &mdash; {viewMessagesGroup?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {groupMessages.length} message{groupMessages.length !== 1 ? 's' : ''} &middot; Click trash to delete a message
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="pt-4">
+            {messagesLoading ? (
+              <div className="space-y-3 py-4">
+                {[1,2,3].map(i => (
+                  <Skeleton key={i} className="h-16 w-full rounded-lg shimmer-bg" />
+                ))}
+              </div>
+            ) : groupMessages.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                <MessageSquare className="size-8 mx-auto mb-2 opacity-30" />
+                No messages in this group
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto admin-scroll">
+                {groupMessages.map((m) => (
+                  <div key={m.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors group">
+                    <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/20 to-purple-500/20 text-violet-700 dark:text-violet-300 font-semibold text-xs shrink-0 mt-0.5">
+                      {(m.studentName || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">{m.studentName}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatDateTime(m.createdAt)}</span>
+                      </div>
+                      <p className="text-sm mt-0.5 text-foreground break-words">{m.content}</p>
+                    </div>
+                    <Button
+                      variant="ghost" size="icon"
+                      onClick={() => handleDeleteMessage(m.id)}
+                      disabled={deletingMessageId === m.id}
+                      className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-600 transition-all"
+                      title="Delete message"
+                    >
+                      {deletingMessageId === m.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash className="size-3.5" />}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

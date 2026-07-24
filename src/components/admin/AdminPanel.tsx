@@ -580,20 +580,24 @@ function SendNotificationPage() {
       setTitle('')
       setMessage('')
 
-      // Send browser push notification if toggled on
+      // Send browser push notification via Knock
       if (sendPush) {
-        const pushRes = await fetch('/api/admin/push/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-          body: JSON.stringify({
-            title: title.trim(),
-            message: message.trim(),
-            targetCourseId: target === 'course' ? targetCourseId : null,
-          }),
-        })
-        const pushData = await pushRes.json()
-        if (pushData.sent !== undefined) {
-          console.log(`[Push] Sent to ${pushData.sent}/${pushData.total} devices`)
+        try {
+          const pushRes = await fetch('/api/admin/notifications/knock-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            body: JSON.stringify({
+              title: title.trim(),
+              message: message.trim(),
+              targetCourseId: target === 'course' ? targetCourseId : null,
+            }),
+          })
+          const pushData = await pushRes.json()
+          if (pushData.sent !== undefined) {
+            console.log(`[KnockPush] Sent to ${pushData.sent}/${pushData.total} devices`)
+          }
+        } catch (pushErr) {
+          console.warn('[KnockPush] Send failed:', pushErr)
         }
       }
     } catch (e: any) {

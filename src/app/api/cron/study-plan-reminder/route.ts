@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getISTTodayStart, getISTTodayEnd } from '@/lib/date-utils'
-import webpush from 'web-push'
+import { Knock } from '@knocklabs/node'
 
-const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || ''
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || ''
-const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@missioncs.com'
+const knockClient = new Knock(process.env.KNOCK_SECRET_API_KEY || '')
 const cronSecret = process.env.CRON_SECRET
-
-if (vapidPublicKey && vapidPrivateKey) {
-  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey)
-}
+const workflowKey = process.env.KNOCK_WORKFLOW_KEY || 'admin-push-notification'
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -54,16 +49,12 @@ export async function GET(req: NextRequest) {
       if (p.chapter?.subject?.name) entry.subjects.add(p.chapter.subject.name)
     }
 
-    if (!vapidPublicKey || !vapidPrivateKey) {
-      return NextResponse.json({ error: 'VAPID keys not configured' }, { status: 500 })
-    }
-
     let sent = 0
     let studentsNotified = 0
 
     for (const [, student] of grouped) {
       const subjectList = [...student.subjects].join(', ')
-      const title = '📚 Study Reminder'
+      const title = 'Study Reminder'
       const message = subjectList
         ? `You planned to study ${subjectList} today. Please start studying — exams are coming!`
         : `You have study plans for today. Please start studying — exams are coming!`
@@ -73,28 +64,16 @@ export async function GET(req: NextRequest) {
         data: { lastReminderSentAt: new Date() },
       })
 
-      const subscriptions = await db.pushSubscription.findMany({
-        where: { studentId: student.studentId },
-      })
-
-      if (subscriptions.length === 0) continue
-      studentsNotified++
-
-      const payload = JSON.stringify({ title, message, timestamp: Date.now() })
-
-      await Promise.allSettled(
-        subscriptions.map(async sub => {
-          try {
-            await webpush.sendNotification(
-              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-              payload,
-            )
-            sent++
-          } catch {
-            await db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {})
-          }
-        }),
-      )
+      try {
+        await knockClient.workflows.trigger(workflowKey, {
+          recipients: [student.studentId],
+          data: { title, message, timestamp: Date.now() },
+        })
+        sent++
+        studentsNotified++
+      } catch {
+        continue
+      }
     }
 
     return NextResponse.json({

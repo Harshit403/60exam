@@ -30,7 +30,7 @@ function MiniTimerRing({ timerState }: { timerState: TimerState }) {
   const color = timerState.running ? '#10b981' : timerState.paused ? '#f59e0b' : '#94a474'
   return (
     <CircularProgressRing size={size} strokeWidth={3} progress={progress} color={color} trackColor="rgba(100,116,139,0.15)">
-      <Clock className="w-2.5 h-2.5 text-emerald-600" />
+      <Clock className="w-2.5 h-2.5 text-indigo-600" />
     </CircularProgressRing>
   )
 }
@@ -42,25 +42,25 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
 
   return (
     <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-      isSelf ? 'bg-emerald-50/80 dark:bg-emerald-900/20' : 'hover:bg-white/60 dark:hover:bg-slate-800/40'
+      isSelf ? 'bg-indigo-50/80 dark:bg-indigo-900/20' : 'hover:bg-white/60 dark:hover:bg-slate-800/40'
     }`}>
       <div className="relative flex-shrink-0">
         <Avatar className="h-9 w-9">
           <AvatarFallback className={`text-xs font-semibold ${
-            isSelf ? 'bg-[#075E54] text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+            isSelf ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'
           }`}>
             {(member.name || 'U').charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
         <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-[2.5px] ring-white dark:ring-slate-900 ${
-          isStudying ? 'bg-emerald-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
+          isStudying ? 'bg-indigo-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
         }`} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
-          {member.name} {isSelf && <span className="text-emerald-600 dark:text-emerald-400 text-xs">(You)</span>}
+          {member.name} {isSelf && <span className="text-indigo-600 dark:text-indigo-400 text-xs">(You)</span>}
         </p>
-        <p className={`text-xs ${isStudying ? 'text-emerald-600 dark:text-emerald-400 font-medium' : isPaused ? 'text-amber-500' : 'text-slate-400'}`}>
+        <p className={`text-xs ${isStudying ? 'text-indigo-600 dark:text-indigo-400 font-medium' : isPaused ? 'text-amber-500' : 'text-slate-400'}`}>
           {isStudying ? `Studying · ${formatTimer(member.timerState!.remaining)}` : isPaused ? `Paused · ${formatTimer(member.timerState!.remaining)}` : 'Idle'}
         </p>
       </div>
@@ -95,7 +95,7 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
         <div className="flex-shrink-0 self-end pb-1">
           {showAvatar ? (
             <Avatar className="h-8 w-8">
-              <AvatarFallback className="text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+              <AvatarFallback className="text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400">
                 {(msg.userName || 'U').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -106,12 +106,12 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
       )}
       <div className={`max-w-[80%] sm:max-w-[70%] ${isSelf ? 'items-end' : 'items-start'} flex flex-col`}>
         {!isSelf && showName && (
-          <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 ml-1 mb-0.5">{msg.userName}</span>
+          <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5">{msg.userName}</span>
         )}
-        <div className={`relative px-3.5 py-2 text-sm leading-relaxed break-words shadow-sm ${
+        <div className={`relative px-3.5 py-2 text-sm leading-relaxed break-words ${
           isSelf
-            ? 'bg-[#d9fdd3] dark:bg-emerald-700/70 text-slate-800 dark:text-white rounded-[18px] rounded-br-[4px]'
-            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-[18px] rounded-bl-[4px] border border-slate-200/50 dark:border-slate-700/50'
+            ? 'bg-indigo-50 dark:bg-indigo-900/40 text-slate-800 dark:text-slate-200 rounded-xl rounded-tr-sm border border-indigo-100 dark:border-indigo-800/50'
+            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl rounded-tl-sm border border-slate-200/60 dark:border-slate-700/60'
         }`}>
           {msg.content}
           <span className={`text-[10px] leading-none ml-2 select-none ${
@@ -352,7 +352,7 @@ export function GroupStudyPage() {
 
         {/* Header */}
         <div className="flex items-center gap-3 px-2 pb-4">
-          <div className="w-11 h-11 rounded-2xl bg-[#075E54] dark:bg-emerald-600 flex items-center justify-center shadow-sm">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 dark:from-indigo-500 dark:to-blue-500 flex items-center justify-center shadow-sm">
             <Users className="w-5.5 h-5.5 text-white" />
           </div>
           <div>
@@ -371,7 +371,7 @@ export function GroupStudyPage() {
               placeholder="Search groups..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-10 pl-9 pr-4 text-sm bg-slate-100 dark:bg-slate-800 rounded-xl border-0 outline-none focus:ring-2 focus:ring-emerald-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200"
+              className="w-full h-10 pl-9 pr-4 text-sm bg-slate-100 dark:bg-slate-800 rounded-xl border-0 outline-none focus:ring-2 focus:ring-indigo-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200"
             />
           </div>
         </div>
@@ -392,8 +392,8 @@ export function GroupStudyPage() {
         // Empty state
         ) : groups.length === 0 ? (
           <div className="px-2 pt-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-emerald-400 dark:text-emerald-500" />
+            <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mx-auto mb-4">
+              <Users className="w-8 h-8 text-indigo-400 dark:text-indigo-500" />
             </div>
             <h3 className="text-base font-semibold text-slate-700 dark:text-slate-300 mb-1.5">No Study Groups Yet</h3>
             <p className="text-sm text-slate-400 dark:text-slate-500 max-w-xs mx-auto leading-relaxed">Study groups will appear here once created by admin. Check back soon to join your peers!</p>
@@ -416,7 +416,7 @@ export function GroupStudyPage() {
                   key={group.id}
                   className={`flex items-center gap-3 px-3 py-3 mx-2 rounded-xl transition-all duration-150 active:scale-[0.99] cursor-pointer ${
                     isMember
-                      ? 'hover:bg-emerald-50/60 dark:hover:bg-emerald-900/15'
+                      ? 'hover:bg-indigo-50/60 dark:hover:bg-indigo-900/15'
                       : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
                   }`}
                   style={{ animationDelay: `${idx * 40}ms` }}
@@ -426,13 +426,13 @@ export function GroupStudyPage() {
                   <div className="relative shrink-0">
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm ${
                       isMember
-                        ? 'bg-gradient-to-br from-emerald-500 to-emerald-600'
-                        : 'bg-gradient-to-br from-emerald-400 to-emerald-500'
+                        ? 'bg-gradient-to-br from-indigo-600 to-blue-600'
+                        : 'bg-gradient-to-br from-indigo-500 to-blue-500'
                     }`}>
                       {group.name.charAt(0).toUpperCase()}
                     </div>
                     <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-slate-950 ${
-                      group.isFull ? 'bg-slate-400' : 'bg-emerald-500'
+                      group.isFull ? 'bg-slate-400' : 'bg-blue-500'
                     }`}>
                       {group.activeMembers}/{group.maxCapacity}
                     </div>
@@ -447,7 +447,7 @@ export function GroupStudyPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
-                        {isMember && <Crown className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                        {isMember && <Crown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
                         {group.name}
                       </h3>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -462,7 +462,7 @@ export function GroupStudyPage() {
                     <div className="flex items-center gap-2 mt-1">
                       <div className="flex -space-x-1.5">
                         {group.members.slice(0, 3).map(m => (
-                          <div key={m.studentId} className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 border-2 border-white dark:border-slate-950 flex items-center justify-center text-[7px] font-bold text-emerald-700 dark:text-emerald-400">
+                          <div key={m.studentId} className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 border-2 border-white dark:border-slate-950 flex items-center justify-center text-[7px] font-bold text-indigo-700 dark:text-indigo-400">
                             {m.studentName.charAt(0).toUpperCase()}
                           </div>
                         ))}
@@ -476,8 +476,8 @@ export function GroupStudyPage() {
                   {/* Action */}
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                     {isMember ? (
-                      <Button size="sm" onClick={() => enterRoom(group)}
-                        className="bg-[#075E54] hover:bg-[#064a42] text-white h-8 text-xs px-3 rounded-full shadow-sm">
+<Button size="sm" onClick={() => enterRoom(group)}
+                         className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white h-8 text-xs px-3 rounded-full shadow-sm">
                         Open
                       </Button>
                     ) : group.isFull ? (
@@ -486,8 +486,8 @@ export function GroupStudyPage() {
                         Full
                       </Button>
                     ) : (
-                      <Button size="sm" onClick={() => handleJoinGroup(group.id)} disabled={joinLoading === group.id}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs px-3 rounded-full shadow-sm">
+<Button size="sm" onClick={() => handleJoinGroup(group.id)} disabled={joinLoading === group.id}
+                         className="bg-indigo-600 hover:bg-indigo-700 text-white h-8 text-xs px-3 rounded-full shadow-sm">
                         {joinLoading === group.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Join'}
                       </Button>
                     )}
@@ -517,7 +517,7 @@ export function GroupStudyPage() {
           <div className="absolute inset-0 bg-black/40" />
           <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white dark:bg-slate-900 shadow-xl flex flex-col slide-in-right"
             onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-[#075E54] dark:bg-emerald-800">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700">
               <span className="text-sm font-semibold text-white">Members ({members.length})</span>
               <button onClick={() => setShowMembersPanel(false)} className="p-1 text-white/80 hover:text-white">
                 <X className="w-5 h-5" />
@@ -543,7 +543,7 @@ export function GroupStudyPage() {
             onClick={(e) => e.stopPropagation()}>
             <button onClick={() => { setShowMembersPanel(true); setShowMobileMenu(false) }}
               className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-              <Users className="w-4 h-4 text-emerald-600" /> Members
+              <Users className="w-4 h-4 text-indigo-600" /> Members
             </button>
             {members.length > 1 && (
               <button onClick={() => { setShowMobileMenu(false); comparisonSent && acceptedForCompare.length > 1 ? handleViewComparison() : handleRequestComparison() }}
@@ -575,7 +575,7 @@ export function GroupStudyPage() {
             <div className="max-w-3xl mx-auto space-y-5">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {[
-                  { label: 'Study Hours', key: 'totalStudyHours' as const, suffix: 'h', color: 'text-emerald-600' },
+                  { label: 'Study Hours', key: 'totalStudyHours' as const, suffix: 'h', color: 'text-indigo-600' },
                   { label: 'Score', key: 'score' as const, suffix: '', color: 'text-amber-600', format: (v: number) => v.toLocaleString() },
                   { label: 'Streak', key: 'currentStreak' as const, suffix: 'd', color: 'text-orange-600' },
                   { label: 'Accuracy', key: 'quizAccuracy' as const, suffix: '%', color: 'text-blue-600' },
@@ -587,7 +587,7 @@ export function GroupStudyPage() {
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-2">{metric.label}</p>
                       {values.map(v => (
                         <div key={v.id} className="flex items-center justify-between text-xs py-0.5">
-                          <span className={`truncate max-w-[60%] ${v.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{v.isRequester ? 'You' : 'Peer'}</span>
+                          <span className={`truncate max-w-[60%] ${v.isRequester ? 'font-semibold text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400'}`}>{v.isRequester ? 'You' : 'Peer'}</span>
                           <span className={`font-bold ${metric.color}`}>{metric.format ? metric.format(v.val) : v.val}{metric.suffix}</span>
                         </div>
                       ))}
@@ -606,9 +606,9 @@ export function GroupStudyPage() {
                       const maxMin = Math.max(...comparisonData.map(mm => Math.max(...mm.dailyMinutes.map(d => d.minutes), 1)))
                       return (
                         <div key={m.userId} className="flex items-center gap-2 text-[10px] mb-0.5">
-                          <span className={`w-8 text-right ${m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>{m.isRequester ? 'You' : 'Peer'}</span>
+                          <span className={`w-8 text-right ${m.isRequester ? 'font-semibold text-indigo-700 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>{m.isRequester ? 'You' : 'Peer'}</span>
                           <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-indigo-400 to-purple-500'}`} style={{ width: `${Math.max((minutes / maxMin) * 100, 2)}%` }} />
+                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-gradient-to-r from-indigo-400 to-indigo-500' : 'bg-gradient-to-r from-indigo-400 to-purple-500'}`} style={{ width: `${Math.max((minutes / maxMin) * 100, 2)}%` }} />
                           </div>
                           <span className="w-10 text-right text-slate-600 dark:text-slate-300">{minutes}m</span>
                         </div>
@@ -621,14 +621,14 @@ export function GroupStudyPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {comparisonData.map(m => (
                   <div key={m.userId} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-                    <h4 className={`text-xs font-semibold mb-3 ${m.isRequester ? 'text-emerald-700 dark:text-emerald-400' : 'text-indigo-700 dark:text-indigo-400'}`}>{m.isRequester ? 'Your Subjects' : 'Peer Subjects'}</h4>
+                    <h4 className={`text-xs font-semibold mb-3 ${m.isRequester ? 'text-indigo-700 dark:text-indigo-400' : 'text-indigo-700 dark:text-indigo-400'}`}>{m.isRequester ? 'Your Subjects' : 'Peer Subjects'}</h4>
                     {m.subjectDistribution.length === 0 ? <p className="text-[10px] text-slate-400">No study data yet</p> : m.subjectDistribution.map(s => {
                       const total = m.subjectDistribution.reduce((sum, ss) => sum + ss.minutes, 0)
                       return (
                         <div key={s.name} className="flex items-center gap-2 mb-1.5 text-[10px]">
                           <span className="w-20 truncate text-slate-600 dark:text-slate-400">{s.name}</span>
                           <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-emerald-400' : 'bg-indigo-400'}`} style={{ width: `${total > 0 ? Math.round((s.minutes / total) * 100) : 0}%` }} />
+                            <div className={`h-full rounded-full ${m.isRequester ? 'bg-indigo-400' : 'bg-indigo-400'}`} style={{ width: `${total > 0 ? Math.round((s.minutes / total) * 100) : 0}%` }} />
                           </div>
                           <span className="w-12 text-right text-slate-500">{s.minutes}m</span>
                         </div>
@@ -643,7 +643,7 @@ export function GroupStudyPage() {
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Achievements</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
-                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
+                      <span className={m.isRequester ? 'font-semibold text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
                       <span className="font-medium text-slate-700 dark:text-slate-300">{m.achievementsUnlocked} / {m.totalAchievements}</span>
                     </div>
                   ))}
@@ -652,7 +652,7 @@ export function GroupStudyPage() {
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Quizzes</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
-                      <span className={m.isRequester ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
+                      <span className={m.isRequester ? 'font-semibold text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400'}>{m.isRequester ? 'You' : 'Peer'}</span>
                       <span className="font-medium text-slate-700 dark:text-slate-300">{m.totalQuizzes} attempts · {m.quizAccuracy}% accuracy</span>
                     </div>
                   ))}
@@ -666,7 +666,7 @@ export function GroupStudyPage() {
       {/* Main Chat Room */}
       <div className="flex flex-col bg-white dark:bg-slate-900 h-full relative">
         {/* ── Header ── */}
-        <div className="flex-shrink-0 bg-[#075E54] dark:bg-emerald-800 text-white px-2 sm:px-4 py-2.5 flex items-center gap-2 shadow-sm z-10">
+        <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-2.5 flex items-center gap-2 shadow-sm z-10">
           {/* Back button (mobile only) */}
           <button onClick={handleBackToList}
             className="md:hidden p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors">
@@ -725,7 +725,7 @@ export function GroupStudyPage() {
                 <span className="text-indigo-700 dark:text-indigo-300"><BarChart3 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" /><strong>{r.userName}</strong> wants to compare</span>
                 <div className="flex gap-1.5 shrink-0">
                   <button onClick={() => handleAcceptComparison(r.userId)}
-                    className="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-sm transition-colors"><Check className="w-3.5 h-3.5" /></button>
+                    className="w-7 h-7 rounded-full bg-indigo-500 hover:bg-indigo-600 text-white flex items-center justify-center shadow-sm transition-colors"><Check className="w-3.5 h-3.5" /></button>
                   <button onClick={() => handleDeclineComparison(r.userId)}
                     className="w-7 h-7 rounded-full bg-slate-400 hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500 text-white flex items-center justify-center transition-colors"><X className="w-3.5 h-3.5" /></button>
                 </div>
@@ -735,13 +735,13 @@ export function GroupStudyPage() {
         )}
 
         {comparisonSent && acceptedForCompare.length > 0 && !showComparison && (
-          <div className="flex-shrink-0 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-800/50">
+          <div className="flex-shrink-0 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/30 border-b border-indigo-200 dark:border-indigo-800/50">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+              <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
                 <BarChart3 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />{acceptedForCompare.length}/{members.length} accepted
                 {acceptedForCompare.length > 1 && <button onClick={handleViewComparison} className="ml-2 underline font-semibold">View</button>}
               </span>
-              <button onClick={() => { setComparisonSent(false); setAcceptedForCompare([]) }} className="text-emerald-400 hover:text-emerald-600"><X className="w-3.5 h-3.5" /></button>
+              <button onClick={() => { setComparisonSent(false); setAcceptedForCompare([]) }} className="text-indigo-400 hover:text-indigo-600"><X className="w-3.5 h-3.5" /></button>
             </div>
           </div>
         )}
@@ -764,13 +764,13 @@ export function GroupStudyPage() {
           </div>
 
           {/* Chat messages */}
-          <div className="flex-1 flex flex-col min-w-0 bg-[#e5ddd5] dark:bg-[#0b141a]">
+          <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900">
             <ScrollArea className="flex-1">
               <div className="px-2 sm:px-4 py-3">
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-14 h-14 rounded-full bg-white/30 dark:bg-white/10 flex items-center justify-center mb-3">
-                      <MessageCircle className="w-7 h-7 text-emerald-500 dark:text-emerald-400" />
+                    <div className="w-14 h-14 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-3">
+                      <MessageCircle className="w-7 h-7 text-indigo-500 dark:text-indigo-400" />
                     </div>
                     <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Start the conversation!</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">Say hi to your study group members</p>
@@ -801,7 +801,7 @@ export function GroupStudyPage() {
             </ScrollArea>
 
             {/* ── Input bar ── */}
-            <div className="flex-shrink-0 bg-[#f0f2f5] dark:bg-slate-800 px-2 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex-shrink-0 bg-white dark:bg-slate-800 px-2 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-700 shadow-sm">
               <div className="flex items-center gap-2 max-w-4xl mx-auto">
                 <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-full px-4 py-1.5 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
                   <input
@@ -818,7 +818,7 @@ export function GroupStudyPage() {
                   disabled={!chatInput.trim()}
                   className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
                     chatInput.trim()
-                      ? 'bg-[#075E54] dark:bg-emerald-600 text-white shadow-sm hover:bg-[#064a42] dark:hover:bg-emerald-700'
+                      ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm hover:from-indigo-700 hover:to-blue-700'
                       : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                   }`}>
                   <Send className="w-4.5 h-4.5" />

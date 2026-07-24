@@ -254,6 +254,9 @@ export const api = {
   adminBlockedUsers: () => apiFetch('/admin/blocked-users'),
   adminRemoveGroupMember: (groupId: string, memberId: string) =>
     apiFetch(`/admin/groups/${groupId}/members/${memberId}`, { method: 'DELETE' }),
+  adminGroupMessages: (groupId: string) => apiFetch(`/admin/groups/${groupId}/messages`),
+  adminDeleteGroupMessage: (groupId: string, messageId: string) =>
+    apiFetch(`/admin/groups/${groupId}/messages/${messageId}`, { method: 'DELETE' }),
 
   // Realtime publish (SSE)
   realtimePublish: (data: any) => apiFetch('/realtime/publish', { method: 'POST', body: JSON.stringify(data) }),
