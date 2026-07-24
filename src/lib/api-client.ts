@@ -224,6 +224,7 @@ export const api = {
   studentGroups: () => apiFetch('/student/groups'),
   studentJoinGroup: (id: string) => apiFetch(`/student/groups/${id}`, { method: 'POST' }),
   studentLeaveGroup: (id: string) => apiFetch(`/student/groups/${id}`, { method: 'DELETE' }),
+  studentMarkGroupRead: (id: string) => apiFetch(`/student/groups/${id}`, { method: 'PATCH' }),
   studentGroupMessages: (id: string) => apiFetch(`/student/groups/${id}/messages`),
   studentSendGroupMessage: (id: string, content: string, type: string = 'text') =>
     apiFetch(`/student/groups/${id}/messages`, { method: 'POST', body: JSON.stringify({ content, type }) }),

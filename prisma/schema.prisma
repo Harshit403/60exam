@@ -319,6 +319,7 @@ model GroupMember {
   joinedAt       DateTime  @default(now())
   leftAt         DateTime?
   lastActiveAt   DateTime  @default(now())
+  lastReadAt     DateTime?
   timerState     Json?     // { running, paused, remaining, total, chapterName }
   timerStartedAt DateTime?
 }

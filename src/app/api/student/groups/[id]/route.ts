@@ -114,3 +114,29 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     return Response.json({ error: error.message }, { status: 500 })
   }
 }
+
+// PATCH /api/student/groups/[id] - Mark messages as read
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const auth = verifyAuth(request)
+    if (!auth || auth.role !== 'student') return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    const studentId = auth.id
+    const { id: groupId } = await params
+
+    const membership = await db.groupMember.findFirst({
+      where: { studentId, groupId, leftAt: null }
+    })
+    if (!membership) {
+      return Response.json({ error: 'Not a member of this group' }, { status: 400 })
+    }
+
+    await db.groupMember.update({
+      where: { id: membership.id },
+      data: { lastReadAt: new Date() }
+    })
+
+    return Response.json({ success: true })
+  } catch (error: any) {
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+}

@@ -86,7 +86,7 @@ export interface StudyGroup {
   id: string; name: string; description?: string | null
   maxCapacity: number; subjectId?: string | null; isActive: boolean
   activeMembers: number; totalMembers: number; isFull: boolean
-  isCurrentUserMember: boolean
+  isCurrentUserMember: boolean; unreadCount: number
   subjectName?: string | null
   members: { studentId: string; studentName: string; joinedAt: string }[]
   createdAt: string

@@ -332,6 +332,9 @@ export function GroupStudyPage() {
   const enterRoom = useCallback((group: StudyGroup) => {
     if (isTimerActive()) return
     setInRoom(true); setMessages([]); setMembers([]); setShowMembersPanel(false); setShowMobileMenu(false)
+    // Mark messages as read
+    api.studentMarkGroupRead(group.id).catch(() => {})
+    setGroups(prev => prev.map(g => g.id === group.id ? { ...g, unreadCount: 0 } : g))
   }, [])
 
   useEffect(() => { if (currentGroup && !inRoom && userId) enterRoom(currentGroup) }, [currentGroup, inRoom, userId, enterRoom])
@@ -466,7 +469,7 @@ export function GroupStudyPage() {
 
   const handleCloseComparison = () => { setShowComparison(false); setComparisonData(null); setComparisonSent(false); setAcceptedForCompare([]) }
 
-  const handleBackToList = () => { setInRoom(false); setCurrentGroup(null); setShowMobileMenu(false); setShowMembersPanel(false) }
+  const handleBackToList = () => { setInRoom(false); setCurrentGroup(null); setShowMobileMenu(false); setShowMembersPanel(false); fetchGroups() }
 
   // Group messages by date for dividers
   const getMessageGroups = () => {
@@ -620,6 +623,11 @@ export function GroupStudyPage() {
                         {group.name}
                       </h3>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {group.unreadCount > 0 && isMember && (
+                          <span className="min-w-[20px] h-5 flex items-center justify-center bg-rose-500 text-white text-[10px] font-bold rounded-full px-1.5 shadow-sm shadow-rose-500/30">
+                            {group.unreadCount > 99 ? '99+' : group.unreadCount}
+                          </span>
+                        )}
                         {group.isFull && !isMember && (
                           <Badge variant="secondary" className="text-[9px] bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800/50 px-2 py-0.5 rounded-full font-medium">Full</Badge>
                         )}
