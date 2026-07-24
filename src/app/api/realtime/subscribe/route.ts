@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
           ])
           sendSSE(res, 'group-history', {
             messages: messages.map(m => ({
-              id: m.id, userId: m.studentId, userName: m.student.fullName,
+              id: m.id, userId: m.studentId, userName: m.anonymousName || m.student.fullName,
               content: m.content, type: m.type === 'text' ? 'text' : 'system',
               timestamp: m.createdAt.getTime(),
             })),
@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
             if (newMessages.length > 0) {
               for (const m of newMessages) {
                 sendSSE(res, 'group-chat-message', {
-                  id: m.id, userId: m.studentId, userName: m.student.fullName,
+                  id: m.id, userId: m.studentId, userName: m.anonymousName || m.student.fullName,
                   content: m.content, type: m.type === 'text' ? 'text' : 'system',
                   timestamp: m.createdAt.getTime(),
                 })

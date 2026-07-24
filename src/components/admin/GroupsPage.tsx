@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { useSSE } from '@/hooks/useSSE'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -12,12 +13,14 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  Users, Plus, Pencil, Trash2, Shield, ShieldOff, Search, Loader2, UserX, CheckCircle2, XCircle, MessageSquare, Hash, Eye, UserMinus, Ban, Mail, Trash,
+  Users, Plus, Pencil, Trash2, Shield, ShieldOff, Search, Loader2, UserX, CheckCircle2, XCircle, MessageSquare, Hash, Eye, UserMinus, Ban, Mail, Trash, LogOut, ArrowLeft, X, MessageCircle, Clock, Dot,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -102,6 +105,62 @@ export function GroupsPage() {
   const [groupMessages, setGroupMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
+
+  // Chat room dialog
+  const [chatGroup, setChatGroup] = useState<Group | null>(null)
+  const [chatMembers, setChatMembers] = useState<{ userId: string; name: string }[]>([])
+  const [chatMessages, setChatMessages] = useState<any[]>([])
+  const [revealStudent, setRevealStudent] = useState<{ userId: string; name: string } | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const chatChannel = chatGroup ? `group:${chatGroup.id}` : ''
+  const { isConnected } = useSSE({
+    channel: chatChannel,
+    enabled: !!chatGroup,
+    onEvent: useCallback((event: string, data: any) => {
+      if (event === 'group-history') setChatMessages(data.messages || [])
+      else if (event === 'group-chat-message') {
+        setChatMessages(prev => {
+          if (prev.some(m => m.id === data.id)) return prev
+          return [...prev, data]
+        })
+      }
+      else if (event === 'group-members') setChatMembers(data.members || [])
+    }, []),
+  })
+
+  useEffect(() => {
+    if (!chatMessages.length) return
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [chatMessages.length])
+
+  // Group messages by date
+  const getMessageGroups = (msgs: any[]) => {
+    const groups: { date: string; messages: any[] }[] = []
+    msgs.forEach((msg: any) => {
+      const d = new Date(typeof msg.timestamp === 'number' ? msg.timestamp : msg.timestamp).toDateString()
+      const last = groups[groups.length - 1]
+      if (last && last.date === d) last.messages.push(msg)
+      else groups.push({ date: d, messages: [msg] })
+    })
+    return groups
+  }
+
+  function formatMsgTime(ts: number | string) {
+    return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function formatDateDivider(dateStr: string) {
+    const today = new Date()
+    const d = new Date(dateStr)
+    const diff = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+    if (diff === 0) return 'Today'
+    if (diff === 1) return 'Yesterday'
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  }
 
   // ─── Fetch Groups ────────────────────────────────────────────
   const fetchGroups = useCallback(async () => {
@@ -623,7 +682,10 @@ export function GroupsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => { setViewMessagesGroup(g); fetchGroupMessages(g.id) }} title="View messages" className="h-8 w-8 hover:bg-violet-500/10 hover:text-violet-600">
+                          <Button variant="ghost" size="icon" onClick={() => setChatGroup(g)} title="Open live chat" className="h-8 w-8 hover:bg-indigo-500/10 hover:text-indigo-600">
+                            <MessageCircle className="size-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => { setViewMessagesGroup(g); fetchGroupMessages(g.id) }} title="View messages list" className="h-8 w-8 hover:bg-violet-500/10 hover:text-violet-600">
                             <MessageSquare className="size-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => setViewGroup(g)} title="View members" className="h-8 w-8 hover:bg-sky-500/10 hover:text-sky-600">
@@ -1026,7 +1088,150 @@ export function GroupsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── View Messages Dialog ──────────────────────────────── */}
+      {/* ─── Live Chat Room Dialog ──────────────────────────────── */}
+      <Dialog open={!!chatGroup} onOpenChange={(open) => { if (!open) { setChatGroup(null); setChatMessages([]); setChatMembers([]) } }}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white shrink-0">
+            <button onClick={() => { setChatGroup(null); setChatMessages([]); setChatMembers([]) }}
+              className="p-1.5 -ml-1 rounded-xl hover:bg-white/10 transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-sm font-bold shrink-0 shadow-inner backdrop-blur-sm">
+              {(chatGroup?.name || '?').charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-sm font-semibold truncate leading-tight">{chatGroup?.name}</h2>
+              <p className="text-[10px] text-white/70 flex items-center gap-1">
+                {chatMembers.length} member{chatMembers.length !== 1 ? 's' : ''}
+                <span className="inline-block w-1 h-1 rounded-full bg-white/40 mx-0.5" />
+                <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-300 shadow-sm shadow-green-300/50' : 'bg-amber-300'} mr-0.5`} />
+                <span>{isConnected ? 'Online' : 'Connecting...'}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-1 min-h-0">
+            {/* Members sidebar */}
+            <div className="hidden md:flex w-56 flex-shrink-0 flex-col border-r border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm">
+              <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-700">
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Members ({chatMembers.length})</p>
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="p-1.5 space-y-0.5">
+                  {chatMembers.map(m => (
+                    <div key={m.userId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-white/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <Avatar className="h-8 w-8 ring-2 ring-white dark:ring-slate-700 shadow-sm">
+                        <AvatarFallback className="text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400">
+                          {(m.name || 'U').charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{m.name}</span>
+                    </div>
+                  ))}
+                  {chatMembers.length === 0 && (
+                    <div className="py-6 text-center"><Users className="w-5 h-5 mx-auto text-slate-300 dark:text-slate-600 mb-1" /><p className="text-[10px] text-slate-400">No members</p></div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Messages area */}
+            <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
+              <ScrollArea className="flex-1">
+                <div className="px-3 py-4">
+                  {chatMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-3 shadow-inner">
+                        <MessageCircle className="w-7 h-7 text-indigo-500 dark:text-indigo-400" />
+                      </div>
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1">No messages yet</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Messages will appear here in real-time</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {getMessageGroups(chatMessages).map((group: any) => (
+                        <div key={group.date}>
+                          <div className="flex justify-center py-2">
+                            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm border border-slate-200/40 dark:border-slate-700/40">
+                              {formatDateDivider(group.date)}
+                            </span>
+                          </div>
+                          {group.messages.map((msg: any, idx: number) => {
+                            const prevMsg = idx > 0 ? group.messages[idx - 1] : null
+                            const isSelf = false
+                            const showAvatar = !prevMsg || prevMsg.userId !== msg.userId || prevMsg.type === 'system'
+                            const showName = !prevMsg || prevMsg.userId !== msg.userId || prevMsg.type === 'system'
+                            return (
+                              <div key={msg.id} className={`flex gap-2 px-1 justify-start animate-in`}
+                                style={{ animationDuration: '0.15s' }}>
+                                <div className="flex-shrink-0 self-end pb-0.5">
+                                  {showAvatar ? (
+                                    <Avatar className="h-7 w-7 ring-2 ring-white dark:ring-slate-800 shadow-sm">
+                                      <AvatarFallback className="text-[9px] font-bold bg-gradient-to-br from-indigo-500 to-blue-500 text-white">
+                                        {(msg.userName || 'U').charAt(0).toUpperCase()}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  ) : (
+                                    <div className="w-7" />
+                                  )}
+                                </div>
+                                <div className="max-w-[80%] items-start flex flex-col group">
+                                  {showName && (
+                                    <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5 hover:underline cursor-pointer"
+                                      onClick={() => {
+                                        const real = chatMembers.find(m => m.userId === msg.userId)
+                                        setRevealStudent({ userId: msg.userId, name: real?.name || msg.userName })
+                                      }}>
+                                      {msg.userName}
+                                    </span>
+                                  )}
+                                  <div className="flex items-start gap-1.5">
+                                    <div className="px-3.5 py-2 text-sm leading-relaxed break-words bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl rounded-bl-sm border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+                                      {msg.content}
+                                      <span className="text-[10px] leading-none ml-2 text-slate-400 dark:text-slate-500 select-none">
+                                        {formatMsgTime(msg.timestamp)}
+                                      </span>
+                                    </div>
+                                    <Button
+                                      variant="ghost" size="icon"
+                                      onClick={async () => {
+                                        if (!chatGroup) return
+                                        setDeletingMessageId(msg.id)
+                                        try {
+                                          await api.adminDeleteGroupMessage(chatGroup.id, msg.id)
+                                          setChatMessages((prev: any[]) => prev.filter((m: any) => m.id !== msg.id))
+                                          toast.success('Message deleted')
+                                        } catch (err: any) {
+                                          toast.error(err.message || 'Failed to delete message')
+                                        } finally {
+                                          setDeletingMessageId(null)
+                                        }
+                                      }}
+                                      disabled={deletingMessageId === msg.id}
+                                      className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-600 transition-all mt-1"
+                                      title="Delete message"
+                                    >
+                                      {deletingMessageId === msg.id ? <Loader2 className="size-3 animate-spin" /> : <Trash className="size-3" />}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ))}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── View Messages Dialog (static list) ──────────────────── */}
       <Dialog open={!!viewMessagesGroup} onOpenChange={(open) => { if (!open) { setViewMessagesGroup(null); setGroupMessages([]) } }}>
         <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader className="dialog-gradient-header -m-6 mb-0 p-6 pb-4 rounded-t-lg">
@@ -1079,6 +1284,47 @@ export function GroupsPage() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Reveal Student Identity Dialog ──────────────────── */}
+      <Dialog open={!!revealStudent} onOpenChange={(o) => { if (!o) setRevealStudent(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="size-5 text-indigo-600" />
+              Student Identity
+            </DialogTitle>
+            <DialogDescription>
+              Real identity of the student behind the anonymous name
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-4 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50">
+              <div className="flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-blue-600 text-white font-bold text-lg shadow-md">
+                {(revealStudent?.name || '?').charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <p className="font-semibold text-base text-slate-900 dark:text-slate-100">{revealStudent?.name}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Real name</p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500 dark:text-slate-400">Anonymous alias</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">
+                  {chatMessages.find(m => m.userId === revealStudent?.userId)?.userName || 'Unknown'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-2">
+                <span className="text-slate-500 dark:text-slate-400">Student ID</span>
+                <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{revealStudent?.userId}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevealStudent(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

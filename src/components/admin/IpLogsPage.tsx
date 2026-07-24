@@ -51,7 +51,7 @@ export function IpLogsPage() {
       params.set('page', String(page))
       if (search) params.set('search', search)
       if (actionFilter) params.set('action', actionFilter)
-      const data = await apiFetch(`/admin/ip-logs?${params.toString()}`)
+      const data = await apiFetch(`/api/admin/ip-logs?${params.toString()}`)
       setLogs(data.logs || [])
       setTotalPages(data.totalPages || 1)
       if (data.stats) setStats(data.stats)

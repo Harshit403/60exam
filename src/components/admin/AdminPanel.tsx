@@ -560,9 +560,32 @@ function SendNotificationPage() {
   const [sendPush, setSendPush] = useState(true)
   const [sending, setSending] = useState(false)
   const [sentNotifications, setSentNotifications] = useState<any[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const { data: courses } = useFetch<any[]>(() => api.adminCourses().then(r => r.data || r.courses || r), [])
 
   const MAX_CHARS = 500
+
+  useEffect(() => {
+    api.adminListNotifications()
+      .then((res: any) => { setSentNotifications(res.notifications || []); setLoadingHistory(false) })
+      .catch(() => setLoadingHistory(false))
+  }, [])
+
+  const handleDelete = async (id: string) => {
+    setDeleting(true)
+    try {
+      await api.adminDeleteNotification(id)
+      setSentNotifications(prev => prev.filter(n => n.id !== id))
+      toast.success('Notification deleted')
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete notification')
+    } finally {
+      setDeleting(false)
+      setDeleteConfirm(null)
+    }
+  }
 
   const handleSend = async () => {
     if (!title.trim() || !message.trim()) { toast.error('Title and message are required'); return }
@@ -576,11 +599,12 @@ function SendNotificationPage() {
         targetCourseId: target === 'course' ? targetCourseId : null,
       })
       toast.success('Notification sent successfully!')
-      setSentNotifications(prev => [{ title, message, target, sentAt: new Date(), push: sendPush }, ...prev])
+      if (result?.notification) {
+        setSentNotifications(prev => [result.notification, ...prev])
+      }
       setTitle('')
       setMessage('')
 
-      // Send browser push notification via Knock
       if (sendPush) {
         try {
           const pushRes = await fetch('/api/admin/notifications/knock-send', {
@@ -700,28 +724,56 @@ function SendNotificationPage() {
     </Card>
 
     {/* History */}
-    {sentNotifications.length > 0 && (
+    {loadingHistory ? (
+      <div className="space-y-2">
+        {[1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl shimmer-bg" />)}
+      </div>
+    ) : sentNotifications.length > 0 ? (
       <div>
-        <h3 className="text-lg font-semibold mb-3">Recently Sent</h3>
+        <h3 className="text-lg font-semibold mb-3">Sent Notifications</h3>
         <div className="space-y-2">
-          {sentNotifications.map((n, i) => (
-            <Card key={i} className="card-lift">
-              <CardContent className="p-4 flex items-start justify-between">
-                <div className="space-y-0.5">
+          {sentNotifications.map(n => (
+            <Card key={n.id} className="card-lift group relative overflow-hidden">
+              <CardContent className="p-4 flex items-start justify-between gap-3">
+                <div className="space-y-0.5 flex-1 min-w-0">
                   <p className="font-medium text-sm">{n.title}</p>
-                  <p className="text-sm text-muted-foreground line-clamp-1">{n.message}</p>
+                  <p className="text-sm text-muted-foreground line-clamp-2">{n.message}</p>
                   <p className="text-xs text-muted-foreground/60">
-                    {n.target === 'all' ? 'All Students' : 'Specific Course'} · {new Date(n.sentAt).toLocaleString()}
-                    {n.push && ' · Push ✓'}
+                    {n.targetRole === 'all' || !n.targetRole ? 'All Students' : 'Specific Course'} · {new Date(n.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <BellRing className="size-4 text-emerald-500 mt-0.5 shrink-0" />
+                <div className="flex items-center gap-1 shrink-0">
+                  <BellRing className="size-4 text-emerald-500 mt-0.5" />
+                  <Button variant="ghost" size="icon" className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => setDeleteConfirm(n.id)} title="Delete notification">
+                    <Trash2 className="size-3.5 text-red-500" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       </div>
-    )}
+    ) : null}
+
+    <AlertDialog open={!!deleteConfirm} onOpenChange={o => { if (!o) setDeleteConfirm(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Notification</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete this notification? This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={deleting} onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+            className="bg-red-600 hover:bg-red-700 text-white">
+            {deleting ? <Loader2 className="size-4 animate-spin mr-1" /> : <Trash2 className="size-4 mr-1" />}
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 }
 

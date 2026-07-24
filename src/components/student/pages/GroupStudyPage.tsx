@@ -18,6 +18,29 @@ import { formatTimer, CircularProgressRing } from '../utils'
 
 const BLOCKED_TERMS = ['instagram', 'telegram', 'whatsapp', 'facebook', 'twitter', 'tiktok', 'snapchat', 'discord', 'youtube']
 
+const MALE_NAMES = [
+  'Tom Hanks', 'Leonardo DiCaprio', 'Brad Pitt', 'Will Smith', 'Morgan Freeman',
+  'Denzel Washington', 'Chris Evans', 'John F. Kennedy', 'Martin Luther King', 'Elon Musk',
+]
+const FEMALE_NAMES = [
+  'Meryl Streep', 'Scarlett Johansson', 'Taylor Swift', 'Beyoncé', 'Oprah Winfrey',
+  'Marilyn Monroe', 'Michelle Obama', 'Serena Williams', 'Amelia Earhart', 'Jennifer Lawrence',
+]
+const AVATAR_COLORS = [
+  'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500',
+  'bg-indigo-500', 'bg-teal-500', 'bg-orange-500', 'bg-cyan-500', 'bg-rose-500',
+  'bg-violet-500', 'bg-amber-500', 'bg-lime-500', 'bg-emerald-500', 'bg-fuchsia-500',
+  'bg-sky-500', 'bg-yellow-500', 'bg-slate-500', 'bg-stone-500', 'bg-zinc-500',
+]
+
+function getRandomName(gender: 'male' | 'female'): { name: string; color: string } {
+  const list = gender === 'male' ? MALE_NAMES : FEMALE_NAMES
+  const full = list[Math.floor(Math.random() * list.length)]
+  const name = full.split(' ')[0]
+  const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+  return { name, color }
+}
+
 function filterContent(text: string): string {
   let filtered = text
   BLOCKED_TERMS.forEach(term => { filtered = filtered.replace(new RegExp(term, 'gi'), '***') })
@@ -41,19 +64,19 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
   const isPaused = member.timerState?.paused === true && member.timerState?.running === false
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-      isSelf ? 'bg-indigo-50/80 dark:bg-indigo-900/20' : 'hover:bg-white/60 dark:hover:bg-slate-800/40'
+    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
+      isSelf ? 'bg-indigo-50/80 dark:bg-indigo-900/20 shadow-sm' : 'hover:bg-white/80 dark:hover:bg-slate-800/40'
     }`}>
       <div className="relative flex-shrink-0">
-        <Avatar className="h-9 w-9">
-          <AvatarFallback className={`text-xs font-semibold ${
-            isSelf ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'
+        <Avatar className="h-10 w-10 ring-2 ring-white dark:ring-slate-700 shadow-sm">
+          <AvatarFallback className={`text-xs font-bold ${
+            isSelf ? 'bg-gradient-to-br from-indigo-600 to-blue-600 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'
           }`}>
             {(member.name || 'U').charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-[2.5px] ring-white dark:ring-slate-900 ${
-          isStudying ? 'bg-indigo-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
+        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-[3px] ring-white dark:ring-slate-800 ${
+          isStudying ? 'bg-emerald-500' : isPaused ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-600'
         }`} />
       </div>
       <div className="flex-1 min-w-0">
@@ -81,21 +104,21 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
 
   if (isSystem && isHidden) return null
   if (isSystem) return (
-    <div className="flex justify-center py-2">
-      <span className="text-[11px] text-slate-400 dark:text-slate-500 italic px-4 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/60 shadow-sm">{msg.content}</span>
+    <div className="flex justify-center py-2.5">
+      <span className="text-[11px] text-slate-400 dark:text-slate-500 italic px-4 py-1.5 rounded-full bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm shadow-sm border border-slate-200/40 dark:border-slate-700/40">{msg.content}</span>
     </div>
   )
 
   const time = new Date(typeof msg.timestamp === 'number' ? msg.timestamp : msg.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div className={`flex gap-1.5 px-1 ${isSelf ? 'justify-end' : 'justify-start'} slide-up`}
+    <div className={`flex gap-2 px-1 ${isSelf ? 'justify-end' : 'justify-start'} animate-in`}
       style={{ animationDuration: '0.15s' }}>
       {!isSelf && (
-        <div className="flex-shrink-0 self-end pb-1">
+        <div className="flex-shrink-0 self-end pb-0.5">
           {showAvatar ? (
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400">
+            <Avatar className="h-8 w-8 ring-2 ring-white dark:ring-slate-800 shadow-sm">
+              <AvatarFallback className="text-xs font-semibold bg-gradient-to-br from-indigo-500 to-blue-500 text-white">
                 {(msg.userName || 'U').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -106,16 +129,16 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
       )}
       <div className={`max-w-[80%] sm:max-w-[70%] ${isSelf ? 'items-end' : 'items-start'} flex flex-col`}>
         {!isSelf && showName && (
-          <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5">{msg.userName}</span>
+          <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5">{msg.userName}</span>
         )}
-        <div className={`relative px-3.5 py-2 text-sm leading-relaxed break-words ${
+        <div className={`relative px-4 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
           isSelf
-            ? 'bg-indigo-50 dark:bg-indigo-900/40 text-slate-800 dark:text-slate-200 rounded-xl rounded-tr-sm border border-indigo-100 dark:border-indigo-800/50'
-            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl rounded-tl-sm border border-slate-200/60 dark:border-slate-700/60'
+            ? 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-br-sm'
+            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl rounded-bl-sm border border-slate-200/60 dark:border-slate-700/60'
         }`}>
           {msg.content}
           <span className={`text-[10px] leading-none ml-2 select-none ${
-            isSelf ? 'text-slate-500 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'
+            isSelf ? 'text-white/70' : 'text-slate-400 dark:text-slate-500'
           }`}>
             {time}
           </span>
@@ -135,8 +158,8 @@ function DateDivider({ date }: { date: string }) {
   else label = msgDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
   return (
-    <div className="flex justify-center py-2">
-      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full shadow-sm">{label}</span>
+    <div className="flex justify-center py-3">
+      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-sm border border-slate-200/40 dark:border-slate-700/40">{label}</span>
     </div>
   )
 }
@@ -165,6 +188,12 @@ export function GroupStudyPage() {
 
   const [userId, setUserId] = useState('')
   const [userName, setUserName] = useState('')
+
+  const [anonymousMode, setAnonymousMode] = useState(false)
+  const [anonymousGender, setAnonymousGender] = useState<'male' | 'female' | null>(null)
+  const [anonymousName, setAnonymousName] = useState('')
+  const [anonymousColor, setAnonymousColor] = useState('bg-indigo-500')
+  const [showGenderPicker, setShowGenderPicker] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const timerSyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -278,10 +307,18 @@ export function GroupStudyPage() {
   const sendMessage = async () => {
     if (!chatInput.trim() || !currentGroup) return
     const filtered = filterContent(chatInput.trim())
+    const displayName = anonymousMode && anonymousName ? anonymousName : userName
     const optId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-    setMessages(prev => [...prev, { id: optId, userId, userName, content: filtered, type: 'text', timestamp: Date.now() }])
+    setMessages(prev => [...prev, { id: optId, userId, userName: displayName, content: filtered, type: 'text', timestamp: Date.now() }])
     setChatInput('')
-    try { await api.realtimePublish({ action: 'group-message', groupId: currentGroup.id, content: filtered }) } catch (e) { console.error(e) }
+    try {
+      const payload: any = { action: 'group-message', groupId: currentGroup.id, content: filtered }
+      if (anonymousMode && anonymousName) payload.anonymousName = anonymousName
+      const result = await api.realtimePublish(payload)
+      if (result?.message?.id) {
+        setMessages(prev => prev.map(m => m.id === optId ? { ...m, id: result.message.id } : m))
+      }
+    } catch (e) { console.error(e) }
   }
 
   const handleRequestComparison = () => {
@@ -338,51 +375,51 @@ export function GroupStudyPage() {
   const hasActiveGroups = groups.some(g => g.isCurrentUserMember)
   const studyingMembers = members.filter(m => m.timerState?.running).length
 
-  // ─── GROUP LISTING VIEW (WhatsApp-style chat list) ─────────────────────
+  // ─── GROUP LISTING VIEW (Modern card-style) ─────────────────────
   if (!inRoom || !currentGroup) {
     return (
-      <div className="page-transition max-w-2xl mx-auto">
+      <div className="page-transition max-w-2xl mx-auto px-2">
         {/* Join Error Banner */}
         {joinError && (
-          <div className="mx-2 mb-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 rounded-xl px-4 py-3 flex items-center justify-between">
+          <div className="mx-1 mb-4 bg-red-50/80 dark:bg-red-950/40 backdrop-blur-sm border border-red-200 dark:border-red-800/50 rounded-xl px-4 py-3 flex items-center justify-between shadow-sm">
             <p className="text-sm text-red-700 dark:text-red-400">{joinError}</p>
             <button onClick={() => setJoinError(null)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300 ml-3 text-lg leading-none font-bold">&times;</button>
           </div>
         )}
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-2 pb-4">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 dark:from-indigo-500 dark:to-blue-500 flex items-center justify-center shadow-sm">
-            <Users className="w-5.5 h-5.5 text-white" />
+        <div className="flex items-center gap-4 px-1 pb-5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 dark:from-indigo-500 dark:to-blue-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <Users className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Group Study</h2>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Group Study</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">Study together with peers in real-time</p>
           </div>
         </div>
 
         {/* Search */}
-        <div className="px-2 pb-3">
+        <div className="px-1 pb-4">
           <div className="relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
             </svg>
             <input
               placeholder="Search groups..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-10 pl-9 pr-4 text-sm bg-slate-100 dark:bg-slate-800 rounded-xl border-0 outline-none focus:ring-2 focus:ring-indigo-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200"
+              className="w-full h-11 pl-10 pr-4 text-sm bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border-0 outline-none focus:ring-2 focus:ring-indigo-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200 shadow-sm"
             />
           </div>
         </div>
 
         {/* Loading */}
         {loading ? (
-          <div className="space-y-1 px-2">
+          <div className="space-y-3 px-1">
             {[1, 2, 3].map(i => (
-              <div key={i} className="flex items-center gap-3 p-3">
-                <Skeleton className="h-12 w-12 rounded-full shrink-0" />
-                <div className="flex-1 space-y-2">
+              <div key={i} className="flex items-center gap-4 p-4 bg-white/50 dark:bg-slate-800/50 rounded-2xl shadow-sm">
+                <Skeleton className="h-14 w-14 rounded-full shrink-0" />
+                <div className="flex-1 space-y-2.5">
                   <Skeleton className="h-4 w-2/3 rounded-lg" />
                   <Skeleton className="h-3 w-full rounded-lg" />
                 </div>
@@ -391,84 +428,90 @@ export function GroupStudyPage() {
           </div>
         // Empty state
         ) : groups.length === 0 ? (
-          <div className="px-2 pt-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-indigo-400 dark:text-indigo-500" />
+          <div className="px-1 pt-12 text-center">
+            <div className="w-20 h-20 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mx-auto mb-5 shadow-inner">
+              <Users className="w-10 h-10 text-indigo-400 dark:text-indigo-500" />
             </div>
-            <h3 className="text-base font-semibold text-slate-700 dark:text-slate-300 mb-1.5">No Study Groups Yet</h3>
+            <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2">No Study Groups Yet</h3>
             <p className="text-sm text-slate-400 dark:text-slate-500 max-w-xs mx-auto leading-relaxed">Study groups will appear here once created by admin. Check back soon to join your peers!</p>
           </div>
         // Group list
         ) : (
-          <div>
+          <div className="space-y-3 px-1">
             {/* Current membership banner */}
             {hasActiveGroups && (
-              <div className="px-2 pb-1">
+              <div className="pb-1">
                 <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">Your Groups</p>
               </div>
             )}
 
-            {/* Group rows */}
+            {/* Group cards */}
             {filteredGroups.map((group, idx) => {
               const isMember = group.isCurrentUserMember
               return (
                 <div
                   key={group.id}
-                  className={`flex items-center gap-3 px-3 py-3 mx-2 rounded-xl transition-all duration-150 active:scale-[0.99] cursor-pointer ${
+                  className={`group-card flex items-center gap-4 p-4 rounded-2xl transition-all duration-200 cursor-pointer ${
                     isMember
-                      ? 'hover:bg-indigo-50/60 dark:hover:bg-indigo-900/15'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                      ? 'bg-white dark:bg-slate-800/90 hover:bg-indigo-50/80 dark:hover:bg-indigo-900/20 shadow-sm hover:shadow-md hover:-translate-y-0.5 border border-slate-200/60 dark:border-slate-700/60'
+                      : 'bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md hover:-translate-y-0.5 border border-slate-200/40 dark:border-slate-700/40 backdrop-blur-sm'
                   }`}
                   style={{ animationDelay: `${idx * 40}ms` }}
                   onClick={() => isMember ? enterRoom(group) : handleJoinGroup(group.id)}
                 >
                   {/* Group Avatar */}
                   <div className="relative shrink-0">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg ${
                       isMember
-                        ? 'bg-gradient-to-br from-indigo-600 to-blue-600'
-                        : 'bg-gradient-to-br from-indigo-500 to-blue-500'
+                        ? 'bg-gradient-to-br from-indigo-600 to-blue-600 shadow-indigo-500/25'
+                        : 'bg-gradient-to-br from-indigo-500 to-blue-500 shadow-indigo-500/20'
                     }`}>
                       {group.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-slate-950 ${
-                      group.isFull ? 'bg-slate-400' : 'bg-blue-500'
-                    }`}>
+                    <div className={`absolute -bottom-1 -right-1 min-w-[22px] h-[22px] rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-[3px] ring-white dark:ring-slate-900 ${
+                      group.isFull ? 'bg-slate-400' : 'bg-indigo-500'
+                    } px-1`}>
                       {group.activeMembers}/{group.maxCapacity}
                     </div>
-                    {/* Live indicator */}
-                    <div className="absolute -top-0.5 -right-0.5 w-3 h-3">
-                      <div className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-50" />
-                      <div className="absolute inset-0 rounded-full bg-red-500" />
-                    </div>
+                    {group.activeMembers > 0 && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3">
+                        <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
+                        <div className="absolute inset-0 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+                      </div>
+                    )}
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
-                        {isMember && <Crown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
+                        {isMember && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                         {group.name}
                       </h3>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {group.isFull && !isMember && (
-                          <Badge variant="secondary" className="text-[9px] bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800/50 px-1.5 py-0 rounded-full">Full</Badge>
+                          <Badge variant="secondary" className="text-[9px] bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800/50 px-2 py-0.5 rounded-full font-medium">Full</Badge>
                         )}
                       </div>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-1">
                       {group.description || group.subjectName || `${group.activeMembers}/${group.maxCapacity} members`}
                     </p>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1.5">
                       <div className="flex -space-x-1.5">
                         {group.members.slice(0, 3).map(m => (
-                          <div key={m.studentId} className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 border-2 border-white dark:border-slate-950 flex items-center justify-center text-[7px] font-bold text-indigo-700 dark:text-indigo-400">
+                          <div key={m.studentId} className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-bold text-indigo-700 dark:text-indigo-400 shadow-sm">
                             {m.studentName.charAt(0).toUpperCase()}
                           </div>
                         ))}
+                        {group.members.length > 3 && (
+                          <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500 shadow-sm">
+                            +{group.members.length - 3}
+                          </div>
+                        )}
                       </div>
                       {group.subjectName && (
-                        <span className="text-[10px] text-slate-400 truncate">{group.subjectName}</span>
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 truncate bg-slate-100 dark:bg-slate-700/50 px-2 py-0.5 rounded-full">{group.subjectName}</span>
                       )}
                     </div>
                   </div>
@@ -477,18 +520,18 @@ export function GroupStudyPage() {
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                     {isMember ? (
 <Button size="sm" onClick={() => enterRoom(group)}
-                         className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white h-8 text-xs px-3 rounded-full shadow-sm">
+                         className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white h-9 text-xs px-4 rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-200 hover:shadow-lg hover:shadow-indigo-500/30 active:scale-95">
                         Open
                       </Button>
                     ) : group.isFull ? (
                       <Button size="sm" variant="outline" disabled
-                        className="h-8 text-xs px-3 rounded-full opacity-50 border-slate-200 dark:border-slate-700">
+                        className="h-9 text-xs px-4 rounded-xl opacity-50 border-slate-200 dark:border-slate-700">
                         Full
                       </Button>
                     ) : (
 <Button size="sm" onClick={() => handleJoinGroup(group.id)} disabled={joinLoading === group.id}
-                         className="bg-indigo-600 hover:bg-indigo-700 text-white h-8 text-xs px-3 rounded-full shadow-sm">
-                        {joinLoading === group.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Join'}
+                         className="bg-indigo-600 hover:bg-indigo-700 text-white h-9 text-xs px-4 rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-200 hover:shadow-lg hover:shadow-indigo-500/30 active:scale-95">
+                        {joinLoading === group.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Join'}
                       </Button>
                     )}
                   </div>
@@ -498,7 +541,7 @@ export function GroupStudyPage() {
 
             {/* No search results */}
             {searchQuery && filteredGroups.length === 0 && (
-              <div className="px-2 pt-6 text-center">
+              <div className="px-1 pt-8 text-center">
                 <p className="text-sm text-slate-400">No groups matching &ldquo;{searchQuery}&rdquo;</p>
               </div>
             )}
@@ -514,12 +557,12 @@ export function GroupStudyPage() {
       {/* Mobile overlay for members panel */}
       {showMembersPanel && (
         <div className="fixed inset-0 z-50 md:hidden" onClick={() => setShowMembersPanel(false)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white dark:bg-slate-900 shadow-xl flex flex-col slide-in-right"
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-700"
             onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700">
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700">
               <span className="text-sm font-semibold text-white">Members ({members.length})</span>
-              <button onClick={() => setShowMembersPanel(false)} className="p-1 text-white/80 hover:text-white">
+              <button onClick={() => setShowMembersPanel(false)} className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -539,21 +582,21 @@ export function GroupStudyPage() {
       {showMobileMenu && (
         <div className="fixed inset-0 z-50 md:hidden" onClick={() => setShowMobileMenu(false)}>
           <div className="absolute inset-0 bg-transparent" />
-          <div className="absolute right-2 top-14 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+          <div className="absolute right-3 top-14 w-52 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
             onClick={(e) => e.stopPropagation()}>
             <button onClick={() => { setShowMembersPanel(true); setShowMobileMenu(false) }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+              className="w-full flex items-center gap-3 px-4 py-3.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
               <Users className="w-4 h-4 text-indigo-600" /> Members
             </button>
             {members.length > 1 && (
               <button onClick={() => { setShowMobileMenu(false); comparisonSent && acceptedForCompare.length > 1 ? handleViewComparison() : handleRequestComparison() }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
                 <BarChart3 className="w-4 h-4 text-indigo-600" /> {comparisonSent ? 'View Comparison' : 'Compare Progress'}
               </button>
             )}
-            <div className="h-px bg-slate-200 dark:bg-slate-700" />
+            <div className="h-px bg-slate-200 dark:bg-slate-700 mx-3" />
             <button onClick={handleLeaveGroup} disabled={leavingGroup}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+              className="w-full flex items-center gap-3 px-4 py-3.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
               {leavingGroup ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Leave Group
             </button>
           </div>
@@ -562,14 +605,14 @@ export function GroupStudyPage() {
 
       {/* Comparison overlay */}
       {showComparison && comparisonData && (
-        <div className="fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col">
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30">
+        <div className="fixed inset-0 z-50 bg-white/98 dark:bg-slate-900/98 backdrop-blur-sm flex flex-col">
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30">
             <div className="flex items-center gap-2 min-w-0">
-              <button onClick={handleCloseComparison} className="p-1 -ml-1 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800"><ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" /></button>
+              <button onClick={handleCloseComparison} className="p-1.5 -ml-1.5 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"><ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" /></button>
               <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">Group Progress Comparison</h3>
             </div>
-            <button onClick={handleCloseComparison} className="hidden sm:flex w-7 h-7 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 items-center justify-center"><X className="w-4 h-4" /></button>
+            <button onClick={handleCloseComparison} className="hidden sm:flex w-8 h-8 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 items-center justify-center transition-colors"><X className="w-4 h-4" /></button>
           </div>
           <ScrollArea className="flex-1 p-4">
             <div className="max-w-3xl mx-auto space-y-5">
@@ -583,8 +626,8 @@ export function GroupStudyPage() {
                 ].map(metric => {
                   const values = comparisonData.map(m => ({ id: m.userId, val: typeof m[metric.key] === 'number' ? (m[metric.key] as number) : 0, isRequester: m.isRequester }))
                   return (
-                    <div key={metric.key} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-2">{metric.label}</p>
+                    <div key={metric.key} className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider mb-2">{metric.label}</p>
                       {values.map(v => (
                         <div key={v.id} className="flex items-center justify-between text-xs py-0.5">
                           <span className={`truncate max-w-[60%] ${v.isRequester ? 'font-semibold text-indigo-700 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400'}`}>{v.isRequester ? 'You' : 'Peer'}</span>
@@ -596,7 +639,7 @@ export function GroupStudyPage() {
                 })}
               </div>
 
-              <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                 <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Daily Study (Last 7 Days)</h4>
                 {comparisonData[0]?.dailyMinutes.map((day) => (
                   <div key={day.date} className="mb-2">
@@ -620,7 +663,7 @@ export function GroupStudyPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {comparisonData.map(m => (
-                  <div key={m.userId} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                  <div key={m.userId} className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm hover:shadow-md transition-shadow">
                     <h4 className={`text-xs font-semibold mb-3 ${m.isRequester ? 'text-indigo-700 dark:text-indigo-400' : 'text-indigo-700 dark:text-indigo-400'}`}>{m.isRequester ? 'Your Subjects' : 'Peer Subjects'}</h4>
                     {m.subjectDistribution.length === 0 ? <p className="text-[10px] text-slate-400">No study data yet</p> : m.subjectDistribution.map(s => {
                       const total = m.subjectDistribution.reduce((sum, ss) => sum + ss.minutes, 0)
@@ -639,7 +682,7 @@ export function GroupStudyPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Achievements</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
@@ -648,7 +691,7 @@ export function GroupStudyPage() {
                     </div>
                   ))}
                 </div>
-                <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
                   <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3">Quizzes</h4>
                   {comparisonData.map(m => (
                     <div key={m.userId} className="flex items-center justify-between text-xs py-1">
@@ -664,54 +707,77 @@ export function GroupStudyPage() {
       )}
 
       {/* Main Chat Room */}
-      <div className="flex flex-col bg-white dark:bg-slate-900 h-full relative">
+      <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-full relative">
         {/* ── Header ── */}
-        <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-2.5 flex items-center gap-2 shadow-sm z-10">
+        <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg z-10">
           {/* Back button (mobile only) */}
           <button onClick={handleBackToList}
-            className="md:hidden p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors">
+            className="md:hidden p-1.5 -ml-1 rounded-xl hover:bg-white/10 transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
 
           {/* Group avatar */}
-          <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-base font-bold shrink-0 shadow-inner backdrop-blur-sm">
             {currentGroup.name.charAt(0).toUpperCase()}
           </div>
 
           {/* Info */}
-          <div className="flex-1 min-w-0 ml-1">
+          <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold truncate leading-tight">{currentGroup.name}</h2>
-            <p className="text-[10px] text-white/70 flex items-center gap-0.5">
+            <p className="text-[10px] text-white/70 flex items-center gap-1">
               {members.length > 0 ? (
                 <>{members.length} member{members.length !== 1 ? 's' : ''}{studyingMembers > 0 && `, ${studyingMembers} studying`}</>
               ) : 'No members'}
-              <Dot className="w-3 h-3" />
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-300' : 'bg-amber-300'}`} />
+              <span className="inline-block w-1 h-1 rounded-full bg-white/40 mx-0.5" />
+              <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-300 shadow-sm shadow-green-300/50' : 'bg-amber-300'} mr-0.5`} />
               <span>{isConnected ? 'Online' : 'Connecting...'}</span>
+              {anonymousMode && anonymousName && (
+                <span className="ml-1.5 text-[9px] bg-white/15 px-2 py-0.5 rounded-full">Incognito</span>
+              )}
             </p>
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
+            <button onClick={() => {
+                if (anonymousMode && anonymousName) {
+                  setAnonymousMode(false)
+                  setAnonymousName('')
+                  setAnonymousGender(null)
+                } else if (anonymousGender) {
+                  const { name, color } = getRandomName(anonymousGender)
+                  setAnonymousName(name)
+                  setAnonymousColor(color)
+                  setAnonymousMode(true)
+                } else {
+                  setShowGenderPicker(true)
+                }
+              }}
+              className={`p-2 rounded-xl transition-colors ${anonymousMode ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10'}`}
+              title={anonymousMode ? `Chatting as ${anonymousName} - tap to disable` : 'Chat anonymously'}>
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </button>
             <button onClick={() => setShowMembersPanel(true)}
-              className="hidden md:flex p-2 rounded-full hover:bg-white/10 transition-colors" title="Members">
+              className="hidden md:flex p-2 rounded-xl hover:bg-white/10 transition-colors" title="Members">
               <Users className="w-5 h-5" />
             </button>
             {members.length > 1 && (
               <button onClick={comparisonSent && acceptedForCompare.length > 1 ? handleViewComparison : handleRequestComparison}
                 disabled={comparisonLoading}
-                className="hidden md:flex p-2 rounded-full hover:bg-white/10 transition-colors" title={comparisonSent ? 'View Comparison' : 'Compare Progress'}>
+                className="hidden md:flex p-2 rounded-xl hover:bg-white/10 transition-colors" title={comparisonSent ? 'View Comparison' : 'Compare Progress'}>
                 {comparisonLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <BarChart3 className="w-5 h-5" />}
               </button>
             )}
             {/* Mobile menu trigger */}
             <button onClick={() => setShowMobileMenu(!showMobileMenu)}
-              className="md:hidden p-2 rounded-full hover:bg-white/10 transition-colors">
+              className="md:hidden p-2 rounded-xl hover:bg-white/10 transition-colors">
               <MoreVertical className="w-5 h-5" />
             </button>
             {/* Desktop leave button */}
             <button onClick={handleLeaveGroup} disabled={leavingGroup}
-              className="hidden md:flex p-2 rounded-full hover:bg-white/10 transition-colors ml-1" title="Leave Group">
+              className="hidden md:flex p-2 rounded-xl hover:bg-white/10 transition-colors ml-1" title="Leave Group">
               {leavingGroup ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogOut className="w-5 h-5" />}
             </button>
           </div>
@@ -719,15 +785,15 @@ export function GroupStudyPage() {
 
         {/* Comparison notifications */}
         {comparisonRequesters.length > 0 && (
-          <div className="flex-shrink-0 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/40 border-b border-indigo-200 dark:border-indigo-800/50 space-y-1.5">
+          <div className="flex-shrink-0 px-4 py-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 backdrop-blur-sm border-b border-indigo-200 dark:border-indigo-800/50 space-y-1.5">
             {comparisonRequesters.map(r => (
               <div key={r.userId} className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-indigo-700 dark:text-indigo-300"><BarChart3 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" /><strong>{r.userName}</strong> wants to compare</span>
                 <div className="flex gap-1.5 shrink-0">
                   <button onClick={() => handleAcceptComparison(r.userId)}
-                    className="w-7 h-7 rounded-full bg-indigo-500 hover:bg-indigo-600 text-white flex items-center justify-center shadow-sm transition-colors"><Check className="w-3.5 h-3.5" /></button>
+                    className="w-7 h-7 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white flex items-center justify-center shadow-sm transition-colors active:scale-95"><Check className="w-3.5 h-3.5" /></button>
                   <button onClick={() => handleDeclineComparison(r.userId)}
-                    className="w-7 h-7 rounded-full bg-slate-400 hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500 text-white flex items-center justify-center transition-colors"><X className="w-3.5 h-3.5" /></button>
+                    className="w-7 h-7 rounded-lg bg-slate-400 hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500 text-white flex items-center justify-center transition-colors active:scale-95"><X className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             ))}
@@ -735,7 +801,7 @@ export function GroupStudyPage() {
         )}
 
         {comparisonSent && acceptedForCompare.length > 0 && !showComparison && (
-          <div className="flex-shrink-0 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/30 border-b border-indigo-200 dark:border-indigo-800/50">
+          <div className="flex-shrink-0 px-4 py-2.5 bg-indigo-50/80 dark:bg-indigo-950/30 backdrop-blur-sm border-b border-indigo-200 dark:border-indigo-800/50">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
                 <BarChart3 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />{acceptedForCompare.length}/{members.length} accepted
@@ -749,34 +815,34 @@ export function GroupStudyPage() {
         {/* ── Messages area ── */}
         <div className="flex-1 min-h-0 flex">
           {/* Members sidebar (desktop) */}
-          <div className="hidden md:flex md:w-56 lg:w-64 flex-shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80">
-            <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+          <div className="hidden md:flex md:w-60 lg:w-72 flex-shrink-0 flex-col border-r border-slate-200 dark:border-slate-700/80 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700/80">
               <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Members ({members.length})</p>
             </div>
             <ScrollArea className="flex-1">
-              <div className="p-1.5 space-y-0.5">
+              <div className="p-2 space-y-0.5">
                 {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
                 {members.length === 0 && (
-                  <div className="py-6 text-center"><Users className="w-6 h-6 mx-auto text-slate-300 dark:text-slate-600 mb-1" /><p className="text-[10px] text-slate-400">No members</p></div>
+                  <div className="py-8 text-center"><Users className="w-6 h-6 mx-auto text-slate-300 dark:text-slate-600 mb-1" /><p className="text-[10px] text-slate-400">No members</p></div>
                 )}
               </div>
             </ScrollArea>
           </div>
 
           {/* Chat messages */}
-          <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900">
+          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
             <ScrollArea className="flex-1">
-              <div className="px-2 sm:px-4 py-3">
+              <div className="px-2 sm:px-4 py-4">
                 {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-14 h-14 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-3">
-                      <MessageCircle className="w-7 h-7 text-indigo-500 dark:text-indigo-400" />
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-4 shadow-inner">
+                      <MessageCircle className="w-8 h-8 text-indigo-500 dark:text-indigo-400" />
                     </div>
-                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Start the conversation!</p>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1">Start the conversation!</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">Say hi to your study group members</p>
                   </div>
                 ) : (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {getMessageGroups().map(group => (
                       <div key={group.date}>
                         <DateDivider date={group.date} />
@@ -801,9 +867,9 @@ export function GroupStudyPage() {
             </ScrollArea>
 
             {/* ── Input bar ── */}
-            <div className="flex-shrink-0 bg-white dark:bg-slate-800 px-2 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex-shrink-0 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-2 sm:px-4 py-3 border-t border-slate-200 dark:border-slate-700 shadow-lg">
               <div className="flex items-center gap-2 max-w-4xl mx-auto">
-                <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-full px-4 py-1.5 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
+                <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-2xl px-4 py-2 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
                   <input
                     ref={inputRef}
                     placeholder={isConnected ? 'Type a message' : 'Message'}
@@ -816,12 +882,12 @@ export function GroupStudyPage() {
                 <button
                   onClick={sendMessage}
                   disabled={!chatInput.trim()}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
                     chatInput.trim()
-                      ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm hover:from-indigo-700 hover:to-blue-700'
+                      ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20 hover:from-indigo-700 hover:to-blue-700 hover:shadow-lg'
                       : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                   }`}>
-                  <Send className="w-4.5 h-4.5" />
+                  <Send className="w-5 h-5" />
                 </button>
               </div>
               {!isConnected && (
@@ -831,6 +897,31 @@ export function GroupStudyPage() {
           </div>
         </div>
       </div>
+    {/* Gender picker dialog */}
+      {showGenderPicker && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowGenderPicker(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-72 mx-4 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 text-center mb-1">Chat Anonymously</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-4">Select your gender to get a random American famous identity</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => { setAnonymousGender('male'); const r = getRandomName('male'); setAnonymousName(r.name); setAnonymousColor(r.color); setAnonymousMode(true); setShowGenderPicker(false) }}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/50 transition-all active:scale-95">
+                <span className="text-2xl">👨</span>
+                <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">Male</span>
+              </button>
+              <button onClick={() => { setAnonymousGender('female'); const r = getRandomName('female'); setAnonymousName(r.name); setAnonymousColor(r.color); setAnonymousMode(true); setShowGenderPicker(false) }}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl bg-pink-50 dark:bg-pink-900/20 hover:bg-pink-100 dark:hover:bg-pink-900/40 border border-pink-200 dark:border-pink-800/50 transition-all active:scale-95">
+                <span className="text-2xl">👩</span>
+                <span className="text-xs font-semibold text-pink-700 dark:text-pink-400">Female</span>
+              </button>
+            </div>
+            <button onClick={() => setShowGenderPicker(false)}
+              className="w-full mt-3 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-1">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

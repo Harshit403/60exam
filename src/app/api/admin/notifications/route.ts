@@ -14,10 +14,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const list = req.nextUrl.searchParams.get('list') === 'true'
+
+  if (list) {
+    const notifications = await db.adminNotification.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        title: true,
+        message: true,
+        type: true,
+        targetRole: true,
+        targetCourseId: true,
+        createdAt: true,
+      },
+    })
+    return NextResponse.json({ notifications })
+  }
+
   const [pendingApprovals, pendingReviews, unreadDiscussions] = await Promise.all([
     db.student.count({ where: { status: 'pending' } }),
     db.review.count({ where: { status: 'pending' } }),
-    // Only top-level discussion threads (not replies) without an admin reply
     db.discussion.count({
       where: {
         parentReplyId: null,

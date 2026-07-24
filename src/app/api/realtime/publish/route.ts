@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     // ─── Group: send chat message ───────────────────────────────────
     case 'group-message': {
-      const { groupId, content } = body
+      const { groupId, content, anonymousName } = body
       if (!groupId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
       const msg = await db.groupMessage.create({
@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
           studentId: auth.id,
           content,
           type: 'text',
+          anonymousName: anonymousName || null,
         },
       })
       await db.groupMember.updateMany({

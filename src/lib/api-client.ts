@@ -106,6 +106,9 @@ export const api = {
 
   // Admin Notifications (badge counts)
   adminNotifications: () => apiFetch('/admin/notifications'),
+  adminListNotifications: () => apiFetch('/admin/notifications?list=true'),
+  adminDeleteNotification: (id: string) =>
+    apiFetch(`/admin/notifications/${id}`, { method: 'DELETE' }),
   adminSendNotification: (data: { title: string; message: string; type?: string; targetRole?: string; targetCourseId?: string | null }) =>
     apiFetch('/admin/notifications/send', { method: 'POST', body: JSON.stringify(data) }),
 
