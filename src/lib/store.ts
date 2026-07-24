@@ -20,6 +20,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window !== 'undefined') {
       localStorage.setItem('token', token)
       localStorage.setItem('role', role)
+      localStorage.setItem('user', JSON.stringify(user))
     }
     set({ token, role, user, hydrated: true })
   },
@@ -27,6 +28,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token')
       localStorage.removeItem('role')
+      localStorage.removeItem('user')
     }
     set({ token: null, role: null, user: null, hydrated: true })
   },
@@ -34,7 +36,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('token')
       const role = localStorage.getItem('role') as 'admin' | 'student' | null
-      set({ token, role, hydrated: true })
+      let user = null
+      try {
+        const raw = localStorage.getItem('user')
+        if (raw) user = JSON.parse(raw)
+      } catch { /* ignore corrupt data */ }
+      set({ token, role, user, hydrated: true })
     }
   },
   isAuthenticated: () => !!get().token,
