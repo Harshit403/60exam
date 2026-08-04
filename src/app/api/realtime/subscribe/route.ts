@@ -308,7 +308,7 @@ export async function GET(req: NextRequest) {
               orderBy: { createdAt: 'asc' },
             })
             for (const sig of sigs) {
-              sendSSE(res, 'signal', { from: sig.from, to: sig.to, data: sig.data })
+              sendSSE(res, 'signal', { id: sig.id, from: sig.from, to: sig.to, data: sig.data })
               lastDroomSignal = sig.createdAt
             }
           } catch { /* ignore */ }
@@ -391,7 +391,7 @@ export async function GET(req: NextRequest) {
               orderBy: { createdAt: 'asc' },
             })
             for (const sig of sigs) {
-              sendSSE(res, 'signal', { from: sig.from, to: sig.to, data: sig.data })
+              sendSSE(res, 'signal', { id: sig.id, from: sig.from, to: sig.to, data: sig.data })
               lastVroomSignal = sig.createdAt
             }
           } catch { /* ignore */ }

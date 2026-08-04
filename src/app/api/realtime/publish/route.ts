@@ -3,6 +3,26 @@ import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
 import { hubPublish } from '@/lib/realtime-hub'
 
+function newSignalId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
+  } catch { /* fall through */ }
+  return `sig-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+// Relay a WebRTC signal: persist to the shared DB (works across serverless
+// instances) and also fan out through the in-memory hub (instant on one
+// instance). The same id is used on both paths so clients can dedupe.
+async function relaySignal(channel: string, from: string, to: string | null, data: any) {
+  const id = newSignalId()
+  try {
+    await db.roomSignal.create({
+      data: { id, channel, from, to: to || null, data: data as any },
+    }).catch(() => { throw new Error('db') })
+  } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
+  hubPublish(channel, 'signal', { id, from, to: to || null, data })
+}
+
 export async function POST(req: NextRequest) {
   const auth = getAuthFromHeaders(req.headers)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -147,12 +167,7 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      try {
-        await db.roomSignal.create({
-          data: { channel: `droom:${roomId}`, from: auth.id, to: to || null, data: data as any },
-        }).catch(() => { throw new Error('db') })
-      } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
-      hubPublish(`droom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      await relaySignal(`droom:${roomId}`, auth.id, to, data)
       return NextResponse.json({ ok: true })
     }
 
@@ -221,12 +236,7 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      try {
-        await db.roomSignal.create({
-          data: { channel: `vroom:${roomId}`, from: auth.id, to: to || null, data: data as any },
-        }).catch(() => { throw new Error('db') })
-      } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
-      hubPublish(`vroom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      await relaySignal(`vroom:${roomId}`, auth.id, to, data)
       return NextResponse.json({ ok: true })
     }
 

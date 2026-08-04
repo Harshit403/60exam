@@ -46,6 +46,7 @@ export class RoomCall {
   private lastOfferAt = new Map<string, number>()
   private disposed = false
   private reconcileTimer: ReturnType<typeof setInterval> | null = null
+  private seenSignalIds = new Set<string>()
 
   constructor(opts: RoomCallOptions) {
     this.opts = opts
@@ -149,10 +150,20 @@ export class RoomCall {
       .catch(() => { /* ignore */ })
   }
 
-  onSignal(from: string, to: string | null, data: any) {
+  onSignal(from: string, to: string | null, data: any, sigId?: string) {
     if (this.disposed) return
     const me = this.opts.userId
+    if (from === me) return
     if (to && to !== me) return
+    // Dedupe relayed signals (delivered via both the DB poll and the hub).
+    if (sigId) {
+      if (this.seenSignalIds.has(sigId)) return
+      this.seenSignalIds.add(sigId)
+      if (this.seenSignalIds.size > 500) {
+        const it = this.seenSignalIds.values().next()
+        if (!it.done) this.seenSignalIds.delete(it.value)
+      }
+    }
     const d = data || {}
 
     // Keep a connection for anyone who talks to us, even if we haven't yet

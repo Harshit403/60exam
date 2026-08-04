@@ -74,7 +74,7 @@ export function VirtualLibrariesPage() {
         if (sworn) setMe(prev => prev ? { ...prev, userId: sworn.userId, displayName: sworn.displayName, color: sworn.color, onStage: sworn.onStage } : prev)
         callRef.current?.setPresence((data.members || []).filter((m: any) => m.userId !== userIdRef.current))
       } else if (event === 'signal') {
-        callRef.current?.onSignal(data.from, data.to, data.data)
+        callRef.current?.onSignal(data.from, data.to, data.data, data.id)
       } else if (event === 'user-removed') {
         if (data.userId === userIdRef.current) {
           setRemoved(r => r.includes('me') ? r : [...r, 'me'])

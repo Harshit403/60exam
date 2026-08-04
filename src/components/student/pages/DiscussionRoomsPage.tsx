@@ -82,7 +82,7 @@ export function DiscussionRoomsPage() {
         } : prev)
         callRef.current?.setPresence((data.members || []).filter((m: any) => m.userId !== userIdRef.current))
       } else if (event === 'signal') {
-        callRef.current?.onSignal(data.from, data.to, data.data)
+        callRef.current?.onSignal(data.from, data.to, data.data, data.id)
       }
     }, []),
   })
@@ -147,11 +147,25 @@ export function DiscussionRoomsPage() {
     } finally { setActionBusy(false) }
   }
 
+  // Attach incoming audio streams to the <audio> elements once they arrive
+  // (the ref callback only runs at mount, before any stream exists).
+  useEffect(() => {
+    audioRefs.current.forEach((el, userId) => {
+      const stream = remoteStreams.get(userId)
+      if (el && stream && el.srcObject !== stream) {
+        el.srcObject = stream
+        el.play?.().catch(() => {})
+      }
+    })
+  }, [remoteStreams])
+
   const leaveRoom = async () => {
     if (!active) return
     try { await api.studentDiscussionRoomLeave(active.id) } catch { /* ignore */ }
     setActive(null); setMe(null); setMembers([]); setRemoteStreams(new Map())
     setCurrentRoom(null)
+    audioRefs.current.forEach(el => { el.srcObject = null })
+    audioRefs.current.clear()
     fetchRooms()
   }
 
