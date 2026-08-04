@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/daily-plan-reminder",
-      "schedule": "*/10 * * * *"
-    }
-  ]
-}
+{}
