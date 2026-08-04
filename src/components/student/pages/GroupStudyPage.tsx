@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Users, MessageCircle, LogOut, Send, Clock, UserPlus, Crown, Circle, Loader2,
   BarChart3, Check, X, ArrowLeft, MoreVertical, ChevronDown, User, Dot, Eye, EyeOff, Play,
@@ -389,13 +388,13 @@ export function GroupStudyPage() {
   const sendMessage = async () => {
     if (!chatInput.trim() || !currentGroup) return
 
-    // Students can only chat while their Pomodoro session is running
+    // Students cannot chat while their active Pomodoro focus session is running
     let timerRunning = false
     try {
       const timerData = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
       timerRunning = !!(timerData.timerRunning && !timerData.timerPaused)
     } catch {}
-    if (!timerRunning) { setJoinError('Start a Pomodoro study session to send messages in this group'); return }
+    if (timerRunning) { setJoinError('Finish your Pomodoro focus session to send messages in this group'); return }
 
     const filtered = filterContent(chatInput.trim())
     const displayName = anonymousMode && anonymousName ? anonymousName : userName
@@ -553,6 +552,19 @@ export function GroupStudyPage() {
 
   // ─── GROUP LISTING VIEW (Modern card-style) ─────────────────────
   if (!inRoom || !currentGroup) {
+    // While the group data is still loading, never flash the group-list page —
+    // a student who has already joined a group should go straight to their room.
+    if (loading) {
+      return (
+        <div className="page-transition max-w-2xl mx-auto px-2 flex items-center justify-center py-24">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+            <p className="text-sm text-slate-400 dark:text-slate-500">Loading your study groups...</p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="page-transition max-w-2xl mx-auto px-2">
         {/* Join Error Banner */}
@@ -589,21 +601,8 @@ export function GroupStudyPage() {
           </div>
         </div>
 
-        {/* Loading */}
-        {loading ? (
-          <div className="space-y-3 px-1">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="flex items-center gap-4 p-4 bg-white/50 dark:bg-slate-800/50 rounded-2xl shadow-sm">
-                <Skeleton className="h-14 w-14 rounded-full shrink-0" />
-                <div className="flex-1 space-y-2.5">
-                  <Skeleton className="h-4 w-2/3 rounded-lg" />
-                  <Skeleton className="h-3 w-full rounded-lg" />
-                </div>
-              </div>
-            ))}
-          </div>
-        // Empty state
-        ) : groups.length === 0 ? (
+        {/* Empty state */}
+        {groups.length === 0 ? (
           <div className="px-1 pt-12 text-center">
             <div className="w-20 h-20 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mx-auto mb-5 shadow-inner">
               <Users className="w-10 h-10 text-indigo-400 dark:text-indigo-500" />
@@ -1083,9 +1082,9 @@ export function GroupStudyPage() {
                 <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-2xl px-4 py-2 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
                   <input
                     ref={inputRef}
-                    placeholder={pomodoroRunning ? (isConnected ? 'Type a message' : 'Message') : 'Start a Pomodoro session to chat'}
+                    placeholder={pomodoroRunning ? 'Focus session in progress — you can chat after a break' : (isConnected ? 'Type a message' : 'Message')}
                     value={chatInput}
-                    disabled={!pomodoroRunning}
+                    disabled={pomodoroRunning}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
                     className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-200 outline-none placeholder:text-slate-400 py-1 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1093,20 +1092,19 @@ export function GroupStudyPage() {
                 </div>
                 <button
                   onClick={sendMessage}
-                  disabled={!chatInput.trim() || !pomodoroRunning}
+                  disabled={!chatInput.trim() || pomodoroRunning}
                   className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
-                    chatInput.trim() && pomodoroRunning
+                    chatInput.trim() && !pomodoroRunning
                       ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20 hover:from-indigo-700 hover:to-blue-700 hover:shadow-lg'
                       : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                   }`}>
                   <Send className="w-5 h-5" />
                 </button>
               </div>
-              {!pomodoroRunning && (
-                <button onClick={() => { setShowStudyStarter(true); fetchStudySubjects() }}
-                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors active:scale-95">
-                  <Play className="w-3 h-3" /> Start a Pomodoro session to chat with your group
-                </button>
+              {pomodoroRunning && (
+                <div className="w-full mt-1.5 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">
+                  <Clock className="w-3 h-3" /> Focus session in progress — messages are disabled until your break
+                </div>
               )}
               {/* Active timer indicator */}
               {disappearTimer && (

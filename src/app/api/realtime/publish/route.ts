@@ -44,14 +44,14 @@ export async function POST(req: NextRequest) {
       const { groupId, content, anonymousName, anonymousGender, disappearAfter } = body
       if (!groupId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
-      // Students can only message while their Pomodoro session is running
+      // Students cannot chat while their Pomodoro focus session is running
       const activeMembership = await db.groupMember.findFirst({
         where: { groupId, studentId: auth.id, leftAt: null },
       })
       const ts = activeMembership?.timerState as any
       const hasActiveTimer = ts && ts.running === true && ts.paused !== true
-      if (auth.role === 'student' && !hasActiveTimer) {
-        return NextResponse.json({ error: 'Start a Pomodoro study session to send messages in this group' }, { status: 400 })
+      if (auth.role === 'student' && hasActiveTimer) {
+        return NextResponse.json({ error: 'Finish your Pomodoro focus session to send messages in this group' }, { status: 400 })
       }
 
       const forwarded = req.headers.get('x-forwarded-for')
