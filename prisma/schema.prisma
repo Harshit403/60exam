@@ -508,3 +508,17 @@ model VirtualLibraryMember {
   @@unique([roomId, studentId])
   @@index([roomId, leftAt])
 }
+
+// ==================== ROOM SIGNAL (WebRTC relay) ====================
+// Persisted signaling so that WebRTC offers/answers/ICE survive across
+// serverless instances (an in-memory hub is not shared between lambdas).
+model RoomSignal {
+  id        String   @id @default(cuid())
+  channel   String   // "droom:<id>" or "vroom:<id>"
+  from      String
+  to        String?  // null = broadcast to everyone
+  data      Json
+  createdAt DateTime @default(now())
+
+  @@index([channel, createdAt])
+}

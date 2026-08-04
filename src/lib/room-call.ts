@@ -1,10 +1,14 @@
 'use client'
 
 // Lightweight mesh WebRTC engine shared by Discussion Rooms (audio) and
-// Virtual Libraries (video). Uses deterministic initiator (smaller userId
-// sends the offer) to avoid glare, and STUN-only for candidates.
+// Virtual Libraries (video). Signalling is relayed through a shared DB polling
+// channel so it works across serverless instances. Glare is resolved by
+// "perfect negotiation": when both sides currently hold a local offer, the
+// smaller userId yields (rollback) and accepts the peer's offer.
 
-const STUN = 'stun:stun.l.google.com:19302'
+const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
+]
 
 export interface RoomMember {
   userId: string
@@ -38,7 +42,7 @@ export class RoomCall {
   private local: MediaStream | null = null
   private speaker = false
   private livePeers = new Map<string, RoomMember>()
-  private starting = false
+  private lastOfferAt = new Map<string, number>()
   private disposed = false
   private reconcileTimer: ReturnType<typeof setInterval> | null = null
 
@@ -47,7 +51,7 @@ export class RoomCall {
     this.speaker = opts.getMyIsSpeaker()
   }
 
-  async start() {
+  start() {
     this.startReconcile()
   }
 
@@ -57,9 +61,10 @@ export class RoomCall {
     try {
       this.local = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: this.opts.kind === 'video' ? { width: 320, height: 240, facingMode: 'user' } : false,
+        video: this.opts.kind === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false,
       })
       this.opts.onLocalMedia?.(this.local)
+      this.syncAllLocalTracks()
     } catch {
       this.opts.onLocalMedia?.(null)
     }
@@ -72,8 +77,12 @@ export class RoomCall {
     this.reconcile()
   }
 
+  private isInitiator(targetId: string): boolean {
+    return this.opts.userId < targetId
+  }
+
   private pcConfig() {
-    return { iceServers: [{ urls: STUN }] }
+    return { iceServers: ICE_SERVERS, iceCandidatePoolSize: 4 }
   }
 
   private createPc(targetId: string): RTCPeerConnection {
@@ -86,7 +95,7 @@ export class RoomCall {
       if (e.candidate) this.sendSignal(targetId, { type: 'ice', candidate: e.candidate.toJSON() })
     }
     pc.onnegotiationneeded = () => {
-      if (pc.signalingState === 'stable' && this.opts.userId < targetId) {
+      if (pc.signalingState === 'stable') {
         sync()
         this.makeOffer(targetId)
       }
@@ -94,9 +103,7 @@ export class RoomCall {
     pc.ontrack = (e) => {
       const stream = e.streams?.[0] || new MediaStream([e.track])
       this.remotes.set(targetId, stream)
-      if (this.pendingCandidates.get(targetId)?.length) {
-        this.flushCandidates(targetId)
-      }
+      if (this.pendingCandidates.get(targetId)?.length) this.flushCandidates(targetId)
       this.opts.onStreamAdded(targetId, stream)
     }
     this.opts.onPeerOpen?.(targetId, pc)
@@ -115,28 +122,30 @@ export class RoomCall {
       for (const kind of kinds) {
         if (!senders.some(s => s.track?.kind === kind)) {
           const track = this.local!.getTracks().find(t => t.kind === kind)
-          if (track) {
-            try { pc.addTrack(track, this.local!) } catch { /* ignore */ }
-          }
+          if (track) { try { pc.addTrack(track, this.local!) } catch { /* ignore */ } }
         }
       }
     } else {
       for (const s of senders) {
-        if (s.track && kinds.includes(s.track.kind)) {
-          try { pc.removeTrack(s) } catch { /* ignore */ }
-        }
+        if (s.track && kinds.includes(s.track.kind)) { try { pc.removeTrack(s) } catch { /* ignore */ } }
       }
     }
+  }
+
+  private syncAllLocalTracks() {
+    for (const pc of this.pcs.values()) this.syncLocalTrack(pc)
   }
 
   private makeOffer(targetId: string) {
     const pc = this.pcs.get(targetId)
     if (!pc) return
     if (pc.signalingState !== 'stable') return
+    if (!this.local) return
     this.syncLocalTrack(pc)
+    this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
-      .then(() => this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription }))
+      .then(() => { if (pc.localDescription) this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription }) })
       .catch(() => { /* ignore */ })
   }
 
@@ -144,30 +153,39 @@ export class RoomCall {
     if (this.disposed) return
     const me = this.opts.userId
     if (to && to !== me) return
-    if (!this.livePeers.has(from)) return
-
-    const pc = this.ensurePc(from)
     const d = data || {}
 
+    // Keep a connection for anyone who talks to us, even if we haven't yet
+    // received the room state that lists them.
+    const pc = this.ensurePc(from)
+
     if (d.type === 'offer') {
-      if (pc.signalingState !== 'stable' && this.opts.userId !== from) return
-      // Deterministic initiator: whoever had an in-flight offer and is NOT the
-      // smaller id is the impolite one — rollback its local offer.
-      if (pc.signalingState === 'have-local-offer' && this.opts.userId < from) {
-        try { pc.setLocalDescription({ type: 'rollback' as RTCSessionDescriptionInit['type'] }) } catch { /* ignore */ }
-        pc.remoteDescription = null
+      if (pc.signalingState === 'have-local-offer') {
+        if (this.isInitiator(from)) {
+          // I'm polite (smaller id): yield my in-flight offer and accept theirs.
+          try { pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit) } catch { /* ignore */ }
+        } else {
+          // I'm impolite (larger id): the polite peer will rollback instead.
+          return
+        }
       }
-      pc.setRemoteDescription(new RTCSessionDescription(d))
-        .then(() => this.flushCandidates(from))
-        .then(() => pc.createAnswer())
-        .then(answer => pc.setLocalDescription(answer))
-        .then(() => {
-          if (pc.localDescription) this.sendSignal(from, { type: 'answer', sdp: pc.localDescription })
-        })
-        .catch(() => { /* ignore */ })
+      if (pc.signalingState === 'stable' || pc.signalingState === 'have-local-offer') {
+        pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: d.sdp }))
+          .then(() => this.flushCandidates(from))
+          .then(() => pc.createAnswer())
+          .then(answer => pc.setLocalDescription(answer))
+          .then(() => { if (pc.localDescription) this.sendSignal(from, { type: 'answer', sdp: pc.localDescription }) })
+          .catch(() => { /* ignore */ })
+      } else {
+        // Store the offer until we're ready to answer.
+        this.pendingOffer = { from, sdp: d.sdp }
+      }
     } else if (d.type === 'answer') {
       if (pc.signalingState === 'have-local-offer') {
-        pc.setRemoteDescription(new RTCSessionDescription(d)).then(() => this.flushCandidates(from)).catch(() => { /* ignore */ })
+        pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: d.sdp }))
+          .then(() => this.flushCandidates(from))
+          .then(() => this.syncLocalTrack(pc))
+          .catch(() => { /* ignore */ })
       }
     } else if (d.type === 'ice') {
       if (pc.remoteDescription) {
@@ -180,13 +198,13 @@ export class RoomCall {
     }
   }
 
+  private pendingOffer: { from: string; sdp: any } | null = null
+
   private flushCandidates(targetId: string) {
     const list = this.pendingCandidates.get(targetId) || []
     this.pendingCandidates.delete(targetId)
     const pc = this.pcs.get(targetId)
-    if (pc) {
-      for (const c of list) pc.addIceCandidate(c).catch(() => { /* ignore */ })
-    }
+    if (pc) for (const c of list) pc.addIceCandidate(c).catch(() => { /* ignore */ })
   }
 
   private sendSignal(to: string, data: any) {
@@ -201,7 +219,6 @@ export class RoomCall {
     }
     this.livePeers = speakers
 
-    // Close connections to peers no longer on stage / no longer present
     const wanted = new Set(speakers.keys())
     for (const [id, pc] of this.pcs) {
       if (!wanted.has(id)) {
@@ -213,41 +230,48 @@ export class RoomCall {
       }
     }
 
-    // Open new connections & offer from initiator side
-    for (const [id, m] of speakers) {
-      if (this.pcs.has(id)) {
-        // Ensure correct negotiation state for an existing pc
-        continue
-      }
-      const pc = this.createPc(id)
-      this.syncLocalTrack(pc)
-      if (this.opts.userId < id) {
-        this.makeOffer(id)
-      }
-    }
+    this.reconcile()
   }
 
   private startReconcile() {
-    this.reconcileTimer = setInterval(() => this.reconcile(), 3000)
+    this.reconcileTimer = setInterval(() => this.reconcile(), 2500)
   }
 
   private reconcile() {
     if (this.disposed) return
-    if (this.opts.getMyIsSpeaker()) {
-      this.ensureMedia()
+    if (this.speaker) this.ensureMedia()
+
+    const now = Date.now()
+    for (const [id] of this.livePeers) {
+      if (!this.pcs.has(id)) {
+        this.createPc(id)
+        this.syncLocalTrack(this.pcs.get(id)!)
+        if (this.isInitiator(id)) this.makeOffer(id)
+      } else if (this.isInitiator(id)) {
+        const pc = this.pcs.get(id)!
+        const state = pc.iceConnectionState
+        const notEstablished = state !== 'connected' && state !== 'completed'
+        if (pc.signalingState === 'stable' && notEstablished && (now - (this.lastOfferAt.get(id) || 0)) >= 4000) {
+          this.makeOffer(id)
+        }
+      } else {
+        this.syncLocalTrack(this.pcs.get(id)!)
+      }
+      this.syncAllLocalTracks()
     }
-    // Re-add/remove local track if media became available
-    for (const [id] of this.pcs) {
-      this.syncLocalTrack(this.pcs.get(id)!)
+
+    // Deliver a stored offer if we are ready now.
+    if (this.pendingOffer) {
+      const pf = this.pendingOffer
+      this.pendingOffer = null
+      this.onSignal(pf.from, this.opts.userId, { type: 'offer', sdp: pf.sdp })
     }
   }
 
   dispose() {
     this.disposed = true
     if (this.reconcileTimer) clearInterval(this.reconcileTimer)
-    for (const pc of this.pcs.values()) {
-      try { pc.close() } catch { /* ignore */ }
-    }
+    for (const pc of this.pcs.values()) { try { pc.close() } catch { /* ignore */ } }
     this.pcs.clear()
     this.remotes.clear()
     this.pendingCandidates.clear()

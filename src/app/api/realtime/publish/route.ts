@@ -147,7 +147,9 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      hubPublish(`droom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      await db.roomSignal.create({
+        data: { channel: `droom:${roomId}`, from: auth.id, to: to || null, data: data as any },
+      }).catch(() => {})
       return NextResponse.json({ ok: true })
     }
 
@@ -216,7 +218,9 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      hubPublish(`vroom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      await db.roomSignal.create({
+        data: { channel: `vroom:${roomId}`, from: auth.id, to: to || null, data: data as any },
+      }).catch(() => {})
       return NextResponse.json({ ok: true })
     }
 

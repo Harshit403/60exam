@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
       let closed = false
       let pollTimer: ReturnType<typeof setInterval> | null = null
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+      let signalTimer: ReturnType<typeof setInterval> | null = null
       let lastPoll = Date.now()
 
       const write = (chunk: string) => {
@@ -299,6 +300,20 @@ export async function GET(req: NextRequest) {
         emitDroomState()
         unsubHub = hubSubscribe(`droom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
 
+        let lastDroomSignal = new Date(0)
+        signalTimer = setInterval(async () => {
+          try {
+            const sigs = await db.roomSignal.findMany({
+              where: { channel: `droom:${roomId}`, createdAt: { gt: lastDroomSignal } },
+              orderBy: { createdAt: 'asc' },
+            })
+            for (const sig of sigs) {
+              sendSSE(res, 'signal', { from: sig.from, to: sig.to, data: sig.data })
+              lastDroomSignal = sig.createdAt
+            }
+          } catch { /* ignore */ }
+        }, 900)
+
         pollTimer = setInterval(async () => {
           await maintainDroom()
           const s = await buildDroomState()
@@ -368,6 +383,20 @@ export async function GET(req: NextRequest) {
         emitVroomState()
         unsubHub = hubSubscribe(`vroom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
 
+        let lastVroomSignal = new Date(0)
+        signalTimer = setInterval(async () => {
+          try {
+            const sigs = await db.roomSignal.findMany({
+              where: { channel: `vroom:${roomId}`, createdAt: { gt: lastVroomSignal } },
+              orderBy: { createdAt: 'asc' },
+            })
+            for (const sig of sigs) {
+              sendSSE(res, 'signal', { from: sig.from, to: sig.to, data: sig.data })
+              lastVroomSignal = sig.createdAt
+            }
+          } catch { /* ignore */ }
+        }, 900)
+
         pollTimer = setInterval(async () => {
           await maintainVroom()
           const s = await buildVroomState()
@@ -381,6 +410,7 @@ export async function GET(req: NextRequest) {
         closed = true
         if (pollTimer) clearInterval(pollTimer)
         if (heartbeatTimer) clearInterval(heartbeatTimer)
+        if (signalTimer) clearInterval(signalTimer)
         if (unsubHub) unsubHub()
       })
     },
