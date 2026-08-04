@@ -2,7 +2,7 @@
 
 export interface StudentPanelProps { onLogout: () => void }
 
-export type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'live-chat' | 'syllabus' | 'profile' | 'quiz' | 'quiz-history' | 'notes' | 'analytics' | 'leaderboard' | 'materials' | 'group-study' | 'reviews'
+export type Page = 'dashboard' | 'track' | 'planner' | 'discussion' | 'live-chat' | 'syllabus' | 'profile' | 'quiz' | 'quiz-history' | 'notes' | 'analytics' | 'leaderboard' | 'materials' | 'group-study' | 'reviews' | 'discussion-rooms' | 'virtual-libraries'
 
 export interface Subject {
   id: string; name: string; orderNum: number; chapters: Chapter[]

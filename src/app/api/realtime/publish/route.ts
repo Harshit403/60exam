@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
+import { hubPublish } from '@/lib/realtime-hub'
 
 export async function POST(req: NextRequest) {
   const auth = getAuthFromHeaders(req.headers)
@@ -135,6 +136,123 @@ export async function POST(req: NextRequest) {
         where: { groupId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       })
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Discussion Room: WebRTC signaling ─────────────────────────
+    case 'discussion-signal': {
+      const { roomId, to, data } = body
+      if (!roomId || !data) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      await db.discussionRoomMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {})
+      hubPublish(`droom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Discussion Room: stage control ────────────────────────────
+    case 'discussion-stage': {
+      const { roomId, target, stageAction } = body
+      if (!roomId || !target) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      const myMember = await db.discussionRoomMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+      })
+      if (!myMember) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+
+      if (stageAction === 'request') {
+        if (myMember.onStage) return NextResponse.json({ error: 'Already on stage' }, { status: 400 })
+        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: true, lastActiveAt: new Date() } })
+        hubPublish(`droom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+
+      // approve/deny/remove require moderator
+      if (myMember.role !== 'moderator') {
+        return NextResponse.json({ error: 'Only a moderator can do that' }, { status: 403 })
+      }
+      const targetMember = await db.discussionRoomMember.findFirst({
+        where: { roomId, studentId: target, leftAt: null },
+      })
+      if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+
+      if (stageAction === 'approve') {
+        await db.discussionRoomMember.update({
+          where: { id: targetMember.id },
+          data: { role: 'stage', onStage: true, stageRequested: false, onStageSince: new Date() },
+        })
+      } else if (stageAction === 'deny') {
+        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { stageRequested: false } })
+      } else if (stageAction === 'remove') {
+        await db.discussionRoomMember.update({
+          where: { id: targetMember.id },
+          data: { role: 'audience', onStage: false, stageRequested: false, onStageSince: null },
+        })
+      } else {
+        return NextResponse.json({ error: 'Unknown stage action' }, { status: 400 })
+      }
+
+      hubPublish(`droom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Discussion Room: heartbeat ────────────────────────────────
+    case 'discussion-heartbeat': {
+      const { roomId } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      await db.discussionRoomMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Virtual Library: WebRTC signaling ─────────────────────────
+    case 'library-signal': {
+      const { roomId, to, data } = body
+      if (!roomId || !data) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      await db.virtualLibraryMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {})
+      hubPublish(`vroom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Virtual Library: vote to remove a participant ─────────────
+    case 'library-vote': {
+      const { roomId, target, vote } = body
+      if (!roomId || !target || typeof vote !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      if (target === auth.id) return NextResponse.json({ error: 'Cannot vote on yourself' }, { status: 400 })
+
+      const targetMember = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: target, leftAt: null },
+      })
+      if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+
+      if (vote) {
+        const votes = Array.isArray(targetMember.removalVotes) ? targetMember.removalVotes as string[] : []
+        const next = votes.includes(auth.id) ? votes : [...votes, auth.id]
+        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { removalVotes: next as any, lastActiveAt: new Date() } }).catch(() => {})
+      } else {
+        const votes = Array.isArray(targetMember.removalVotes) ? targetMember.removalVotes as string[] : []
+        const next = votes.filter(v => v !== auth.id)
+        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { removalVotes: next as any } }).catch(() => {})
+      }
+
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Virtual Library: heartbeat ────────────────────────────────
+    case 'library-heartbeat': {
+      const { roomId } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      await db.virtualLibraryMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {})
       return NextResponse.json({ ok: true })
     }
 

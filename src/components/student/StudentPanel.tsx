@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   LayoutDashboard, CalendarDays, CalendarCheck, MessageCircle, MessageSquare, ListChecks,
   UserCog, LogOut, CheckCircle2, BookOpen, Menu, Moon, Sun, Brain, StickyNote, BarChart3, Trophy, History, BookMarked, Users, Star, Download, Clock, Play, Pause,
+  Mic, Video,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { api } from '@/lib/api-client'
@@ -16,6 +17,7 @@ import { TimerProvider, useTimer } from './TimerContext'
 import {
   DashboardPage, TrackStudyPage, StudyPlannerPage, DiscussionPage, LiveChatPage, SyllabusPage, EditProfilePage,
   QuizPage, QuizHistoryPage, NotesPage, AnalyticsPage, LeaderboardPage, MaterialsPage, GroupStudyPage, ReviewsPage,
+  DiscussionRoomsPage, VirtualLibrariesPage,
 } from './pages'
 import { NotificationBell } from './NotificationBell'
 import { PwaInstallDialog } from '@/components/pwa-install-dialog'
@@ -73,7 +75,7 @@ function FloatingTimer({ currentPage, onNavigate }: { currentPage: Page; onNavig
   useEffect(() => { setMounted(true) }, [])
 
   if (!mounted) return null
-  const showOnPages: Page[] = ['dashboard', 'group-study', 'discussion', 'quiz', 'quiz-history', 'track', 'planner', 'notes', 'analytics', 'leaderboard', 'materials', 'reviews', 'syllabus', 'profile']
+  const showOnPages: Page[] = ['dashboard', 'group-study', 'discussion', 'quiz', 'quiz-history', 'track', 'planner', 'notes', 'analytics', 'leaderboard', 'materials', 'reviews', 'syllabus', 'profile', 'discussion-rooms', 'virtual-libraries']
   if (!timerRunning && !timerPaused) return null
   if (currentPage === 'dashboard') return null
 
@@ -152,6 +154,8 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
     { id: 'live-chat', label: 'Live Chat', icon: MessageSquare, section: 'Social' },
     { id: 'group-study', label: 'Group Study', icon: Users, section: 'Social' },
     { id: 'discussion', label: 'Discussion', icon: MessageCircle, section: 'Social' },
+    { id: 'discussion-rooms', label: 'Discussion Room', icon: Mic, section: 'Social' },
+    { id: 'virtual-libraries', label: 'Virtual Library', icon: Video, section: 'Social' },
     { id: 'reviews', label: 'Reviews', icon: Star, section: 'Social' },
     { id: 'syllabus', label: 'Syllabus', icon: ListChecks, section: 'Social' },
     { id: 'profile', label: 'Edit Profile', icon: UserCog, section: 'Account' },
@@ -278,6 +282,8 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
       case 'group-study': return <GroupStudyPage />
       case 'live-chat': return <LiveChatPage />
       case 'discussion': return <DiscussionPage />
+      case 'discussion-rooms': return <DiscussionRoomsPage />
+      case 'virtual-libraries': return <VirtualLibrariesPage />
       case 'reviews': return <ReviewsPage />
       case 'syllabus': return <SyllabusPage />
       case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />

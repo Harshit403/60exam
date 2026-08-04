@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { initSSE, sendSSE, sendHeartbeat } from '@/lib/sse'
+import { hubSubscribe, hubPublish } from '@/lib/realtime-hub'
 
 const LIVE_ROOM_ID = 'mission-cs-public'
 const POLL_INTERVAL = 3000
@@ -242,10 +243,145 @@ export async function GET(req: NextRequest) {
         heartbeatTimer = setInterval(() => sendHeartbeat(res), HEARTBEAT_INTERVAL)
       }
 
+      // Discussion room (audio) WebRTC channel
+      let unsubHub: (() => void) | null = null
+      if (channel.startsWith('droom:')) {
+        const roomId = channel.slice(6)
+        const MOD_INACTIVE_MS = 6 * 60 * 1000
+        const MOD_ROTATION_MS = 5 * 60 * 1000
+
+        const buildDroomState = async () => {
+          const room = await db.discussionRoom.findUnique({
+            where: { id: roomId },
+            include: { members: { where: { leftAt: null }, orderBy: { joinedAt: 'asc' } } },
+          })
+          if (!room) return null
+          return {
+            room: {
+              id: room.id, name: room.name, present: room.members.length, maxCapacity: room.maxCapacity,
+            },
+            members: room.members.map(m => ({
+              userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
+              role: m.role, onStage: m.onStage, stageRequested: m.stageRequested,
+              onStageSince: m.onStageSince?.getTime() || null,
+            })),
+          }
+        }
+
+        const emitDroomState = async () => {
+          const s = await buildDroomState()
+          if (s) sendSSE(res, 'droom-state', s)
+        }
+
+        const maintainDroom = async () => {
+          if (closed) return
+          try {
+            const now = Date.now()
+            const members = await db.discussionRoomMember.findMany({ where: { roomId, leftAt: null } })
+            let changed = false
+            for (const m of members) {
+              const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
+              // Add/modify: promote on-stage members to moderator after 5 minutes
+              if (m.onStage && m.role !== 'moderator' && m.onStageSince && (now - new Date(m.onStageSince).getTime()) >= MOD_ROTATION_MS) {
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { role: 'moderator' } })
+                changed = true
+              }
+              // Inactive removal (mirrors study-group auto-exit)
+              if ((now - lastActive) >= MOD_INACTIVE_MS) {
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false } })
+                changed = true
+              }
+            }
+            if (changed) await emitDroomState()
+          } catch { /* ignore */ }
+        }
+
+        emitDroomState()
+        unsubHub = hubSubscribe(`droom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
+
+        pollTimer = setInterval(async () => {
+          await maintainDroom()
+          const s = await buildDroomState()
+          if (s) sendSSE(res, 'droom-state', s)
+        }, POLL_INTERVAL)
+
+        heartbeatTimer = setInterval(() => sendHeartbeat(res), HEARTBEAT_INTERVAL)
+      }
+
+      // Virtual library (video) WebRTC channel
+      if (channel.startsWith('vroom:')) {
+        const roomId = channel.slice(6)
+        const LIB_INACTIVE_MS = 6 * 60 * 1000
+
+        const buildVroomState = async () => {
+          const room = await db.virtualLibrary.findUnique({
+            where: { id: roomId },
+            include: { members: { where: { leftAt: null }, orderBy: { joinedAt: 'asc' } } },
+          })
+          if (!room) return null
+          return {
+            room: {
+              id: room.id, name: room.name, present: room.members.length, maxCapacity: room.maxCapacity,
+            },
+            members: room.members.map(m => ({
+              userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
+              onStage: m.onStage,
+              removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
+            })),
+          }
+        }
+
+        const emitVroomState = async () => {
+          const s = await buildVroomState()
+          if (s) sendSSE(res, 'vroom-state', s)
+        }
+
+        const maintainVroom = async () => {
+          if (closed) return
+          try {
+            const now = Date.now()
+            const members = await db.virtualLibraryMember.findMany({ where: { roomId, leftAt: null } })
+            const activeCount = members.length
+            const needed = Math.ceil((2 / 3) * activeCount)
+            let changed = false
+
+            for (const m of members) {
+              // Inactive removal
+              const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
+              if ((now - lastActive) >= LIB_INACTIVE_MS) {
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false } })
+                changed = true
+                continue
+              }
+              // 2/3 majority vote to remove (excludes the target's own vote naturally)
+              const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
+              if (votes.length >= needed && activeCount >= 2) {
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false } })
+                hubPublish(`vroom:${roomId}`, 'user-removed', { userId: m.studentId })
+                changed = true
+              }
+            }
+            if (changed) await emitVroomState()
+          } catch { /* ignore */ }
+        }
+
+        emitVroomState()
+        unsubHub = hubSubscribe(`vroom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
+
+        pollTimer = setInterval(async () => {
+          await maintainVroom()
+          const s = await buildVroomState()
+          if (s) sendSSE(res, 'vroom-state', s)
+        }, POLL_INTERVAL)
+
+        heartbeatTimer = setInterval(() => sendHeartbeat(res), HEARTBEAT_INTERVAL)
+      }
+
       req.signal.addEventListener('abort', () => {
         closed = true
         if (pollTimer) clearInterval(pollTimer)
         if (heartbeatTimer) clearInterval(heartbeatTimer)
+        if (unsubHub) unsubHub()
       })
     },
   })

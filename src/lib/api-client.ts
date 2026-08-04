@@ -274,6 +274,44 @@ export const api = {
   // Admin Live Study (active Pomodoro sessions)
   adminLiveStudy: () => apiFetch('/admin/live-study'),
 
+  // ── Discussion Rooms (audio) ──
+  studentDiscussionRooms: () => apiFetch('/student/discussion-rooms'),
+  studentDiscussionRoomDetail: (id: string) => apiFetch(`/student/discussion-rooms/${id}`),
+  studentDiscussionRoomJoin: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'POST' }),
+  studentDiscussionRoomLeave: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'DELETE' }),
+  studentDiscussionRoomHeartbeat: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'PATCH' }),
+
+  // ── Virtual Libraries (video) ──
+  studentVirtualLibraries: () => apiFetch('/student/virtual-libraries'),
+  studentVirtualLibraryDetail: (id: string) => apiFetch(`/student/virtual-libraries/${id}`),
+  studentVirtualLibraryJoin: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'POST' }),
+  studentVirtualLibraryLeave: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'DELETE' }),
+  studentVirtualLibraryHeartbeat: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'PATCH' }),
+
+  // ── Admin Discussion Rooms ──
+  adminDiscussionRooms: () => apiFetch('/admin/discussion-rooms'),
+  adminDiscussionRoom: (id: string) => apiFetch(`/admin/discussion-rooms/${id}`),
+  adminCreateDiscussionRoom: (data: any) => apiFetch('/admin/discussion-rooms', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateDiscussionRoom: (id: string, data: any) => apiFetch(`/admin/discussion-rooms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  adminDeleteDiscussionRoom: (id: string) => apiFetch(`/admin/discussion-rooms/${id}`, { method: 'DELETE' }),
+  adminKickDiscussionMember: (roomId: string, memberId: string) =>
+    apiFetch(`/admin/discussion-rooms/${roomId}/kick?memberId=${encodeURIComponent(memberId)}`, { method: 'DELETE' }),
+
+  // ── Admin Virtual Libraries ──
+  adminVirtualLibraries: () => apiFetch('/admin/virtual-libraries'),
+  adminVirtualLibrary: (id: string) => apiFetch(`/admin/virtual-libraries/${id}`),
+  adminCreateVirtualLibrary: (data: any) => apiFetch('/admin/virtual-libraries', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateVirtualLibrary: (id: string, data: any) => apiFetch(`/admin/virtual-libraries/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  adminDeleteVirtualLibrary: (id: string) => apiFetch(`/admin/virtual-libraries/${id}`, { method: 'DELETE' }),
+  adminKickVirtualMember: (roomId: string, memberId: string) =>
+    apiFetch(`/admin/virtual-libraries/${roomId}/kick?memberId=${encodeURIComponent(memberId)}`, { method: 'DELETE' }),
+
+  // ── Admin room blocking (global across discussion/video rooms) ──
+  adminBlockFromRooms: (studentId: string, reason?: string) =>
+    apiFetch('/admin/room-blocks', { method: 'POST', body: JSON.stringify({ studentId, reason }) }),
+  adminUnblockFromRooms: (studentId: string) =>
+    apiFetch(`/admin/room-blocks?studentId=${encodeURIComponent(studentId)}`, { method: 'DELETE' }),
+
   // Realtime publish (SSE)
   realtimePublish: (data: any) => apiFetch('/realtime/publish', { method: 'POST', body: JSON.stringify(data) }),
 

@@ -58,6 +58,8 @@ model Student {
   ipLogs         IpLog[]
   adminNotificationReads AdminNotificationRead[]
   pushSubscriptions     PushSubscription[]
+  discussionRoomMembers DiscussionRoomMember[]
+  virtualLibraryMembers VirtualLibraryMember[]
 }
 
 // ==================== COURSE ====================
@@ -432,4 +434,77 @@ model QuizChapterLink {
   chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
 
   @@unique([quizId, chapterId])
+}
+
+// ==================== DISCUSSION ROOMS (AUDIO) ====================
+model DiscussionRoom {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  maxCapacity Int      @default(10)
+  isActive    Boolean  @default(true)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members DiscussionRoomMember[]
+
+  @@index([isActive])
+}
+
+model DiscussionRoomMember {
+  id            String           @id @default(cuid())
+  roomId        String
+  room          DiscussionRoom   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  displayName   String
+  color         String
+  gender        String           @default("other")
+  role          String           @default("audience") // audience, moderator, stage
+  onStage       Boolean          @default(false)
+  stageRequested Boolean         @default(false)
+  onStageSince  DateTime?
+  joinedAt      DateTime         @default(now())
+  leftAt        DateTime?
+  lastActiveAt  DateTime         @default(now())
+
+  @@unique([roomId, studentId])
+  @@index([roomId, leftAt])
+}
+
+// ==================== VIRTUAL LIBRARIES (VIDEO) ====================
+model VirtualLibrary {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  maxCapacity Int      @default(10)
+  isActive    Boolean  @default(true)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members VirtualLibraryMember[]
+
+  @@index([isActive])
+}
+
+model VirtualLibraryMember {
+  id            String          @id @default(cuid())
+  roomId        String
+  room          VirtualLibrary  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  displayName   String
+  color         String
+  gender        String          @default("other")
+  onStage       Boolean         @default(true) // in video everyone is a speaker unless removed
+  removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
+  removalExpires DateTime?
+  joinedAt      DateTime        @default(now())
+  leftAt        DateTime?
+  lastActiveAt  DateTime        @default(now())
+
+  @@unique([roomId, studentId])
+  @@index([roomId, leftAt])
 }

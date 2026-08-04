@@ -52,7 +52,8 @@ export function useSSE({ channel, onEvent, enabled = true }: SSEOptions) {
     const eventTypes = ['room-history', 'new-message', 'user-joined', 'user-left', 'room-users',
       'group-history', 'group-chat-message', 'group-members', 'group-user-joined', 'group-user-left',
       'group-member-timer', 'group-comparison-requested', 'group-comparison-accepted', 'group-comparison-declined',
-      'admin-notification', 'timer-state']
+      'admin-notification', 'timer-state',
+      'droom-state', 'vroom-state', 'signal', 'refresh', 'user-removed', 'vroom-removed']
     for (const et of eventTypes) {
       es.addEventListener(et, customHandler)
     }

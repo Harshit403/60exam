@@ -26,9 +26,10 @@ import { MaterialsPage } from './MaterialsPage'
 import { GroupsPage } from './GroupsPage'
 import { IpLogsPage } from './IpLogsPage'
 import { LiveStudyPage } from './LiveStudyPage'
+import { AdminRoomManagerPage } from './AdminRoomManagerPage'
 
 import {
-  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone, Globe,
+  LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone, Globe, Mic, Video,
 } from 'lucide-react'
 
 
@@ -92,7 +93,7 @@ function InjectStyles() {
 
 // ─── Types ───────────────────────────────────────────────────────
 interface AdminPanelProps { onLogout: () => void }
-type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'live-study' | 'notifications' | 'ip-logs' | 'settings'
+type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'live-study' | 'discussion-rooms' | 'virtual-libraries' | 'notifications' | 'ip-logs' | 'settings'
 
 interface DashboardData { totalStudents:number; totalCourses:number; totalSubjects:number; totalChapters:number; totalReviews:number; totalDiscussions:number; totalQuizzes?:number; totalQuizAttempts?:number; totalNotes?:number; recentSignups:any[]; weeklySignups?:any[]; activityLog?:any[] }
 interface Student { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; status:string; createdAt:string }
@@ -132,6 +133,8 @@ const navSections: { label:string; items:{ key:PageKey; label:string; icon:React
     { key:'top-performers', label:'Top Performers', icon:Trophy, color:'bg-orange-500/10 text-orange-600' },
     { key:'groups', label:'Study Groups', icon:Users, color:'bg-teal-500/10 text-teal-600' },
     { key:'live-study', label:'Live Study', icon:Flame, color:'bg-orange-500/10 text-orange-600' },
+    { key:'discussion-rooms', label:'Discussion Rooms', icon:Mic, color:'bg-rose-500/10 text-rose-600' },
+    { key:'virtual-libraries', label:'Virtual Libraries', icon:Video, color:'bg-cyan-500/10 text-cyan-600' },
   ]},
   { label:'Content', items:[
     { key:'courses', label:'Courses', icon:BookOpen, color:'bg-amber-500/10 text-amber-600' },
@@ -830,6 +833,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       case 'materials': return <MaterialsPage />
       case 'groups': return <GroupsPage />
       case 'live-study': return <LiveStudyPage />
+      case 'discussion-rooms': return <AdminRoomManagerPage kind="discussion" />
+      case 'virtual-libraries': return <AdminRoomManagerPage kind="library" />
       case 'notifications': return <SendNotificationPage />
       case 'ip-logs': return <IpLogsPage />
       case 'settings': return <SettingsPage />

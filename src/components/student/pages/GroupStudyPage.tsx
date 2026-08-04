@@ -894,9 +894,9 @@ export function GroupStudyPage() {
       )}
 
       {/* Main Chat Room */}
-      <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-full relative">
+      <div className="flex-1 flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-[calc(100dvh-96px)] min-h-[420px] md:h-[calc(100dvh-144px)] lg:h-[calc(100dvh-160px)] relative">
         {/* ── Header ── */}
-        <div className="sticky top-0 z-30 flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg backdrop-blur-md border-b border-white/10">
+        <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg backdrop-blur-md border-b border-white/10 sticky top-0 z-30">
           {/* Back button (mobile only) */}
           <button onClick={handleBackToList}
             className="md:hidden p-1.5 -ml-1 rounded-xl hover:bg-white/10 transition-colors">
