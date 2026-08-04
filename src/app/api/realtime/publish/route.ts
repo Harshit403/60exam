@@ -147,9 +147,12 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      await db.roomSignal.create({
-        data: { channel: `droom:${roomId}`, from: auth.id, to: to || null, data: data as any },
-      }).catch(() => {})
+      try {
+        await db.roomSignal.create({
+          data: { channel: `droom:${roomId}`, from: auth.id, to: to || null, data: data as any },
+        }).catch(() => { throw new Error('db') })
+      } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
+      hubPublish(`droom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
       return NextResponse.json({ ok: true })
     }
 
@@ -218,9 +221,12 @@ export async function POST(req: NextRequest) {
         where: { roomId, studentId: auth.id, leftAt: null },
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
-      await db.roomSignal.create({
-        data: { channel: `vroom:${roomId}`, from: auth.id, to: to || null, data: data as any },
-      }).catch(() => {})
+      try {
+        await db.roomSignal.create({
+          data: { channel: `vroom:${roomId}`, from: auth.id, to: to || null, data: data as any },
+        }).catch(() => { throw new Error('db') })
+      } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
+      hubPublish(`vroom:${roomId}`, 'signal', { from: auth.id, to: to || null, data })
       return NextResponse.json({ ok: true })
     }
 

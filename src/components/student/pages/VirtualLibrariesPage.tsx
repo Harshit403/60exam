@@ -133,11 +133,33 @@ export function VirtualLibrariesPage() {
     } finally { setActionBusy(false) }
   }
 
+  // Attach streams to the actual <video> elements once they arrive. Setting
+  // srcObject in the ref callback only runs at mount (before any stream exists),
+  // which is why remote tiles stayed stuck on "Connecting…".
+  useEffect(() => {
+    videoRefs.current.forEach((el, userId) => {
+      const stream = remoteStreams.get(userId)
+      if (el && stream && el.srcObject !== stream) {
+        el.srcObject = stream
+        el.play?.().catch(() => {})
+      }
+    })
+  }, [remoteStreams])
+
+  useEffect(() => {
+    if (localStream && localVideoRef.current && localVideoRef.current.srcObject !== localStream) {
+      localVideoRef.current.srcObject = localStream
+      localVideoRef.current.play?.().catch(() => {})
+    }
+  }, [localStream])
+
   const leaveRoom = async () => {
     if (!active) return
     try { await api.studentVirtualLibraryLeave(active.id) } catch { /* ignore */ }
     setActive(null); setMe(null); setMembers([]); setRemoteStreams(new Map())
     setCurrentRoom(null); setRemoved([])
+    videoRefs.current.forEach(el => { el.srcObject = null })
+    videoRefs.current.clear()
     fetchRooms()
   }
 

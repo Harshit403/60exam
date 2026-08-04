@@ -7,7 +7,8 @@
 // smaller userId yields (rollback) and accepts the peer's offer.
 
 const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun3.l.google.com:19302', 'stun:global.stun.twilio.com:3478', 'stun:stun.cloudflare.com:3478'] },
+  { urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:5349?transport=tcp'] },
 ]
 
 export interface RoomMember {
@@ -140,7 +141,6 @@ export class RoomCall {
     const pc = this.pcs.get(targetId)
     if (!pc) return
     if (pc.signalingState !== 'stable') return
-    if (!this.local) return
     this.syncLocalTrack(pc)
     this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
@@ -156,8 +156,9 @@ export class RoomCall {
     const d = data || {}
 
     // Keep a connection for anyone who talks to us, even if we haven't yet
-    // received the room state that lists them.
+    // received the room state that lists them — and attach our local media.
     const pc = this.ensurePc(from)
+    this.syncLocalTrack(pc)
 
     if (d.type === 'offer') {
       if (pc.signalingState === 'have-local-offer') {
@@ -212,14 +213,17 @@ export class RoomCall {
   }
 
   setPresence(members: RoomMember[]) {
-    const speakers = new Map<string, RoomMember>()
+    // Connect to every other participant (both speakers and audience). This
+    // guarantees a transport exists so speakers' media reaches the audience and
+    // audience members can be promoted to the stage without re-creating peers.
+    const peers = new Map<string, RoomMember>()
     for (const m of members) {
       if (m.userId === this.opts.userId) continue
-      if (this.opts.getPeerIsSpeaker(m)) speakers.set(m.userId, m)
+      peers.set(m.userId, m)
     }
-    this.livePeers = speakers
+    this.livePeers = peers
 
-    const wanted = new Set(speakers.keys())
+    const wanted = new Set(peers.keys())
     for (const [id, pc] of this.pcs) {
       if (!wanted.has(id)) {
         try { pc.close() } catch { /* ignore */ }

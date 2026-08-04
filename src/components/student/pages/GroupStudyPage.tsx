@@ -325,6 +325,7 @@ export function GroupStudyPage() {
   useEffect(() => { fetchGroups() }, [fetchGroups])
 
   const [joinError, setJoinError] = useState<string | null>(null)
+  const [chatError, setChatError] = useState<string | null>(null)
 
   const handleJoinGroup = async (groupId: string) => {
     const group = groups.find(g => g.id === groupId)
@@ -386,7 +387,8 @@ export function GroupStudyPage() {
   }, [currentGroup, inRoom, userId])
 
   const sendMessage = async () => {
-    if (!chatInput.trim() || !currentGroup) return
+    const text = chatInput.trim()
+    if (!text || !currentGroup) return
 
     // Students cannot chat while their active Pomodoro focus session is running
     let timerRunning = false
@@ -394,24 +396,32 @@ export function GroupStudyPage() {
       const timerData = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
       timerRunning = !!(timerData.timerRunning && !timerData.timerPaused)
     } catch {}
-    if (timerRunning) { setJoinError('Finish your Pomodoro focus session to send messages in this group'); return }
+    if (timerRunning) { setChatError('Finish your Pomodoro focus session to send messages in this group'); return }
 
-    const filtered = filterContent(chatInput.trim())
+    const disappear = disappearTimer
+    const filtered = filterContent(text)
     const displayName = anonymousMode && anonymousName ? anonymousName : userName
     const optId = `opt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-    setMessages(prev => [...prev, { id: optId, userId, userName: displayName, content: filtered, type: 'text', timestamp: Date.now(), gender: anonymousMode ? anonymousGender : null, disappearAfter: disappearTimer, expiresAt: null }])
+    setMessages(prev => [...prev, { id: optId, userId, userName: displayName, content: filtered, type: 'text', timestamp: Date.now(), gender: anonymousMode ? anonymousGender : null, disappearAfter: disappear, expiresAt: null }])
     setChatInput('')
     setDisappearTimer(null)
+    setChatError(null)
     try {
       const payload: any = { action: 'group-message', groupId: currentGroup.id, content: filtered }
       if (anonymousMode && anonymousName) payload.anonymousName = anonymousName
       if (anonymousMode && anonymousGender) payload.anonymousGender = anonymousGender
-      if (disappearTimer) payload.disappearAfter = disappearTimer
+      if (disappear) payload.disappearAfter = disappear
       const result = await api.realtimePublish(payload)
       if (result?.message?.id) {
         setMessages(prev => prev.map(m => m.id === optId ? { ...m, id: result.message.id } : m))
       }
-    } catch (e) { console.error(e) }
+    } catch (e: any) {
+      console.error('Send message failed:', e)
+      setMessages(prev => prev.filter(m => m.id !== optId))
+      setChatInput(text)
+      setChatError(e?.message || 'Failed to send message. Please try again.')
+      inputRef.current?.focus()
+    }
   }
 
   const fetchStudySubjects = useCallback(async () => {
@@ -893,7 +903,7 @@ export function GroupStudyPage() {
       )}
 
       {/* Main Chat Room */}
-      <div className="flex-1 flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-[calc(100dvh-96px)] min-h-[420px] md:h-[calc(100dvh-144px)] lg:h-[calc(100dvh-160px)] relative">
+      <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-[calc(100dvh-110px)] max-h-full md:h-[calc(100dvh-160px)] lg:h-[calc(100dvh-178px)] relative">
         {/* ── Header ── */}
         <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg backdrop-blur-md border-b border-white/10 sticky top-0 z-30">
           {/* Back button (mobile only) */}
@@ -1045,6 +1055,12 @@ export function GroupStudyPage() {
 
             {/* ── Input bar ── */}
             <div className="flex-shrink-0 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-2 sm:px-4 py-3 border-t border-slate-200 dark:border-slate-700 shadow-lg">
+              {chatError && (
+                <div className="max-w-4xl mx-auto mb-2 flex items-center justify-between gap-3 bg-red-50/90 dark:bg-red-950/50 backdrop-blur-sm border border-red-200 dark:border-red-800/50 rounded-xl px-3 py-2 shadow-sm">
+                  <p className="text-xs text-red-700 dark:text-red-400">{chatError}</p>
+                  <button onClick={() => setChatError(null)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300 text-lg leading-none font-bold shrink-0">&times;</button>
+                </div>
+              )}
               <div className="flex items-center gap-2 max-w-4xl mx-auto">
                 {/* Disappear timer button */}
                 <div className="relative">
