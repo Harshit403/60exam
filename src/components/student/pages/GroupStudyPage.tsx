@@ -58,7 +58,7 @@ function MiniTimerRing({ timerState }: { timerState: TimerState }) {
   )
 }
 
-function MemberItem({ member, currentUserId }: { member: { userId: string; name: string; timerState?: TimerState | null }; currentUserId: string }) {
+function MemberItem({ member, currentUserId }: { member: { userId: string; name: string; timerState?: TimerState | null; lastAchievement?: string | null }; currentUserId: string }) {
   const isSelf = member.userId === currentUserId
   const ts = member.timerState
   const isStudying = ts?.running === true
@@ -94,6 +94,12 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
           {member.name} {isSelf && <span className="text-indigo-600 dark:text-indigo-400 text-xs">(You)</span>}
+          {!isSelf && member.lastAchievement && (
+            <span title={`Last achievement: ${member.lastAchievement}`}
+              className="inline-flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[8px] font-medium align-middle">
+              <Crown className="w-2.5 h-2.5" />
+            </span>
+          )}
         </p>
         <p className={`text-xs ${isStudying ? 'text-indigo-600 dark:text-indigo-400 font-medium' : isPaused ? 'text-amber-500' : 'text-slate-400'}`}>
           {statusText}
@@ -107,11 +113,12 @@ function MemberItem({ member, currentUserId }: { member: { userId: string; name:
   )
 }
 
-function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
-  msg: { id: string; userId: string; userName: string; content: string; type: string; timestamp: number | string }
+function ChatMessageBubble({ msg, currentUserId, showAvatar, showName, showAchievement }: {
+  msg: any
   currentUserId: string
   showAvatar: boolean
   showName: boolean
+  showAchievement: boolean
 }) {
   const isSystem = msg.type === 'system'
   const isSelf = msg.userId === currentUserId
@@ -150,7 +157,18 @@ function ChatMessageBubble({ msg, currentUserId, showAvatar, showName }: {
       )}
       <div className={`max-w-[80%] sm:max-w-[70%] ${isSelf ? 'items-end' : 'items-start'} flex flex-col`}>
         {!isSelf && showName && (
-          <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5">{msg.userName}</span>
+          <div className="flex items-center gap-1.5 ml-1 mb-0.5 min-h-[14px]">
+            <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">{msg.userName}</span>
+            {msg.anonymous ? (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700/80 text-slate-500 dark:text-slate-400 text-[8px] font-medium uppercase tracking-wide">
+                <EyeOff className="w-2.5 h-2.5" /> Anonymous
+              </span>
+            ) : showAchievement && msg.lastAchievement ? (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[8px] font-medium">
+                <Crown className="w-2.5 h-2.5" /> {msg.lastAchievement}
+              </span>
+            ) : null}
+          </div>
         )}
         <div className={`relative px-4 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
           isSelf
@@ -201,9 +219,10 @@ export function GroupStudyPage() {
   const [joinLoading, setJoinLoading] = useState<string | null>(null)
   const [inRoom, setInRoom] = useState(false)
 
-  const [members, setMembers] = useState<{ userId: string; name: string; timerState?: TimerState | null }[]>([])
+  const [members, setMembers] = useState<{ userId: string; name: string; timerState?: TimerState | null; lastAchievement?: string | null }[]>([])
   const [messages, setMessages] = useState<any[]>([])
   const [chatInput, setChatInput] = useState('')
+  const [pomodoroRunning, setPomodoroRunning] = useState(false)
   const [leavingGroup, setLeavingGroup] = useState(false)
 
   const [comparisonRequesters, setComparisonRequesters] = useState<{ userId: string; userName: string }[]>([])
@@ -292,7 +311,15 @@ export function GroupStudyPage() {
     try {
       const data = await api.studentGroups()
       setGroups(data.groups || [])
-      setCurrentGroup(data.currentGroup || null)
+      const joined = data.currentGroup || null
+      setCurrentGroup(joined)
+      if (joined) {
+        // Already in a group: skip the listing entirely and enter the room
+        setInRoom(true)
+        setMessages([])
+        setMembers([])
+        api.studentMarkGroupRead(joined.id).catch(() => {})
+      }
     } catch (err) { console.error('Groups fetch error:', err) } finally { setLoading(false) }
   }, [])
 
@@ -300,15 +327,7 @@ export function GroupStudyPage() {
 
   const [joinError, setJoinError] = useState<string | null>(null)
 
-  const isTimerActive = (): boolean => {
-    try {
-      const d = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
-      return !!(d.timerRunning && !d.timerPaused)
-    } catch { return false }
-  }
-
   const handleJoinGroup = async (groupId: string) => {
-    if (isTimerActive()) { setJoinError('Cannot join a group while a study session is running. Stop your timer first.'); return }
     const group = groups.find(g => g.id === groupId)
     if (group && group.activeMembers >= group.maxCapacity) { setJoinError('This group is full. Please try another group.'); return }
     setJoinLoading(groupId); setJoinError(null)
@@ -330,7 +349,6 @@ export function GroupStudyPage() {
   }
 
   const enterRoom = useCallback((group: StudyGroup) => {
-    if (isTimerActive()) return
     setInRoom(true); setMessages([]); setMembers([]); setShowMembersPanel(false); setShowMobileMenu(false)
     // Mark messages as read
     api.studentMarkGroupRead(group.id).catch(() => {})
@@ -359,6 +377,7 @@ export function GroupStudyPage() {
           }
           api.realtimePublish({ action: 'group-timer', groupId: currentGroup.id, timerState, timerStartedAt: parsed.timerStartedAt || null }).catch(() => {})
           setMembers(prev => prev.map(m => m.userId === userId ? { ...m, timerState } : m))
+          setPomodoroRunning(parsed.timerRunning && !parsed.timerPaused)
         }
       } catch (e) { /* ignore */ }
     }
@@ -370,11 +389,13 @@ export function GroupStudyPage() {
   const sendMessage = async () => {
     if (!chatInput.trim() || !currentGroup) return
 
-    // Block chatting while Pomodoro is running
+    // Students can only chat while their Pomodoro session is running
+    let timerRunning = false
     try {
       const timerData = JSON.parse(localStorage.getItem('mission-cs-pomodoro-state') || '{}')
-      if (timerData.timerRunning && !timerData.timerPaused) return
+      timerRunning = !!(timerData.timerRunning && !timerData.timerPaused)
     } catch {}
+    if (!timerRunning) { setJoinError('Start a Pomodoro study session to send messages in this group'); return }
 
     const filtered = filterContent(chatInput.trim())
     const displayName = anonymousMode && anonymousName ? anonymousName : userName
@@ -468,6 +489,27 @@ export function GroupStudyPage() {
   }
 
   const handleCloseComparison = () => { setShowComparison(false); setComparisonData(null); setComparisonSent(false); setAcceptedForCompare([]) }
+
+  const startAnonymous = (gender: 'male' | 'female') => {
+    const { name, color } = getRandomName(gender)
+    setAnonymousGender(gender)
+    setAnonymousName(name)
+    setAnonymousColor(color)
+    setAnonymousMode(true)
+    setShowGenderPicker(false)
+  }
+
+  const stopAnonymous = () => {
+    setAnonymousMode(false)
+    setAnonymousName('')
+    setAnonymousGender(null)
+    setAnonymousColor('bg-indigo-500')
+  }
+
+  const handleAnonToggle = () => {
+    if (anonymousMode) stopAnonymous()
+    else setShowGenderPicker(true)
+  }
 
   const handleBackToList = () => { setInRoom(false); setCurrentGroup(null); setShowMobileMenu(false); setShowMembersPanel(false); fetchGroups() }
 
@@ -854,55 +896,45 @@ export function GroupStudyPage() {
       {/* Main Chat Room */}
       <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-full relative">
         {/* ── Header ── */}
-        <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg z-10">
+        <div className="sticky top-0 z-30 flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg backdrop-blur-md border-b border-white/10">
           {/* Back button (mobile only) */}
           <button onClick={handleBackToList}
             className="md:hidden p-1.5 -ml-1 rounded-xl hover:bg-white/10 transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          {/* Group avatar */}
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-base font-bold shrink-0 shadow-inner backdrop-blur-sm">
-            {currentGroup.name.charAt(0).toUpperCase()}
+          {/* Group avatar with presence dot */}
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 rounded-full bg-white/20 ring-2 ring-white/30 flex items-center justify-center text-base font-bold shadow-inner backdrop-blur-sm">
+              {currentGroup.name.charAt(0).toUpperCase()}
+            </div>
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-indigo-600 ${isConnected ? 'bg-green-400' : 'bg-amber-400'}`} />
           </div>
 
           {/* Info */}
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold truncate leading-tight">{currentGroup.name}</h2>
-            <p className="text-[10px] text-white/70 flex items-center gap-1">
+            <p className="text-[10px] text-white/70 flex items-center gap-1 truncate">
               {members.length > 0 ? (
                 <>{members.length} member{members.length !== 1 ? 's' : ''}{studyingMembers > 0 && `, ${studyingMembers} studying`}</>
               ) : 'No members'}
-              <span className="inline-block w-1 h-1 rounded-full bg-white/40 mx-0.5" />
-              <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-300 shadow-sm shadow-green-300/50' : 'bg-amber-300'} mr-0.5`} />
-              <span>{isConnected ? 'Online' : 'Connecting...'}</span>
               {anonymousMode && anonymousName && (
-                <span className="ml-1.5 text-[9px] bg-white/15 px-2 py-0.5 rounded-full">Incognito</span>
+                <span className="ml-1.5 inline-flex items-center gap-1 text-[9px] bg-white/15 px-2 py-0.5 rounded-full"><EyeOff className="w-2.5 h-2.5" />{anonymousName}</span>
               )}
             </p>
           </div>
 
           {/* Action buttons */}
           <div className="flex items-center gap-1">
-            <button onClick={() => {
-                if (anonymousMode && anonymousName) {
-                  setAnonymousMode(false)
-                  setAnonymousName('')
-                  setAnonymousGender(null)
-                } else if (anonymousGender) {
-                  const { name, color } = getRandomName(anonymousGender)
-                  setAnonymousName(name)
-                  setAnonymousColor(color)
-                  setAnonymousMode(true)
-                } else {
-                  setShowGenderPicker(true)
-                }
-              }}
-              className={`p-2 rounded-xl transition-colors ${anonymousMode ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10'}`}
-              title={anonymousMode ? `Chatting as ${anonymousName} - tap to disable` : 'Chat anonymously'}>
+            <button onClick={handleAnonToggle}
+              className={`relative p-2 rounded-xl transition-colors ${anonymousMode ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10'}`}
+              title={anonymousMode ? `Chatting as ${anonymousName} — tap to go back to your real name` : 'Chat anonymously'}>
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               </svg>
+              {anonymousMode && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-slate-900" />
+              )}
             </button>
             <button onClick={() => setShowMembersPanel(true)}
               className="hidden md:flex p-2 rounded-xl hover:bg-white/10 transition-colors" title="Members">
@@ -998,16 +1030,11 @@ export function GroupStudyPage() {
                       <div key={group.date}>
                         <DateDivider date={group.date} />
                         {group.messages.map((msg, idx) => {
-                          const prevMsg = idx > 0 ? group.messages[idx - 1] : null
-                          const nextMsg = idx < group.messages.length - 1 ? group.messages[idx + 1] : null
                           const isSelf = msg.userId === userId
-                          const showAvatar = !isSelf && (
-                            !nextMsg || nextMsg.userId !== msg.userId || nextMsg.type === 'system'
-                          )
-                          const showName = !isSelf && (
-                            !prevMsg || prevMsg.userId !== msg.userId || prevMsg.type === 'system'
-                          )
-                          return <ChatMessageBubble key={msg.id} msg={msg} currentUserId={userId} showAvatar={showAvatar} showName={showName} />
+                          const showAvatar = !isSelf
+                          const showName = !isSelf
+                          const showAchievement = !isSelf && !msg.anonymous
+                          return <ChatMessageBubble key={msg.id} msg={msg} currentUserId={userId} showAvatar={showAvatar} showName={showName} showAchievement={showAchievement} />
                         })}
                       </div>
                     ))}
@@ -1056,24 +1083,31 @@ export function GroupStudyPage() {
                 <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-700 rounded-2xl px-4 py-2 shadow-sm border border-slate-200/60 dark:border-slate-600/60">
                   <input
                     ref={inputRef}
-                    placeholder={isConnected ? 'Type a message' : 'Message'}
+                    placeholder={pomodoroRunning ? (isConnected ? 'Type a message' : 'Message') : 'Start a Pomodoro session to chat'}
                     value={chatInput}
+                    disabled={!pomodoroRunning}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                    className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-200 outline-none placeholder:text-slate-400 py-1"
+                    className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-200 outline-none placeholder:text-slate-400 py-1 disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 </div>
                 <button
                   onClick={sendMessage}
-                  disabled={!chatInput.trim()}
+                  disabled={!chatInput.trim() || !pomodoroRunning}
                   className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
-                    chatInput.trim()
+                    chatInput.trim() && pomodoroRunning
                       ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20 hover:from-indigo-700 hover:to-blue-700 hover:shadow-lg'
                       : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                   }`}>
                   <Send className="w-5 h-5" />
                 </button>
               </div>
+              {!pomodoroRunning && (
+                <button onClick={() => { setShowStudyStarter(true); fetchStudySubjects() }}
+                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors active:scale-95">
+                  <Play className="w-3 h-3" /> Start a Pomodoro session to chat with your group
+                </button>
+              )}
               {/* Active timer indicator */}
               {disappearTimer && (
                 <div className="flex items-center gap-1.5 mt-1.5 px-1">
@@ -1138,13 +1172,16 @@ export function GroupStudyPage() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowGenderPicker(false)}>
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-72 mx-4 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 text-center mb-4">Chat Anonymously</h3>
+            <div className="flex items-center gap-2 px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 bg-indigo-50/60 dark:bg-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
+              <Eye className="w-3.5 h-3.5 text-indigo-500" /> You will appear with a random anonymous name in this group
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => { setAnonymousGender('male'); const r = getRandomName('male'); setAnonymousName(r.name); setAnonymousColor(r.color); setAnonymousMode(true); setShowGenderPicker(false) }}
+              <button onClick={() => startAnonymous('male')}
                 className="flex flex-col items-center gap-2 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/50 transition-all active:scale-95">
                 <span className="text-2xl">👨</span>
                 <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">Male</span>
               </button>
-              <button onClick={() => { setAnonymousGender('female'); const r = getRandomName('female'); setAnonymousName(r.name); setAnonymousColor(r.color); setAnonymousMode(true); setShowGenderPicker(false) }}
+              <button onClick={() => startAnonymous('female')}
                 className="flex flex-col items-center gap-2 p-4 rounded-xl bg-pink-50 dark:bg-pink-900/20 hover:bg-pink-100 dark:hover:bg-pink-900/40 border border-pink-200 dark:border-pink-800/50 transition-all active:scale-95">
                 <span className="text-2xl">👩</span>
                 <span className="text-xs font-semibold text-pink-700 dark:text-pink-400">Female</span>

@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Trophy, Medal, Flame, CheckCircle2, Crown, Award, Users, Clock, TrendingUp, Zap } from 'lucide-react'
+import { Trophy, Medal, Flame, CheckCircle2, Crown, Award, Users, Clock, TrendingUp } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { formatMinutes } from '../utils'
 
@@ -28,12 +28,11 @@ interface LeaderboardData {
   totalStudents: number
 }
 
-type Period = 'today' | '24h' | 'all'
+type Period = 'today' | '24h'
 
 const PERIOD_TABS: { key: Period; label: string; icon: typeof Clock; desc: string }[] = [
   { key: 'today', label: 'Today', icon: Clock, desc: 'Top by study minutes today' },
   { key: '24h', label: 'Last 24h', icon: TrendingUp, desc: 'Top by study minutes in last 24 hours' },
-  { key: 'all', label: 'All Time', icon: Zap, desc: 'Top by total score' },
 ]
 
 const RANK_STYLES: Record<number, { bg: string; border: string; icon: typeof Crown; iconColor: string; label: string }> = {
@@ -136,7 +135,7 @@ export function LeaderboardPage() {
           <div className="flex items-center gap-2">
             <Crown className="w-4 h-4 text-amber-500" />
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              {period === 'all' ? 'Top Performers' : 'Top Performers Today'}
+              Top Performers Today
             </h3>
             <div className="flex-1 h-px bg-gradient-to-r from-amber-200/50 to-transparent dark:from-amber-800/30" />
           </div>
@@ -146,8 +145,8 @@ export function LeaderboardPage() {
               if (!entry) return <div key={rank} />
               const style = RANK_STYLES[rank]
               const isFirst = rank === 1
-              const metric = period !== 'all' ? entry.studyMinutes : entry.score
-              const metricLabel = period !== 'all' ? 'min studied' : 'pts'
+              const metric = entry.studyMinutes
+              const metricLabel = 'min studied'
 
               return (
                 <Card key={rank}
@@ -171,13 +170,9 @@ export function LeaderboardPage() {
                     </p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{entry.courseTitle}</p>
                     <div className="mt-2 inline-flex items-center gap-1 bg-white/60 dark:bg-slate-800/60 rounded-full px-2.5 py-1">
-                      {period !== 'all' ? (
-                        <Clock className={`w-3 h-3 ${isFirst ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      ) : (
-                        <Zap className={`w-3 h-3 ${isFirst ? 'text-amber-500' : 'text-slate-400'}`} />
-                      )}
+                      <Clock className={`w-3 h-3 ${isFirst ? 'text-emerald-500' : 'text-slate-400'}`} />
                       <span className={`text-xs font-bold ${isFirst ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-400'}`}>
-                        {period !== 'all' ? formatMinutes(metric || 0) : metric}
+                        {formatMinutes(metric || 0)}
                       </span>
                       <span className="text-[9px] text-slate-400">{metricLabel}</span>
                     </div>
@@ -211,14 +206,10 @@ export function LeaderboardPage() {
                 {currentUserRank.verified && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                {period !== 'all' ? (
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-emerald-500" />
-                    <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{formatMinutes(currentUserRank.studyMinutes || 0)} studied</span>
-                  </div>
-                ) : (
-                  <span className="text-xs font-medium text-slate-500">{currentUserRank.score} pts</span>
-                )}
+                <div className="flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-emerald-500" />
+                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{formatMinutes(currentUserRank.studyMinutes || 0)} studied</span>
+                </div>
                 <div className="flex items-center gap-1">
                   <Flame className="w-3 h-3 text-orange-400" />
                   <span className="text-[11px] text-slate-500">{currentUserRank.currentStreak}</span>
@@ -234,7 +225,7 @@ export function LeaderboardPage() {
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Top 10 Ranking</h3>
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Top 5 Ranking</h3>
             <div className="flex-1 h-px bg-gradient-to-r from-slate-200/50 to-transparent dark:from-slate-700/30" />
           </div>
           <Card>
@@ -242,8 +233,8 @@ export function LeaderboardPage() {
               <div className="max-h-96 overflow-y-auto">
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {rest.map(entry => {
-                    const metric = period !== 'all' ? entry.studyMinutes : entry.score
-                    const metricLabel = period !== 'all' ? 'min' : 'pts'
+                    const metric = entry.studyMinutes
+                    const metricLabel = 'min'
                     return (
                       <div key={entry.id}
                         className={`flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors ${entry.isCurrentUser ? 'bg-amber-50/50 dark:bg-amber-900/10' : ''}`}>
@@ -274,13 +265,9 @@ export function LeaderboardPage() {
                             <Flame className="w-3 h-3 text-orange-400" />
                             <span className="text-[10px] text-slate-500">{entry.currentStreak}</span>
                           </div>
-                          <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${period !== 'all' ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
-                            {period !== 'all' ? (
-                              <Clock className="w-3 h-3 text-emerald-500" />
-                            ) : (
-                              <Zap className="w-3 h-3 text-amber-500" />
-                            )}
-                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{period !== 'all' ? formatMinutes(metric || 0) : metric}</span>
+                          <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20`}>
+                            <Clock className="w-3 h-3 text-emerald-500" />
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{formatMinutes(metric || 0)}</span>
                             <span className="text-[9px] text-slate-400">{metricLabel}</span>
                           </div>
                         </div>
@@ -301,7 +288,7 @@ export function LeaderboardPage() {
             <Users className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No data yet</p>
             <p className="text-xs text-slate-500 mt-1">
-              {period !== 'all' ? 'Complete study sessions to appear on this leaderboard' : 'Leaderboard will populate as students join'}
+              Complete study sessions to appear on this leaderboard
             </p>
           </CardContent>
         </Card>

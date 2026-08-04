@@ -62,16 +62,30 @@ export async function GET(req: NextRequest) {
       if (channel.startsWith('room:')) {
         const roomId = channel.slice(5)
 
+        const resolveRoomUserNames = async (messages: { userId: string; userName: string }[]) => {
+          const studentIds = [...new Set(messages.map(m => m.userId).filter(Boolean))]
+          if (studentIds.length === 0) return new Map<string, string>()
+          const students = await db.student.findMany({
+            where: { id: { in: studentIds } },
+            select: { id: true, fullName: true },
+          })
+          return new Map(students.map(s => [s.id, s.fullName]))
+        }
+
+        const mapRoomMessage = (m: any, nameMap: Map<string, string>) => ({
+          id: m.id, roomId: m.roomId, userId: m.userId,
+          userName: nameMap.get(m.userId) || m.userName || 'User',
+          userRole: m.userRole, content: m.content, type: m.type, timestamp: m.createdAt.getTime(),
+        })
+
         ;(async () => {
           const messages = await db.roomMessage.findMany({
             where: { roomId },
             orderBy: { createdAt: 'asc' },
             take: 50,
           })
-          sendSSE(res, 'room-history', { messages: messages.map(m => ({
-            id: m.id, roomId: m.roomId, userId: m.userId, userName: m.userName,
-            userRole: m.userRole, content: m.content, type: m.type, timestamp: m.createdAt.getTime(),
-          })) })
+          const nameMap = await resolveRoomUserNames(messages)
+          sendSSE(res, 'room-history', { messages: messages.map(m => mapRoomMessage(m, nameMap)) })
         })()
 
         pollTimer = setInterval(async () => {
@@ -82,11 +96,9 @@ export async function GET(req: NextRequest) {
               orderBy: { createdAt: 'asc' },
             })
             if (newMessages.length > 0) {
+              const nameMap = await resolveRoomUserNames(newMessages)
               for (const m of newMessages) {
-                sendSSE(res, 'new-message', {
-                  id: m.id, roomId: m.roomId, userId: m.userId, userName: m.userName,
-                  userRole: m.userRole, content: m.content, type: m.type, timestamp: m.createdAt.getTime(),
-                })
+                sendSSE(res, 'new-message', mapRoomMessage(m, nameMap))
               }
             }
             lastPoll = Date.now()
@@ -99,6 +111,21 @@ export async function GET(req: NextRequest) {
       // Group channel
       if (channel.startsWith('group:')) {
         const groupId = channel.slice(6)
+
+        const lastAchievementsOf = async (studentIds: string[]) => {
+          const uniq = [...new Set(studentIds.filter(Boolean))]
+          if (uniq.length === 0) return new Map<string, string>()
+          const rows = await db.studentAchievement.findMany({
+            where: { studentId: { in: uniq } },
+            include: { achievement: { select: { name: true } } },
+          })
+          const ordered = rows.sort((a, b) => b.unlockedAt.getTime() - a.unlockedAt.getTime())
+          const map = new Map<string, string>()
+          for (const r of ordered) {
+            if (!map.has(r.studentId)) map.set(r.studentId, r.achievement.name)
+          }
+          return map
+        }
 
         ;(async () => {
           const messageWhere: any = { groupId }
@@ -120,6 +147,10 @@ export async function GET(req: NextRequest) {
               include: { student: { select: { id: true, fullName: true, email: true } } },
             }),
           ])
+          const nameMap = await lastAchievementsOf([
+            ...messages.map(m => m.studentId),
+            ...members.map(m => m.studentId),
+          ])
           sendSSE(res, 'group-history', {
             messages: messages.map(m => ({
               id: m.id, userId: m.studentId,
@@ -128,6 +159,8 @@ export async function GET(req: NextRequest) {
               timestamp: m.createdAt.getTime(),
               ipAddress: m.ipAddress, gender: m.anonymousGender,
               disappearAfter: m.disappearAfter, expiresAt: m.expiresAt?.getTime() || null,
+              anonymous: !!m.anonymousName,
+              lastAchievement: nameMap.get(m.studentId) || null,
             })),
           })
           sendSSE(res, 'group-members', {
@@ -135,6 +168,7 @@ export async function GET(req: NextRequest) {
               userId: m.studentId, name: m.student.fullName.split(' ')[0],
               email: userRole === 'admin' ? m.student.email : undefined,
               timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
+              lastAchievement: nameMap.get(m.studentId) || null,
             })),
           })
         })()
@@ -178,6 +212,7 @@ export async function GET(req: NextRequest) {
               }),
             ])
             if (newMessages.length > 0) {
+              const nameMap = await lastAchievementsOf(newMessages.map(m => m.studentId))
               for (const m of newMessages) {
                 if (m.studentId === userId) continue
                 sendSSE(res, 'group-chat-message', {
@@ -187,13 +222,17 @@ export async function GET(req: NextRequest) {
                   timestamp: m.createdAt.getTime(),
                   ipAddress: m.ipAddress, gender: m.anonymousGender,
                   disappearAfter: m.disappearAfter, expiresAt: m.expiresAt?.getTime() || null,
+                  anonymous: !!m.anonymousName,
+                  lastAchievement: nameMap.get(m.studentId) || null,
                 })
               }
             }
+            const nameMap = await lastAchievementsOf(currentMembers.map(m => m.studentId))
             const currentMembersData = currentMembers.map(m => ({
               userId: m.studentId, name: m.student.fullName.split(' ')[0],
               email: userRole === 'admin' ? m.student.email : undefined,
               timerState: computeTimerState(m.timerState, (m as any).timerStartedAt),
+              lastAchievement: nameMap.get(m.studentId) || null,
             }))
             sendSSE(res, 'group-members', { members: currentMembersData })
             lastPoll = Date.now()

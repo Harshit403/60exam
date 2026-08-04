@@ -31,6 +31,21 @@ export async function POST(req: NextRequest) {
       },
       include: { course: true }
     })
+
+    // Log sign-up IP against the student
+    try {
+      const forwarded = req.headers.get('x-forwarded-for')
+      const ip = forwarded ? forwarded.split(',')[0].trim() : (req.headers.get('x-real-ip') || 'unknown')
+      await db.ipLog.create({
+        data: {
+          studentId: student.id,
+          ipAddress: ip,
+          path: '/student/auth/signup',
+          userAgent: req.headers.get('user-agent') || null,
+          action: 'signup',
+        },
+      })
+    } catch { /* ip logging must not break signup */ }
     
     if (approvalEnabled) {
       return NextResponse.json({

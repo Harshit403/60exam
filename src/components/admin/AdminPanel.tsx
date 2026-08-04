@@ -25,6 +25,7 @@ import { AnalyticsPage } from './AnalyticsPage'
 import { MaterialsPage } from './MaterialsPage'
 import { GroupsPage } from './GroupsPage'
 import { IpLogsPage } from './IpLogsPage'
+import { LiveStudyPage } from './LiveStudyPage'
 
 import {
   LayoutDashboard, Users, BookOpen, BookMarked, FileText, Trophy, Star, ShieldCheck, MessageCircle, Lock, LogOut, Search, Plus, Pencil, Trash2, Check, X, Loader2, Send, Download, User, Mail, Phone, Hash, Activity, Clock, ChevronLeft, ChevronRight, CheckCircle2, XCircle, SunMoon, Brain, Target, BarChart3, Library, Settings, Eye, EyeOff, Award, BookCheck, CalendarDays, Flame, GraduationCap, BellRing, Megaphone, Globe,
@@ -91,7 +92,7 @@ function InjectStyles() {
 
 // ─── Types ───────────────────────────────────────────────────────
 interface AdminPanelProps { onLogout: () => void }
-type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'notifications' | 'ip-logs' | 'settings'
+type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'live-study' | 'notifications' | 'ip-logs' | 'settings'
 
 interface DashboardData { totalStudents:number; totalCourses:number; totalSubjects:number; totalChapters:number; totalReviews:number; totalDiscussions:number; totalQuizzes?:number; totalQuizAttempts?:number; totalNotes?:number; recentSignups:any[]; weeklySignups?:any[]; activityLog?:any[] }
 interface Student { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; status:string; createdAt:string }
@@ -130,6 +131,7 @@ const navSections: { label:string; items:{ key:PageKey; label:string; icon:React
     { key:'approvals', label:'Approvals', icon:ShieldCheck, color:'bg-emerald-500/10 text-emerald-600' },
     { key:'top-performers', label:'Top Performers', icon:Trophy, color:'bg-orange-500/10 text-orange-600' },
     { key:'groups', label:'Study Groups', icon:Users, color:'bg-teal-500/10 text-teal-600' },
+    { key:'live-study', label:'Live Study', icon:Flame, color:'bg-orange-500/10 text-orange-600' },
   ]},
   { label:'Content', items:[
     { key:'courses', label:'Courses', icon:BookOpen, color:'bg-amber-500/10 text-amber-600' },
@@ -620,7 +622,12 @@ function SendNotificationPage() {
           })
           const pushData = await pushRes.json()
           if (pushData.sent !== undefined) {
-            toast.success(`Push sent to ${pushData.sent} device(s)`)
+            if (pushData.sent > 0) toast.success(`Push Notification sent to ${pushData.sent} device(s)`)
+            else if (pushData.total === 0) toast.info('Push enabled: no devices are subscribed yet')
+            else toast.warning(`Push: sent to ${pushData.sent}/${pushData.total} device(s)`)
+          } else if (pushData.error) {
+            toast.error(`Push failed: ${pushData.error}`)
+            console.warn('[Push] API error:', pushData.error)
           }
         } catch (pushErr) {
           console.warn('[Push] Send failed:', pushErr)
@@ -822,6 +829,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       case 'quizzes': return <QuizzesPage />
       case 'materials': return <MaterialsPage />
       case 'groups': return <GroupsPage />
+      case 'live-study': return <LiveStudyPage />
       case 'notifications': return <SendNotificationPage />
       case 'ip-logs': return <IpLogsPage />
       case 'settings': return <SettingsPage />
@@ -1528,7 +1536,7 @@ function ReviewsPage() {
       <TableBody>
         {pagination.paginated.map((r,i)=>(
         <TableRow key={r.id} className={`transition-all duration-150 hover:bg-rose-500/5 ${i%2===1?'bg-muted/8':''}`}>
-          <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[200px] truncate">{r.text}</TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
+          <TableCell className="font-medium">{r.authorName}</TableCell><TableCell className="max-w-[320px]"><p className="whitespace-pre-line break-words text-xs leading-relaxed line-clamp-3">{r.text}</p></TableCell><TableCell><StarRating rating={r.rating} /></TableCell>
           <TableCell className="hidden md:table-cell">{r.course?.title||'—'}</TableCell>
           <TableCell><Badge variant="outline" className={sourceBadge(r.source)}>{r.source}</Badge></TableCell>
           <TableCell><Badge variant={r.status==='approved'?'default':r.status==='rejected'?'destructive':'secondary'} className={r.status==='approved'?'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20':''}>{r.status}</Badge></TableCell>

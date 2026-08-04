@@ -15,11 +15,21 @@ export async function POST(req: NextRequest) {
       const { roomId, content } = body
       if (!roomId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
+      // Prefer student's full name over email-derived username
+      let userName = auth.email?.split('@')[0] || 'User'
+      if (auth.role === 'student') {
+        const student = await db.student.findUnique({
+          where: { id: auth.id },
+          select: { fullName: true },
+        })
+        if (student?.fullName) userName = student.fullName
+      }
+
       const msg = await db.roomMessage.create({
         data: {
           roomId,
           userId: auth.id,
-          userName: auth.email?.split('@')[0] || 'User',
+          userName,
           userRole: auth.role,
           content,
           type: 'message',
@@ -33,12 +43,14 @@ export async function POST(req: NextRequest) {
       const { groupId, content, anonymousName, anonymousGender, disappearAfter } = body
       if (!groupId || !content) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
-      // Block chat if user has an active timer
+      // Students can only message while their Pomodoro session is running
       const activeMembership = await db.groupMember.findFirst({
         where: { groupId, studentId: auth.id, leftAt: null },
       })
-      if (activeMembership?.timerState && (activeMembership.timerState as any).running && !(activeMembership.timerState as any).paused) {
-        return NextResponse.json({ error: 'Cannot chat while a study session is running' }, { status: 400 })
+      const ts = activeMembership?.timerState as any
+      const hasActiveTimer = ts && ts.running === true && ts.paused !== true
+      if (auth.role === 'student' && !hasActiveTimer) {
+        return NextResponse.json({ error: 'Start a Pomodoro study session to send messages in this group' }, { status: 400 })
       }
 
       const forwarded = req.headers.get('x-forwarded-for')

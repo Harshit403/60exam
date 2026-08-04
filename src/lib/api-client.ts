@@ -170,11 +170,11 @@ export const api = {
     apiFetch('/student/syllabus', { method: 'POST', body: JSON.stringify({ chapterId, completed }) }),
 
   // Student Leaderboard
-  studentLeaderboard: (limit?: number, courseId?: string, period?: 'all' | 'today' | '24h') => {
+  studentLeaderboard: (limit?: number, courseId?: string, period?: 'today' | '24h') => {
     const params = new URLSearchParams()
     if (limit) params.set('limit', String(limit))
     if (courseId) params.set('courseId', courseId)
-    if (period && period !== 'all') params.set('period', period)
+    if (period) params.set('period', period)
     const qs = params.toString()
     return apiFetch(`/student/leaderboard${qs ? `?${qs}` : ''}`)
   },
@@ -266,6 +266,13 @@ export const api = {
   adminGroupMessages: (groupId: string) => apiFetch(`/admin/groups/${groupId}/messages`),
   adminDeleteGroupMessage: (groupId: string, messageId: string) =>
     apiFetch(`/admin/groups/${groupId}/messages/${messageId}`, { method: 'DELETE' }),
+
+  // Admin Live Chat Room
+  adminDeleteRoomMessage: (roomId: string, messageId: string) =>
+    apiFetch(`/admin/realtime/rooms/${roomId}/messages/${messageId}`, { method: 'DELETE' }),
+
+  // Admin Live Study (active Pomodoro sessions)
+  adminLiveStudy: () => apiFetch('/admin/live-study'),
 
   // Realtime publish (SSE)
   realtimePublish: (data: any) => apiFetch('/realtime/publish', { method: 'POST', body: JSON.stringify(data) }),

@@ -110,8 +110,14 @@ export function GroupsPage() {
   const [chatGroup, setChatGroup] = useState<Group | null>(null)
   const [chatMembers, setChatMembers] = useState<{ userId: string; name: string; email?: string }[]>([])
   const [chatMessages, setChatMessages] = useState<any[]>([])
-  const [revealStudent, setRevealStudent] = useState<{ userId: string; name: string; email?: string; ipAddress?: string } | null>(null)
+  const [revealStudent, setRevealStudent] = useState<{ userId: string; name: string; email?: string; ipAddress?: string; anonymousName?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Live chat room dialog
+  const [liveRoomOpen, setLiveRoomOpen] = useState(false)
+  const [liveRoomMessages, setLiveRoomMessages] = useState<any[]>([])
+  const [deletingLiveMessageId, setDeletingLiveMessageId] = useState<string | null>(null)
+  const LIVE_ROOM_ID = 'mission-cs-public'
 
   const chatChannel = chatGroup ? `group:${chatGroup.id}` : ''
   const { isConnected } = useSSE({
@@ -126,6 +132,19 @@ export function GroupsPage() {
         })
       }
       else if (event === 'group-members') setChatMembers(data.members || [])
+    }, []),
+  })
+
+  const { isConnected: liveIsConnected } = useSSE({
+    channel: `room:${LIVE_ROOM_ID}`,
+    enabled: liveRoomOpen,
+    onEvent: useCallback((event: string, data: any) => {
+      if (event === 'room-history') setLiveRoomMessages(data.messages || [])
+      else if (event === 'new-message') {
+        setLiveRoomMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data])
+      } else if (event === 'message-deleted') {
+        setLiveRoomMessages(prev => prev.filter(m => m.id !== data.id))
+      }
     }, []),
   })
 
@@ -453,6 +472,13 @@ export function GroupsPage() {
           <p className="text-sm text-muted-foreground">Manage study groups and blocked users</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            onClick={() => { setLiveRoomOpen(true) }}
+            className="bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-700 hover:to-sky-700 text-white shadow-sm"
+          >
+            <MessageCircle className="size-4 mr-1.5" />
+            Live Chat Room
+          </Button>
           {activeTab === 'groups' && (
             <Button onClick={openAdd} className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm">
               <Plus className="size-4 mr-1.5" />
@@ -1088,6 +1114,97 @@ export function GroupsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ─── Public Live Chat Room Dialog ──────────────────────── */}
+      <Dialog open={liveRoomOpen} onOpenChange={(open) => { if (!open) { setLiveRoomOpen(false); setLiveRoomMessages([]) } }}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-cyan-600 to-sky-600 dark:from-cyan-700 dark:to-sky-700 text-white shrink-0">
+            <button onClick={() => { setLiveRoomOpen(false); setLiveRoomMessages([]) }}
+              className="p-1.5 -ml-1 rounded-xl hover:bg-white/10 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-sm font-bold shrink-0 shadow-inner backdrop-blur-sm">
+              <MessageCircle className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-sm font-semibold truncate leading-tight">Live Chat Room</h2>
+              <p className="text-[10px] text-white/70 flex items-center gap-1">
+                <span>Public room</span>
+                <span className="inline-block w-1 h-1 rounded-full bg-white/40 mx-0.5" />
+                <span className={`inline-block w-2 h-2 rounded-full ${liveIsConnected ? 'bg-green-300 shadow-sm shadow-green-300/50' : 'bg-amber-300'} mr-0.5`} />
+                <span>{liveIsConnected ? 'Online' : 'Connecting...'}</span>
+              </p>
+            </div>
+            <Badge className="bg-white/20 text-white text-[10px]">{liveRoomMessages.length} messages</Badge>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
+            <ScrollArea className="flex-1">
+              <div className="px-3 py-4">
+                {liveRoomMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-cyan-50 dark:bg-cyan-900/20 flex items-center justify-center mb-3 shadow-inner">
+                      <MessageCircle className="w-7 h-7 text-cyan-500 dark:text-cyan-400" />
+                    </div>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1">No messages yet</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Messages from the public live chat will appear here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {liveRoomMessages.map((msg: any) => (
+                      <div key={msg.id} className="flex gap-2 px-1 justify-start animate-in" style={{ animationDuration: '0.15s' }}>
+                        <div className="flex-shrink-0 self-end pb-0.5">
+                          <Avatar className="h-7 w-7 ring-2 ring-white dark:ring-slate-800 shadow-sm">
+                            <AvatarFallback className={`text-[9px] font-bold ${msg.userRole === 'admin' ? 'bg-rose-500 text-white' : 'bg-gradient-to-br from-cyan-500 to-sky-500 text-white'}`}>
+                              {(msg.userName || 'U').charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        </div>
+                        <div className="max-w-[80%] items-start flex flex-col group">
+                          <span className="text-[10px] font-semibold text-cyan-700 dark:text-cyan-400 ml-1 mb-0.5">
+                            {msg.userName}
+                            {msg.userRole === 'admin' && <Badge variant="secondary" className="ml-1 text-[9px] py-0 h-3.5 bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 border-0">Admin</Badge>}
+                          </span>
+                          <div className="flex items-start gap-1.5">
+                            <div className="px-3.5 py-2 text-sm leading-relaxed break-words bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl rounded-bl-sm border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+                              {msg.content}
+                              <span className="text-[10px] leading-none ml-2 text-slate-400 dark:text-slate-500 select-none">
+                                {formatMsgTime(msg.timestamp)}
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost" size="icon"
+                              onClick={async () => {
+                                setDeletingLiveMessageId(msg.id)
+                                try {
+                                  await api.adminDeleteRoomMessage(LIVE_ROOM_ID, msg.id)
+                                  setLiveRoomMessages((prev: any[]) => prev.filter((m: any) => m.id !== msg.id))
+                                  toast.success('Message deleted')
+                                } catch (err: any) {
+                                  toast.error(err.message || 'Failed to delete message')
+                                } finally {
+                                  setDeletingLiveMessageId(null)
+                                }
+                              }}
+                              disabled={deletingLiveMessageId === msg.id}
+                              className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-600 transition-all mt-1"
+                              title="Delete message"
+                            >
+                              {deletingLiveMessageId === msg.id ? <Loader2 className="size-3 animate-spin" /> : <Trash className="size-3" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ─── Live Chat Room Dialog ──────────────────────────────── */}
       <Dialog open={!!chatGroup} onOpenChange={(open) => { if (!open) { setChatGroup(null); setChatMessages([]); setChatMembers([]) } }}>
         <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
@@ -1185,9 +1302,17 @@ export function GroupsPage() {
                                 <div className="max-w-[80%] items-start flex flex-col group">
                                   {showName && (
                                     <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 ml-1 mb-0.5 hover:underline cursor-pointer"
-                                      onClick={() => {
+                                      onClick={async () => {
                                         const real = chatMembers.find(m => m.userId === msg.userId)
-                                        setRevealStudent({ userId: msg.userId, name: real?.name || msg.userName, email: real?.email, ipAddress: msg.ipAddress })
+                                        // Best-effort real identity lookup (signup name), overriding any anonymous name
+                                        let realName = real?.name
+                                        let realEmail = real?.email
+                                        try {
+                                          const r = await api.adminGetStudent(msg.userId)
+                                          const st = r?.student
+                                          if (st) { realName = st.fullName || realName; realEmail = st.email || realEmail }
+                                        } catch { /* fall back to member map */ }
+                                        setRevealStudent({ userId: msg.userId, name: realName || 'Unknown', email: realEmail, ipAddress: msg.ipAddress, anonymousName: msg.userName })
                                       }}>
                                       {msg.userName}
                                     </span>
@@ -1325,7 +1450,7 @@ export function GroupsPage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500 dark:text-slate-400">Anonymous alias</span>
                 <span className="font-medium text-slate-700 dark:text-slate-300">
-                  {chatMessages.find(m => m.userId === revealStudent?.userId)?.userName || 'Unknown'}
+                  {revealStudent?.anonymousName || chatMessages.find(m => m.userId === revealStudent?.userId)?.userName || 'Unknown'}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm mt-2">
