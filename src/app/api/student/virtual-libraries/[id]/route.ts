@@ -73,7 +73,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const existing = await db.virtualLibraryMember.findUnique({
     where: { roomId_studentId: { roomId: id, studentId } },
   })
-  if (existing && !existing.leftAt) {
+  // Reuse the existing identity only when it already matches the gender the
+  // user just picked; otherwise regenerate so the anonymous name always
+  // matches the selected gender (never a stale/random-gender name).
+  if (existing && !existing.leftAt && (!gender || existing.gender === gender)) {
     return NextResponse.json({ member: {
       userId: existing.studentId,
       displayName: existing.displayName,

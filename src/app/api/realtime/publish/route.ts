@@ -384,6 +384,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // ─── Virtual Library: camera/mic media state ───────────────────
+    case 'library-state': {
+      const { roomId, videoOff } = body
+      if (!roomId || typeof videoOff !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      await ensureVirtualLibraryStageColumns()
+      await db.virtualLibraryMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { videoOff, lastActiveAt: new Date() },
+      }).catch(() => {})
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
     // ─── Virtual Library: vote to remove a participant ─────────────
     case 'library-vote': {
       const { roomId, target, vote } = body

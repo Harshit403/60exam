@@ -504,6 +504,7 @@ model VirtualLibraryMember {
   stageRequested Boolean         @default(false)
   stageInvited  Boolean          @default(false)
   onStageSince  DateTime?
+  videoOff      Boolean         @default(false) // camera is off; peers show a "Camera off" badge
   removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
   removalExpires DateTime?
   joinedAt      DateTime        @default(now())

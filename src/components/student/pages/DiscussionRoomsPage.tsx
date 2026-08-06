@@ -69,11 +69,13 @@ interface VoiceMeter { lvl: number; bands: number[] }
 
 const ZERO_METER: VoiceMeter = { lvl: 0, bands: new Array(BAND_COUNT).fill(0) }
 
-// The wave stays flat until the speaker is actually talking; when speaking, each
-// bar's height follows its frequency band's energy so louder/pitchier speech
-// raises taller bars.
+// The wave appears ONLY on the user who is actually speaking. Silent
+// participants get no effect at all (space is reserved so cards don't jump).
+// When speaking, each bar's height follows its frequency band's energy so
+// louder/pitchier speech raises taller bars, with a pulse animation.
 function SpeakingWave({ meter, color }: { meter: VoiceMeter; color: string }) {
   const speaking = meter.lvl >= SPEAKING_THRESHOLD
+  if (!speaking) return <div className="flex items-end justify-center gap-[2px] h-4" aria-hidden="true" />
   return (
     <div className="flex items-end justify-center gap-[2px] h-4" style={{ color }}>
       {meter.bands.map((b, i) => (
@@ -82,7 +84,7 @@ function SpeakingWave({ meter, color }: { meter: VoiceMeter; color: string }) {
           className="speaking-bar"
           style={{
             animationDelay: `${i * 70}ms`,
-            height: speaking ? `${Math.max(4, Math.round(b * 26))}px` : '3px',
+            height: `${Math.max(4, Math.round(b * 26))}px`,
           }}
         />
       ))}
@@ -163,10 +165,12 @@ export function DiscussionRoomsPage() {
     if (!ctx) return
     try {
       const source = ctx.createMediaStreamSource(stream)
+      // Route the remote stream straight to the speakers so it always plays,
+      // and fan a copy out to the analyser for the speaking wave/meter.
+      source.connect(ctx.destination)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
-      analyser.connect(ctx.destination)
       audioNodesRef.current.set(userId, { source, analyser })
     } catch (err) { console.error('[AudioMeter] attach failed', userId, err) }
   }, [ensureAudioCtx])
@@ -263,6 +267,9 @@ export function DiscussionRoomsPage() {
     })
     callRef.current = call
     call.start()
+    // Speaker is on by default — push the current UI state so the engine always
+    // starts un-muted when a fresh call is created.
+    call.setMicEnabled(micOn)
     return () => { call.dispose(); callRef.current = null; cleanupAudio() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id])
@@ -520,10 +527,12 @@ export function DiscussionRoomsPage() {
       )}
 
       {/* Me card */}
-      {!inactiveRemoved && me && (
+      {!inactiveRemoved && me && (() => {
+        const meSpeaking = (levels['me']?.lvl ?? 0) >= SPEAKING_THRESHOLD
+        return (
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex items-center justify-between gap-2 shadow-sm">
           <div className="flex items-center gap-2 min-w-0">
-            <Avatar className="h-9 w-9 ring-2" style={avatarColorStyle(me.color)}>
+            <Avatar className={`h-9 w-9 ring-2 ${meSpeaking ? 'speaking-pulse' : ''}`} style={avatarColorStyle(me.color)}>
               <AvatarFallback className="text-sm font-bold" style={{ backgroundColor: me.color + '22', color: me.color }}>
                 {me.displayName.charAt(0)}
               </AvatarFallback>
@@ -586,7 +595,8 @@ export function DiscussionRoomsPage() {
             </Button>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* Stage participants */}
       <div>
@@ -603,15 +613,16 @@ export function DiscussionRoomsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {onStage.map(m => {
               const isMe = m.userId === userIdRef.current
+              const speaking = (levels[m.userId]?.lvl ?? 0) >= SPEAKING_THRESHOLD
               return (
                 <div key={m.userId} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex flex-col items-center gap-1.5 shadow-sm text-center">
                   <div className="relative">
-                    <Avatar className="h-12 w-12 ring-2" style={avatarColorStyle(m.color)}>
+                    <Avatar className={`h-12 w-12 ring-2 ${speaking ? 'speaking-pulse' : ''}`} style={avatarColorStyle(m.color)}>
                       <AvatarFallback className="text-base font-bold" style={{ backgroundColor: m.color + '22', color: m.color }}>
                         {m.displayName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white ring-2 ring-white dark:ring-slate-900">
+                    <div className={`absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white ring-2 ring-white dark:ring-slate-900 ${speaking ? 'animate-pulse' : ''}`}>
                       <Mic className="w-2.5 h-2.5" />
                     </div>
                   </div>

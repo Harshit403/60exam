@@ -353,6 +353,7 @@ export async function GET(req: NextRequest) {
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested, stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
+              videoOff: m.videoOff,
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
             })),
           }
@@ -419,7 +420,10 @@ export async function GET(req: NextRequest) {
           await emitVroomState()
         }
         bootVroom()
-        unsubHub = hubSubscribe(`vroom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
+        unsubHub = hubSubscribe(`vroom:${roomId}`, (event, data) => {
+          if (event === 'refresh') { emitVroomState(); return }
+          sendSSE(res, event, data)
+        })
 
         let lastVroomSignal = new Date(0)
         signalTimer = setInterval(async () => {

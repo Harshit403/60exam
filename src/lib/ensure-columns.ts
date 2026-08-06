@@ -36,6 +36,9 @@ export async function ensureVirtualLibraryStageColumns() {
     await db.$executeRawUnsafe(
       `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "onStageSince" TIMESTAMP(3)`,
     )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "videoOff" BOOLEAN NOT NULL DEFAULT false`,
+    )
     vlibStageReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }

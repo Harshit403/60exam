@@ -26,6 +26,7 @@ interface MeInfo {
 
 interface VStateMember extends RoomMember {
   removalVotes?: string[]
+  videoOff?: boolean
 }
 
 function avatarColorStyle(color: string) {
@@ -175,6 +176,12 @@ export function VirtualLibrariesPage() {
     })
     callRef.current = call
     call.start()
+    // Mic/camera on by default — push the current UI state so a fresh call
+    // always starts un-muted (also resets any stale camera-off flag from a
+    // previous visit to this room).
+    call.setMicEnabled(micOn)
+    call.setCamEnabled(camOn)
+    api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !camOn }).catch(() => {})
     // Media is acquired lazily by reconcile() once this user is on stage
     return () => {
       call.dispose(); callRef.current = null; setLocalStream(null); setQualityLabel('144p')
@@ -273,6 +280,8 @@ export function VirtualLibrariesPage() {
     setCamOn(next)
     callRef.current?.setCamEnabled(next)
     localStream?.getVideoTracks().forEach(t => { t.enabled = next; void t })
+    // Broadcast the new camera state so every participant sees "Camera off".
+    if (active) api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !next }).catch(() => {})
   }
 
   const vote = async (target: string, remove: boolean) => {
@@ -528,7 +537,12 @@ export function VirtualLibrariesPage() {
                         autoPlay playsInline className="absolute inset-0 w-full h-full object-cover"
                         onLoadedMetadata={(e) => { try { (e.currentTarget as HTMLVideoElement).play?.() } catch { /* ignore */ } }}
                       />
-                      {!remoteStreams.has(m.userId) && (
+                      {m.videoOff ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-slate-800">
+                          <VideoOff className="w-6 h-6 mb-1.5" />
+                          <span className="text-[9px]">Camera off</span>
+                        </div>
+                      ) : !remoteStreams.has(m.userId) && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-slate-800">
                           <Avatar className="h-10 w-10 mb-1.5">
                             <AvatarFallback className="text-sm font-bold" style={{ backgroundColor: m.color + '33', color: '#fff' }}>{m.displayName.charAt(0)}</AvatarFallback>
