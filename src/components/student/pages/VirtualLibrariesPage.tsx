@@ -32,6 +32,26 @@ function avatarColorStyle(color: string) {
   return { backgroundColor: color + '22', color, borderColor: color + '44' }
 }
 
+// RMS loudness of an analyser node, mapped to 0..1. Used to decide locally
+// whether we're speaking so the sender can raise/lower video quality.
+function computeLevel(analyser: AnalyserNode): number {
+  try {
+    const data = new Uint8Array(analyser.fftSize)
+    analyser.getByteTimeDomainData(data)
+    let sum = 0
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128
+      sum += v * v
+    }
+    const rms = Math.sqrt(sum / data.length)
+    return Math.max(0, Math.min(1, (rms - 0.02) * 6))
+  } catch { return 0 }
+}
+
+// Hysteresis thresholds so a borderline mic doesn't flicker the bitrate.
+const SPEAKING_ON = 0.12
+const SPEAKING_OFF = 0.06
+
 export function VirtualLibrariesPage() {
   const [rooms, setRooms] = useState<RoomInfo[]>([])
   const [currentRoom, setCurrentRoom] = useState<RoomInfo | null>(null)
@@ -46,13 +66,16 @@ export function VirtualLibrariesPage() {
   const [actionBusy, setActionBusy] = useState(false)
   const [removed, setRemoved] = useState<string[]>([])
   const [inactiveRemoved, setInactiveRemoved] = useState(false)
-  const [qualityLabel, setQualityLabel] = useState('240p')
+  const [qualityLabel, setQualityLabel] = useState('144p')
   const [genderPickRoom, setGenderPickRoom] = useState<RoomInfo | null>(null)
   const userIdRef = useRef<string>('anon')
   const wasMemberRef = useRef(false)
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const callRef = useRef<RoomCall | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const localAnalyserRef = useRef<AnalyserNode | null>(null)
+  const speakingRef = useRef(false)
 
   // Only send heartbeats while genuinely present: recent interaction or
   // actively in the call (visible tab + local media running).
@@ -107,6 +130,28 @@ export function VirtualLibrariesPage() {
     }, []),
   })
 
+  // Analyse the local mic so we can tell when this user is actually speaking
+  // and nudge the sender's video quality accordingly (144p while silent,
+  // climbing up to 480p while talking). Kept off the destination to avoid echo.
+  const setupLocalAnalyser = useCallback((stream: MediaStream) => {
+    try {
+      if (!audioCtxRef.current) {
+        const Ctor = (window.AudioContext || (window as any).webkitAudioContext)
+        audioCtxRef.current = new Ctor()
+      }
+      audioCtxRef.current.resume?.().catch(() => {})
+      if (localAnalyserRef.current) {
+        try { localAnalyserRef.current.disconnect() } catch { /* ignore */ }
+        localAnalyserRef.current = null
+      }
+      const source = audioCtxRef.current.createMediaStreamSource(stream)
+      const analyser = audioCtxRef.current.createAnalyser()
+      analyser.fftSize = 512
+      source.connect(analyser)
+      localAnalyserRef.current = analyser
+    } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => {
     if (!active) return
     const call = new RoomCall({
@@ -125,14 +170,34 @@ export function VirtualLibrariesPage() {
       onStreamRemoved: (userId) => {
         setRemoteStreams(prev => { const next = new Map(prev); next.delete(userId); return next })
       },
-      onLocalMedia: (stream) => { setLocalStream(stream) },
+      onLocalMedia: (stream) => { setLocalStream(stream); setupLocalAnalyser(stream) },
       onQualityChange: (label) => setQualityLabel(label),
     })
     callRef.current = call
     call.start()
     // Media is acquired lazily by reconcile() once this user is on stage
-    return () => { call.dispose(); callRef.current = null; setLocalStream(null); setQualityLabel('240p') }
+    return () => {
+      call.dispose(); callRef.current = null; setLocalStream(null); setQualityLabel('144p')
+      speakingRef.current = false
+      if (localAnalyserRef.current) { try { localAnalyserRef.current.disconnect() } catch { /* ignore */ } localAnalyserRef.current = null }
+      try { audioCtxRef.current?.close?.() } catch { /* ignore */ }
+      audioCtxRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, setupLocalAnalyser])
+
+  // Detect speech from the local mic with hysteresis and drive sender quality.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => {
+      const lvl = localAnalyserRef.current ? computeLevel(localAnalyserRef.current) : 0
+      const speaking = speakingRef.current ? lvl >= SPEAKING_OFF : lvl >= SPEAKING_ON
+      if (speaking !== speakingRef.current) {
+        speakingRef.current = speaking
+        callRef.current?.setSpeaking(speaking)
+      }
+    }, 250)
+    return () => { clearInterval(t); callRef.current?.setSpeaking(false) }
   }, [active?.id])
 
   // Keep speaker (broadcast) state in sync with my stage status

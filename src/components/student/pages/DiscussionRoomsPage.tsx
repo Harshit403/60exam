@@ -43,19 +43,46 @@ function computeLevel(analyser: AnalyserNode): number {
   } catch { return 0 }
 }
 
-const SPEAKING_THRESHOLD = 0.12
+// Split the frequency spectrum into `bands` equal bins, each 0..1. This lets the
+// wave reflect the pitch/timbre of the voice (an equalizer), not just volume.
+function computeSpectrum(analyser: AnalyserNode, bands: number): number[] {
+  try {
+    const freq = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteFrequencyData(freq)
+    const out = new Array(bands).fill(0)
+    const step = Math.max(1, Math.floor(freq.length / bands))
+    for (let b = 0; b < bands; b++) {
+      let sum = 0
+      const start = b * step
+      const end = Math.min(freq.length, start + step)
+      for (let i = start; i < end; i++) sum += freq[i]
+      out[b] = sum / Math.max(1, end - start) / 255
+    }
+    return out
+  } catch { return new Array(bands).fill(0) }
+}
 
-function SpeakingWave({ level, color }: { level: number; color: string }) {
-  const speaking = level >= SPEAKING_THRESHOLD
+const SPEAKING_THRESHOLD = 0.1
+const BAND_COUNT = 7
+
+interface VoiceMeter { lvl: number; bands: number[] }
+
+const ZERO_METER: VoiceMeter = { lvl: 0, bands: new Array(BAND_COUNT).fill(0) }
+
+// The wave stays flat until the speaker is actually talking; when speaking, each
+// bar's height follows its frequency band's energy so louder/pitchier speech
+// raises taller bars.
+function SpeakingWave({ meter, color }: { meter: VoiceMeter; color: string }) {
+  const speaking = meter.lvl >= SPEAKING_THRESHOLD
   return (
     <div className="flex items-end justify-center gap-[2px] h-4" style={{ color }}>
-      {Array.from({ length: 7 }).map((_, i) => (
+      {meter.bands.map((b, i) => (
         <span
           key={i}
           className="speaking-bar"
           style={{
-            animationDelay: `${i * 90}ms`,
-            height: speaking ? `${Math.max(5, Math.min(16, Math.round(level * 30 * (0.55 + (i % 3) * 0.2))))}px` : '4px',
+            animationDelay: `${i * 70}ms`,
+            height: speaking ? `${Math.max(4, Math.round(b * 26))}px` : '3px',
           }}
         />
       ))}
@@ -74,10 +101,10 @@ export function DiscussionRoomsPage() {
   const [connecting, setConnecting] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   const [micOn, setMicOn] = useState(true)
-  const [levels, setLevels] = useState<Record<string, number>>({})
+  const [levels, setLevels] = useState<Record<string, VoiceMeter>>({})
   const [genderPickRoom, setGenderPickRoom] = useState<RoomInfo | null>(null)
   const [inactiveRemoved, setInactiveRemoved] = useState(false)
-  const levelsRef = useRef<Record<string, number>>({})
+  const levelsRef = useRef<Record<string, VoiceMeter>>({})
   const userIdRef = useRef<string>('anon')
   const wasMemberRef = useRef(false)
   const callRef = useRef<RoomCall | null>(null)
@@ -288,23 +315,40 @@ export function DiscussionRoomsPage() {
   useEffect(() => {
     if (!active) return
     const t = setInterval(() => {
-      const next: Record<string, number> = { ...levelsRef.current }
+      const next: Record<string, VoiceMeter> = { ...levelsRef.current }
       let changed = false
-      for (const [userId, { analyser }] of audioNodesRef.current) {
-        const lvl = Math.round(computeLevel(analyser) * 20) / 20
-        if (Math.abs(lvl - (levelsRef.current[userId] || 0)) > 0.05) changed = true
-        next[userId] = lvl
+      const sample = (analyser: AnalyserNode, key: string) => {
+        const meter: VoiceMeter = {
+          lvl: Math.round(computeLevel(analyser) * 20) / 20,
+          bands: computeSpectrum(analyser, BAND_COUNT),
+        }
+        const prev = levelsRef.current[key]
+        const bandsDiff = prev
+          ? Math.max(...prev.bands.map((b, i) => Math.abs(b - meter.bands[i])))
+          : 1
+        if (!prev || Math.abs(prev.lvl - meter.lvl) > 0.05 || bandsDiff > 0.05) changed = true
+        next[key] = meter
       }
-      if (localAnalyserRef.current) {
-        const lvl = Math.round(computeLevel(localAnalyserRef.current) * 20) / 20
-        if (Math.abs(lvl - (levelsRef.current['me'] || 0)) > 0.05) changed = true
-        next['me'] = lvl
-      }
+      for (const [userId, { analyser }] of audioNodesRef.current) sample(analyser, userId)
+      if (localAnalyserRef.current) sample(localAnalyserRef.current, 'me')
       if (changed) {
         levelsRef.current = next
         setLevels(next)
       }
     }, 90)
+    return () => clearInterval(t)
+  }, [active])
+
+  // Browsers suspend the AudioContext when autoplay policy can't be satisfied
+  // (context created outside a gesture, after tab switch, etc.). If it's ever
+  // suspended, incoming remote audio is routed but silent — so keep nudging it
+  // back to "running" so stage voices actually play.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => {
+      const ctx = audioCtxRef.current
+      if (ctx && ctx.state === 'suspended') ctx.resume?.().catch(() => {})
+    }, 1000)
     return () => clearInterval(t)
   }, [active])
 
@@ -505,7 +549,7 @@ export function DiscussionRoomsPage() {
                       : 'You are muted · listeners only'}
               </p>
               {me.onStage && (
-                <div className="mt-1"><SpeakingWave level={levels['me'] || 0} color={me.color} /></div>
+                <div className="mt-1"><SpeakingWave meter={levels['me'] || ZERO_METER} color={me.color} /></div>
               )}
               {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
                 <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
@@ -518,7 +562,7 @@ export function DiscussionRoomsPage() {
             <Button
               size="sm"
               variant={micOn ? 'default' : 'destructive'}
-              onClick={() => { const next = !micOn; setMicOn(next); callRef.current?.setMicEnabled(next) }}
+              onClick={() => { const next = !micOn; setMicOn(next); callRef.current?.setMicEnabled(next); audioCtxRef.current?.resume?.().catch(() => {}) }}
               className="shrink-0"
             >
               {micOn ? <><Mic className="w-3 h-3 mr-1" /> Mute</> : <><MicOff className="w-3 h-3 mr-1" /> Unmute</>}
@@ -577,7 +621,7 @@ export function DiscussionRoomsPage() {
                       {m.role === 'moderator' ? <><ShieldCheck className="w-2.5 h-2.5 mr-0.5 text-amber-500" />Moderator</> : 'On Stage'}
                     </Badge>
                   </div>
-                  <div className="-mt-1"><SpeakingWave level={levels[m.userId] || 0} color={m.color} /></div>
+                  <div className="-mt-1"><SpeakingWave meter={levels[m.userId] || ZERO_METER} color={m.color} /></div>
                   {!isMe && m.role !== 'moderator' && me?.role === 'moderator' && (
                     <Button size="sm" variant="outline" className="text-[10px] h-7 text-rose-600 hover:text-rose-700 border-rose-200 dark:border-rose-900" onClick={() => stageAction(m.userId, 'remove')} disabled={actionBusy}>
                       <UserX className="w-3 h-3 mr-1" /> Remove

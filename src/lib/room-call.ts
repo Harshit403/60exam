@@ -16,18 +16,18 @@ const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
 ]
 
-// Video quality ladder for the Virtual Library. Everyone starts at the lowest
-// rung (240p) and a gradient-descent-style controller climbs toward the best
-// rung the network can sustain, backing off one step whenever packet loss or
-// latency rises — converging to an equilibrium near the available capacity.
-// `scale` is applied relative to the captured source (~720p) via
-// RTCRtpSender.setParameters()'s scaleResolutionDownBy; `maxBitrate` caps the
-// encoder in bits per second.
+// Video quality ladder for the Virtual Library. Non-speakers are forced to the
+// lowest rung (144p); a gradient-descent-style controller climbs a speaking
+// user toward the best rung the network can sustain (up to 480p), backing off
+// one step whenever packet loss or latency rises — converging to an equilibrium
+// near the available capacity. `scale` is applied relative to the captured
+// source (~720p) via RTCRtpSender.setParameters()'s scaleResolutionDownBy;
+// `maxBitrate` caps the encoder in bits per second.
 const VIDEO_QUALITY_LEVELS = [
+  { label: '144p', scale: 5, maxBitrate: 90_000 },
   { label: '240p', scale: 3, maxBitrate: 200_000 },
   { label: '360p', scale: 2, maxBitrate: 450_000 },
   { label: '480p', scale: 1.5, maxBitrate: 800_000 },
-  { label: '720p', scale: 1, maxBitrate: 1_400_000 },
 ]
 
 export interface RoomMember {
@@ -64,6 +64,7 @@ export class RoomCall {
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>()
   private local: MediaStream | null = null
   private speaker = false
+  private speaking = false
   private micEnabled = true
   private camEnabled = true
   private livePeers = new Map<string, RoomMember>()
@@ -88,6 +89,9 @@ export class RoomCall {
 
   start() {
     this.log('start', { userId: this.opts.userId, roomId: this.opts.roomId, speaker: this.speaker })
+    // Acquire media immediately if we're already on stage so the first offer
+    // carries our tracks instead of waiting up to a reconcile tick.
+    if (this.speaker) this.ensureMedia()
     this.startReconcile()
   }
 
@@ -116,7 +120,18 @@ export class RoomCall {
   setSpeaker(isSpeaker: boolean) {
     if (this.speaker === isSpeaker) return
     this.speaker = isSpeaker
+    if (!isSpeaker) this.speaking = false
+    if (isSpeaker) this.ensureMedia()
     this.reconcile()
+  }
+
+  // Local speech state drives video quality: silent participants send at 144p,
+  // a speaking participant climbs toward the best level the network sustains.
+  setSpeaking(isSpeaking: boolean) {
+    if (this.speaking === isSpeaking) return
+    this.speaking = isSpeaking
+    this.log('speaking', isSpeaking)
+    if (this.opts.kind === 'video') this.runQualityAdaptation()
   }
 
   setMicEnabled(enabled: boolean) {
@@ -124,8 +139,12 @@ export class RoomCall {
     this.micEnabled = enabled
     this.log('mic', enabled ? 'on' : 'off')
     if (this.local) {
-      for (const t of this.local.getAudioTracks()) t.enabled = enabled
+      const track = this.local.getAudioTracks()[0]
+      if (track) track.enabled = enabled
     }
+    // Detach/attach the track on every peer so the mute is truly "blocked",
+    // not just local silence/black.
+    this.syncAllLocalTracks()
   }
 
   setCamEnabled(enabled: boolean) {
@@ -133,8 +152,10 @@ export class RoomCall {
     this.camEnabled = enabled
     this.log('cam', enabled ? 'on' : 'off')
     if (this.local) {
-      for (const t of this.local.getVideoTracks()) t.enabled = enabled
+      const track = this.local.getVideoTracks()[0]
+      if (track) track.enabled = enabled
     }
+    this.syncAllLocalTracks()
   }
 
   private isInitiator(targetId: string): boolean {
@@ -184,17 +205,24 @@ export class RoomCall {
 
   private syncLocalTrack(pc: RTCPeerConnection) {
     if (!this.local) return
-    const senders = pc.getSenders()
     const kinds = this.opts.kind === 'video' ? ['audio', 'video'] : ['audio']
     if (this.speaker) {
       for (const kind of kinds) {
-        if (!senders.some(s => s.track?.kind === kind)) {
-          const track = this.local!.getTracks().find(t => t.kind === kind)
-          if (track) { try { pc.addTrack(track, this.local!) } catch { /* ignore */ } }
+        const muted = (kind === 'audio' && !this.micEnabled) || (kind === 'video' && !this.camEnabled)
+        const track = this.local.getTracks().find(t => t.kind === kind)
+        if (muted || !track) {
+          // True mute: detach any sender carrying this kind so the media is
+          // fully blocked from the wire (not just enabled=false).
+          for (const s of pc.getSenders()) {
+            if (s.track?.kind === kind) { try { pc.removeTrack(s) } catch { /* ignore */ } }
+          }
+          continue
         }
+        if (pc.getSenders().some(s => s.track === track)) continue
+        try { pc.addTrack(track, this.local) } catch { /* ignore */ }
       }
     } else {
-      for (const s of senders) {
+      for (const s of pc.getSenders()) {
         if (s.track && kinds.includes(s.track.kind)) { try { pc.removeTrack(s) } catch { /* ignore */ } }
       }
     }
@@ -387,6 +415,23 @@ export class RoomCall {
     if (!this.local || this.local.getVideoTracks().length === 0) return
 
     const q = this.quality || (this.quality = { level: 0, goodTicks: 0, lossEwma: 0, rttEwma: 0, last: null })
+
+    // Not speaking → everyone receives you at the lowest rung (144p).
+    if (!this.speaking) {
+      this.qualityApplied = true
+      q.last = null
+      if (q.level !== 0) {
+        q.level = 0
+        this.applyQualityLevel(0)
+      }
+      const silentLabel = VIDEO_QUALITY_LEVELS[0].label
+      if (silentLabel !== this.lastQualityLabel) {
+        this.lastQualityLabel = silentLabel
+        this.opts.onQualityChange?.(silentLabel)
+      }
+      return
+    }
+
     if (!this.qualityApplied) {
       this.qualityApplied = true
       this.applyQualityLevel(q.level)
