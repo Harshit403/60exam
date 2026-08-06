@@ -269,6 +269,7 @@ export async function GET(req: NextRequest) {
               onStageSince: m.onStageSince?.getTime() || null,
               micOff: !!m.micOff,
               speaking: !!m.speaking,
+              stageApproveVotes: Array.isArray(m.stageApproveVotes) ? (m.stageApproveVotes as string[]) : [],
             })),
           }
         }
@@ -367,6 +368,7 @@ export async function GET(req: NextRequest) {
               videoOff: m.videoOff,
               micOff: !!m.micOff,
               speaking: !!m.speaking,
+              stageApproveVotes: Array.isArray(m.stageApproveVotes) ? (m.stageApproveVotes as string[]) : [],
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
             })),
           }

@@ -466,6 +466,9 @@ model DiscussionRoomMember {
   stageRequested Boolean         @default(false)
   stageInvited  Boolean          @default(false)
   onStageSince  DateTime?
+  micOff        Boolean          @default(false) // shared muted-mic status for peers
+  speaking      Boolean          @default(false) // shared speaking flag broadcast by this user
+  stageApproveVotes Json         @default("[]") // 2/3 vote to approve a stage request when no moderator is present
   joinedAt      DateTime         @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime         @default(now())
@@ -505,6 +508,9 @@ model VirtualLibraryMember {
   stageInvited  Boolean          @default(false)
   onStageSince  DateTime?
   videoOff      Boolean         @default(false) // camera is off; peers show a "Camera off" badge
+  micOff        Boolean         @default(false) // shared muted-mic status for peers
+  speaking      Boolean         @default(false) // shared speaking flag broadcast by this user
+  stageApproveVotes Json        @default("[]") // 2/3 vote to approve a stage request when no moderator is present
   removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
   removalExpires DateTime?
   joinedAt      DateTime        @default(now())

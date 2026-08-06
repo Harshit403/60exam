@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
+import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
 
 // GET /api/student/virtual-libraries - list active video rooms with presence + capacity
 export async function GET(req: NextRequest) {
@@ -8,6 +9,7 @@ export async function GET(req: NextRequest) {
   if (!auth || auth.role !== 'student') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const studentId = auth.id
+  await ensureVirtualLibraryStageColumns()
 
   const currentMember = await db.virtualLibraryMember.findFirst({
     where: { studentId, leftAt: null },

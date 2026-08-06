@@ -522,6 +522,9 @@ export function VirtualLibrariesPage() {
   const audience = members.filter(m => !m.onStage && m.userId !== userIdRef.current)
   const activeCount = members.length
   const needed = Math.max(2, Math.ceil((2 / 3) * activeCount))
+  // When no moderator is in the room, a 2/3 majority can approve a stage request.
+  const moderatorPresent = members.some(m => m.role === 'moderator')
+  const approveNeeded = Math.max(1, Math.ceil((activeCount * 2) / 3))
   const removedMe = removed.includes('me')
 
   return (
@@ -593,7 +596,9 @@ export function VirtualLibrariesPage() {
                       : me.stageInvited
                         ? <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1"><Check className="w-3 h-3" /> Invited to the stage — accept or decline</span>
                         : me.stageRequested
-                          ? 'Request pending · waiting for the moderator'
+                          ? moderatorPresent
+                            ? 'Request pending · waiting for the moderator'
+                            : `Request pending · ${(members.find(x => x.userId === me.userId)?.stageApproveVotes || []).length}/${approveNeeded} votes to join the stage`
                           : 'You are in the audience · camera is off'}
                   </p>
                   {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
@@ -790,6 +795,21 @@ export function VirtualLibrariesPage() {
                               <UserPlus className="w-3 h-3 inline mr-0.5 -mt-0.5" /> Invite
                             </button>
                           )}
+                        </div>
+                      )}
+                      {requested && !moderatorPresent && m.userId !== userIdRef.current && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => stageAction(m.userId, 'approve-vote')}
+                            disabled={actionBusy || (m.stageApproveVotes || []).includes(userIdRef.current)}
+                            title="No moderator is present — a 2/3 majority of the room can approve this request"
+                            className={`p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-200 disabled:opacity-40 ${(m.stageApproveVotes || []).includes(userIdRef.current) ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-emerald-50 dark:bg-emerald-900/20'}`}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[9px] font-medium text-slate-500 dark:text-slate-400">
+                            {(m.stageApproveVotes || []).length}/{approveNeeded}
+                          </span>
                         </div>
                       )}
                     </div>

@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
       if (stageAction === 'cancel-request') {
-        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: false } })
+        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: false, stageApproveVotes: [] as any } })
         hubPublish(`droom:${roomId}`, 'refresh', {})
         return NextResponse.json({ ok: true })
       }
@@ -244,6 +244,37 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── Democratic action: when no moderator is present, 2/3 of the room can
+      //    approve a stage request so the room never gets stuck without a host ──
+      if (stageAction === 'approve-vote') {
+        if (target === auth.id) return NextResponse.json({ error: 'Cannot vote for yourself' }, { status: 400 })
+        const modCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null, role: 'moderator' } })
+        if (modCount > 0) return NextResponse.json({ error: 'A moderator is present' }, { status: 400 })
+        const targetMember = await db.discussionRoomMember.findFirst({
+          where: { roomId, studentId: target, leftAt: null },
+        })
+        if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+        if (!targetMember.stageRequested) return NextResponse.json({ error: 'No pending stage request' }, { status: 400 })
+        const votes = Array.isArray(targetMember.stageApproveVotes) ? (targetMember.stageApproveVotes as string[]) : []
+        if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
+        const next = [...votes, auth.id]
+        const activeCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null } })
+        const needed = Math.max(1, Math.ceil((activeCount * 2) / 3))
+        if (next.length >= needed) {
+          await db.discussionRoomMember.update({
+            where: { id: targetMember.id },
+            data: { role: 'stage', onStage: true, stageRequested: false, stageApproveVotes: [] as any, onStageSince: new Date(), lastActiveAt: new Date() },
+          })
+        } else {
+          await db.discussionRoomMember.update({
+            where: { id: targetMember.id },
+            data: { stageApproveVotes: next as any },
+          })
+        }
+        hubPublish(`droom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+
       // ── Moderator actions ──
       if (myMember.role !== 'moderator') {
         return NextResponse.json({ error: 'Only a moderator can do that' }, { status: 403 })
@@ -257,10 +288,10 @@ export async function POST(req: NextRequest) {
       if (stageAction === 'approve') {
         await db.discussionRoomMember.update({
           where: { id: targetMember.id },
-          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date() },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, stageApproveVotes: [] as any, onStageSince: new Date() },
         })
       } else if (stageAction === 'deny') {
-        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { stageRequested: false } })
+        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { stageRequested: false, stageApproveVotes: [] as any } })
       } else if (stageAction === 'remove') {
         await db.discussionRoomMember.update({
           where: { id: targetMember.id },
@@ -344,7 +375,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
       if (stageAction === 'cancel-request') {
-        await db.virtualLibraryMember.update({ where: { id: myMember.id }, data: { stageRequested: false } })
+        await db.virtualLibraryMember.update({ where: { id: myMember.id }, data: { stageRequested: false, stageApproveVotes: [] as any } })
         hubPublish(`vroom:${roomId}`, 'refresh', {})
         return NextResponse.json({ ok: true })
       }
@@ -365,6 +396,37 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── Democratic action: when no moderator is present, 2/3 of the room can
+      //    approve a stage request so the room never gets stuck without a host ──
+      if (stageAction === 'approve-vote') {
+        if (target === auth.id) return NextResponse.json({ error: 'Cannot vote for yourself' }, { status: 400 })
+        const modCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null, role: 'moderator' } })
+        if (modCount > 0) return NextResponse.json({ error: 'A moderator is present' }, { status: 400 })
+        const targetMember = await db.virtualLibraryMember.findFirst({
+          where: { roomId, studentId: target, leftAt: null },
+        })
+        if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+        if (!targetMember.stageRequested) return NextResponse.json({ error: 'No pending stage request' }, { status: 400 })
+        const votes = Array.isArray(targetMember.stageApproveVotes) ? (targetMember.stageApproveVotes as string[]) : []
+        if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
+        const next = [...votes, auth.id]
+        const activeCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null } })
+        const needed = Math.max(1, Math.ceil((activeCount * 2) / 3))
+        if (next.length >= needed) {
+          await db.virtualLibraryMember.update({
+            where: { id: targetMember.id },
+            data: { role: 'stage', onStage: true, stageRequested: false, stageApproveVotes: [] as any, onStageSince: new Date(), lastActiveAt: new Date() },
+          })
+        } else {
+          await db.virtualLibraryMember.update({
+            where: { id: targetMember.id },
+            data: { stageApproveVotes: next as any },
+          })
+        }
+        hubPublish(`vroom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+
       // ── Moderator actions ──
       if (myMember.role !== 'moderator') {
         return NextResponse.json({ error: 'Only a moderator can do that' }, { status: 403 })
@@ -378,10 +440,10 @@ export async function POST(req: NextRequest) {
       if (stageAction === 'approve') {
         await db.virtualLibraryMember.update({
           where: { id: targetMember.id },
-          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date() },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, stageApproveVotes: [] as any, onStageSince: new Date() },
         })
       } else if (stageAction === 'deny') {
-        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { stageRequested: false } })
+        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { stageRequested: false, stageApproveVotes: [] as any } })
       } else if (stageAction === 'remove') {
         await db.virtualLibraryMember.update({
           where: { id: targetMember.id },

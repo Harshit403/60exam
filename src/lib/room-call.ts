@@ -42,6 +42,7 @@ export interface RoomMember {
   onStageSince?: number | null
   micOff?: boolean
   speaking?: boolean
+  stageApproveVotes?: string[]
 }
 
 export interface RoomCallOptions {
