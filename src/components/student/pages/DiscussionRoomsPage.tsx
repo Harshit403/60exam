@@ -116,6 +116,7 @@ export function DiscussionRoomsPage() {
   const callRef = useRef<RoomCall | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const audioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; trackId: string }>>(new Map())
+  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
   const speakingRef = useRef(false)
@@ -180,9 +181,11 @@ export function DiscussionRoomsPage() {
     if (!ctx) return
     try {
       const source = ctx.createMediaStreamSource(stream)
-      // Route the remote stream straight to the speakers so it always plays,
-      // and fan a copy out to the analyser for the speaking wave/meter.
-      source.connect(ctx.destination)
+      // Playback is handled by a hidden native <audio> element per remote user
+      // (mimicking Virtual Library, where remote audio plays through the
+      // <video> tags). A Web Audio destination is NOT reliable here: a context
+      // created/resumed outside a user gesture stays suspended and would mute
+      // everyone silently. This analyser is only for the speaking wave/meter.
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
@@ -217,6 +220,8 @@ export function DiscussionRoomsPage() {
 
   const cleanupAudio = useCallback(() => {
     for (const userId of Array.from(audioNodesRef.current.keys())) detachRemoteAudio(userId)
+    audioRefs.current.forEach(el => { try { el.pause(); el.srcObject = null } catch { /* ignore */ } })
+    audioRefs.current.clear()
     if (localAnalyserRef.current) {
       try { localAnalyserRef.current.disconnect() } catch { /* ignore */ }
       localAnalyserRef.current = null
@@ -349,6 +354,19 @@ export function DiscussionRoomsPage() {
       if (!remoteStreams.has(userId)) detachRemoteAudio(userId)
     }
   }, [active, remoteStreams, attachRemoteAudio, detachRemoteAudio])
+
+  // Bind each remote stream to its hidden <audio> element (playback is native
+  // and reliable, exactly like Virtual Library binds streams to <video>). This
+  // effect is the fallback for refs that mounted before their stream existed.
+  useEffect(() => {
+    audioRefs.current.forEach((el, userId) => {
+      const stream = remoteStreams.get(userId)
+      if (el && stream && el.srcObject !== stream) {
+        el.srcObject = stream
+        el.play?.().catch(() => {})
+      }
+    })
+  }, [remoteStreams])
 
   // Sample the analysers ~11x/sec and update only when a bucket changes.
   useEffect(() => {
@@ -554,6 +572,31 @@ export function DiscussionRoomsPage() {
 
   return (
     <div className="space-y-5">
+      {/* Hidden native <audio> elements play every remote stream straight to the
+          speakers — reliable like the <video> playback in Virtual Library, which
+          a Web Audio destination can't guarantee (a suspended context is mute). */}
+      {Array.from(remoteStreams.keys()).map(userId => (
+        <audio
+          key={userId}
+          ref={(el) => {
+            if (el) {
+              audioRefs.current.set(userId, el)
+              const stream = remoteStreams.get(userId)
+              if (el.srcObject !== stream && stream) {
+                el.srcObject = stream
+                el.play?.().catch(() => {})
+              }
+            } else {
+              audioRefs.current.delete(userId)
+            }
+          }}
+          autoPlay
+          playsInline
+          className="hidden"
+          aria-hidden="true"
+        />
+      ))}
+
       {/* Header */}
       <div className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 dark:from-rose-600 dark:to-pink-700 text-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
