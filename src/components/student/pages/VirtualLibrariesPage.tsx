@@ -80,6 +80,7 @@ export function VirtualLibrariesPage() {
   const [removed, setRemoved] = useState<string[]>([])
   const [inactiveRemoved, setInactiveRemoved] = useState(false)
   const [qualityLabel, setQualityLabel] = useState('144p')
+  const [remoteLevels, setRemoteLevels] = useState<Record<string, number>>({})
   const [genderPickRoom, setGenderPickRoom] = useState<RoomInfo | null>(null)
   const userIdRef = useRef<string>('anon')
   const wasMemberRef = useRef(false)
@@ -88,6 +89,8 @@ export function VirtualLibrariesPage() {
   const callRef = useRef<RoomCall | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
+  const remoteAudioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>>(new Map())
+  const remoteLevelsRef = useRef<Record<string, number>>({})
   const speakingRef = useRef(false)
 
   // Only send heartbeats while genuinely present: recent interaction or
@@ -143,27 +146,72 @@ export function VirtualLibrariesPage() {
     }, []),
   })
 
+  // Create (or return) the shared AudioContext used for speech analysis. It must
+  // be created/resumed inside a user gesture — a context born outside one starts
+  // "suspended" and resume() is rejected, which silently kills both the mic
+  // analyser (quality + speaking flag) and the remote analysers (indicators).
+  const ensureAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      try {
+        const Ctor = (window.AudioContext || (window as any).webkitAudioContext)
+        const ctx = new Ctor()
+        audioCtxRef.current = ctx
+        ctx.resume?.().catch(() => {})
+      } catch { /* ignore */ }
+    }
+    return audioCtxRef.current
+  }, [])
+
   // Analyse the local mic so we can tell when this user is actually speaking
   // and nudge the sender's video quality accordingly (144p while silent,
   // climbing up to 480p while talking). Kept off the destination to avoid echo.
   const setupLocalAnalyser = useCallback((stream: MediaStream) => {
     try {
-      if (!audioCtxRef.current) {
-        const Ctor = (window.AudioContext || (window as any).webkitAudioContext)
-        audioCtxRef.current = new Ctor()
-      }
-      audioCtxRef.current.resume?.().catch(() => {})
+      const ctx = ensureAudioCtx()
+      if (!ctx) return
       if (localAnalyserRef.current) {
         try { localAnalyserRef.current.disconnect() } catch { /* ignore */ }
         localAnalyserRef.current = null
       }
-      const source = audioCtxRef.current.createMediaStreamSource(stream)
-      const analyser = audioCtxRef.current.createAnalyser()
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
       localAnalyserRef.current = analyser
     } catch { /* ignore */ }
+  }, [ensureAudioCtx])
+
+  // Analyse every received remote stream so each listener can see who is
+  // speaking from the audio they actually receive (not just the shared flag).
+  // Playback happens natively via the <video> elements, so this is analyser
+  // only — no destination connection (would double the sound).
+  const attachRemoteAudio = useCallback((userId: string, stream: MediaStream) => {
+    if (!stream.getAudioTracks()[0]) return
+    if (remoteAudioNodesRef.current.has(userId)) return
+    const ctx = ensureAudioCtx()
+    if (!ctx) return
+    try {
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      source.connect(analyser)
+      remoteAudioNodesRef.current.set(userId, { source, analyser })
+    } catch { /* ignore */ }
+  }, [ensureAudioCtx])
+
+  const detachRemoteAudio = useCallback((userId: string) => {
+    const node = remoteAudioNodesRef.current.get(userId)
+    if (node) {
+      try { node.source.disconnect(); node.analyser.disconnect() } catch { /* ignore */ }
+      remoteAudioNodesRef.current.delete(userId)
+    }
   }, [])
+
+  const cleanupRemoteAudio = useCallback(() => {
+    for (const userId of Array.from(remoteAudioNodesRef.current.keys())) detachRemoteAudio(userId)
+    remoteLevelsRef.current = {}
+    setRemoteLevels({})
+  }, [detachRemoteAudio])
 
   useEffect(() => {
     if (!active) return
@@ -197,6 +245,7 @@ export function VirtualLibrariesPage() {
     // Media is acquired lazily by reconcile() once this user is on stage
     return () => {
       call.dispose(); callRef.current = null; setLocalStream(null); setQualityLabel('144p')
+      cleanupRemoteAudio()
       speakingRef.current = false
       if (localAnalyserRef.current) { try { localAnalyserRef.current.disconnect() } catch { /* ignore */ } localAnalyserRef.current = null }
       try { audioCtxRef.current?.close?.() } catch { /* ignore */ }
@@ -222,6 +271,31 @@ export function VirtualLibrariesPage() {
     return () => { clearInterval(t); callRef.current?.setSpeaking(false) }
   }, [active?.id])
 
+  // Attach an analyser to every received remote stream and drop ones that left,
+  // so each listener can detect who is speaking from the audio they receive.
+  useEffect(() => {
+    if (!active) return
+    for (const [userId, stream] of remoteStreams) attachRemoteAudio(userId, stream)
+    for (const userId of Array.from(remoteAudioNodesRef.current.keys())) {
+      if (!remoteStreams.has(userId)) detachRemoteAudio(userId)
+    }
+  }, [active, remoteStreams, attachRemoteAudio, detachRemoteAudio])
+
+  // Sample remote analysers ~11x/sec to drive each tile's speaking indicator.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => {
+      const next: Record<string, number> = { ...remoteLevelsRef.current }
+      let changed = false
+      for (const [userId, { analyser }] of remoteAudioNodesRef.current) {
+        const lvl = computeLevel(analyser)
+        if (Math.abs((remoteLevelsRef.current[userId] || 0) - lvl) > 0.03) { changed = true; next[userId] = lvl }
+      }
+      if (changed) { remoteLevelsRef.current = next; setRemoteLevels(next) }
+    }, 90)
+    return () => clearInterval(t)
+  }, [active])
+
   // Browsers suspend a fresh AudioContext until a user gesture; keep resuming
   // so the mic analyser actually samples audio and speech is detected.
   useEffect(() => {
@@ -229,6 +303,22 @@ export function VirtualLibrariesPage() {
     const t = setInterval(() => { audioCtxRef.current?.resume?.().catch(() => {}) }, 1000)
     return () => clearInterval(t)
   }, [active?.id])
+
+  // Any user interaction is a fresh activation, so resume() succeeds there.
+  // Wire common gestures to unlock the context the moment the user acts instead
+  // of waiting for the interval nudge (which has no gesture and can be rejected).
+  useEffect(() => {
+    if (!active) return
+    const unlock = () => audioCtxRef.current?.resume?.().catch(() => {})
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    window.addEventListener('click', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+      window.removeEventListener('click', unlock)
+    }
+  }, [active])
 
   // Keep speaker (broadcast) state in sync with my stage status
   useEffect(() => {
@@ -246,6 +336,10 @@ export function VirtualLibrariesPage() {
 
   const join = async (room: RoomInfo, gender?: 'male' | 'female') => {
     setActionBusy(true)
+    // Create the AudioContext synchronously inside this click gesture. A context
+    // created outside a gesture starts suspended and resume() is rejected, which
+    // would break speech detection (quality, speaking flag, remote indicators).
+    ensureAudioCtx()
     try {
       const saved = gender ? getSavedAnonymousIdentity(gender) : null
       const data = await api.studentVirtualLibraryJoin(room.id, gender, saved || undefined)
@@ -580,6 +674,10 @@ export function VirtualLibrariesPage() {
 
                 {stageOthers.map(m => {
                   const myVote = m.removalVotes?.includes(userIdRef.current) || false
+                  // Speaking status is shown to everyone: local analysis of the
+                  // audio we receive from this peer OR their shared flag.
+                  const remoteSpeaking = (remoteLevels[m.userId] ?? 0) >= SPEAKING_ON
+                  const speaking = remoteSpeaking || !!m.speaking
                   return (
                     <div key={m.userId} className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 aspect-video">
                       <video
@@ -604,7 +702,7 @@ export function VirtualLibrariesPage() {
                         <span className="px-1.5 py-0.5 rounded-full bg-black/60 text-white text-[9px] font-medium backdrop-blur truncate flex items-center gap-1" style={{ borderLeft: `3px solid ${m.color}` }}>
                           {m.displayName}
                         </span>
-                        {m.speaking && (
+                        {speaking && (
                           <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/90 text-white text-[9px] font-medium backdrop-blur flex items-center gap-1 shrink-0">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Speaking
                           </span>

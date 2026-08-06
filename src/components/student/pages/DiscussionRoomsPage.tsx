@@ -725,10 +725,14 @@ export function DiscussionRoomsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {onStage.map(m => {
               const isMe = m.userId === userIdRef.current
-              // Shared flag is the source of truth for peers; self uses the
-              // local analyser so the wave reacts instantly, before the SSE
-              // round-trip of our own broadcast comes back.
-              const speaking = isMe ? (levels[m.userId]?.lvl ?? 0) >= SPEAKING_THRESHOLD : !!m.speaking
+              // Speaking status is shown to EVERYONE: the shared flag broadcast
+              // by the speaker plus local analysis of the audio we actually
+              // receive (the analyser is fed from the received stream, which now
+              // plays natively). Self uses the local mic analyser ('me' key).
+              const localLvl = levels[isMe ? 'me' : m.userId]?.lvl ?? 0
+              const speaking = isMe
+                ? localLvl >= SPEAKING_THRESHOLD
+                : (!!m.speaking || localLvl >= SPEAKING_THRESHOLD)
               return (
                 <div key={m.userId} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex flex-col items-center gap-1.5 shadow-sm text-center">
                   <div className="relative">
@@ -747,7 +751,7 @@ export function DiscussionRoomsPage() {
                       {m.role === 'moderator' ? <><ShieldCheck className="w-2.5 h-2.5 mr-0.5 text-amber-500" />Moderator</> : 'On Stage'}
                     </Badge>
                   </div>
-                  <div className="-mt-1"><SpeakingWave meter={levels[m.userId] || ZERO_METER} color={m.color} speaking={speaking} /></div>
+                  <div className="-mt-1"><SpeakingWave meter={levels[isMe ? 'me' : m.userId] || ZERO_METER} color={m.color} speaking={speaking} /></div>
                   {!isMe && m.role !== 'moderator' && me?.role === 'moderator' && (
                     <Button size="sm" variant="outline" className="text-[10px] h-7 text-rose-600 hover:text-rose-700 border-rose-200 dark:border-rose-900" onClick={() => stageAction(m.userId, 'remove')} disabled={actionBusy}>
                       <UserX className="w-3 h-3 mr-1" /> Remove

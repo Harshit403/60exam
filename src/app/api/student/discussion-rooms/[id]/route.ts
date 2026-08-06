@@ -102,15 +102,15 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     select: { displayName: true, color: true },
   })
 
-  // Prefer the identity the user already saved on their device (localStorage) so
-  // their anonymous name stays the same across visits; regenerate only if that
-  // name/color happens to be taken in this room.
+  // Always honor the identity the user saved on their device (localStorage) so
+  // their anonymous name stays the SAME across every visit — never regenerate it
+  // just because a name/color happens to be taken in this room (the 24-name pool
+  // collides constantly in busy rooms, which caused a new random name each join).
   const saved = body?.identity && typeof body.identity?.name === 'string' && typeof body.identity?.color === 'string'
     ? { name: body.identity.name, color: body.identity.color }
     : null
   const takenList = taken.map(t => ({ name: t.displayName, color: t.color }))
-  const takenPairs = new Set(takenList.map(t => `${t.name}:${t.color}`))
-  const identity: AnonymousIdentity = saved && !takenPairs.has(`${saved.name}:${saved.color}`)
+  const identity: AnonymousIdentity = saved
     ? { ...saved, gender: gender || 'neutral' }
     : randomAnonymousIdentity(gender, takenList)
 
