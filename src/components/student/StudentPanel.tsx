@@ -22,6 +22,10 @@ import {
 import { NotificationBell } from './NotificationBell'
 import { PwaInstallDialog } from '@/components/pwa-install-dialog'
 
+// Every student panel page that can be deep-linked via ?page= so a refresh
+// restores the exact section instead of resetting to the dashboard.
+const STUDENT_PAGES: Page[] = ['dashboard', 'track', 'planner', 'discussion', 'live-chat', 'syllabus', 'profile', 'quiz', 'quiz-history', 'notes', 'analytics', 'leaderboard', 'materials', 'group-study', 'reviews', 'discussion-rooms', 'virtual-libraries']
+
 const MOTIVATIONAL_QUOTES = [
   { text: 'The secret of success is to do the common things uncommonly well.', author: 'John D. Rockefeller' },
   { text: 'Success is not final, failure is not fatal: it is the courage to continue that counts.', author: 'Winston Churchill' },
@@ -115,7 +119,13 @@ function FloatingTimer({ currentPage, onNavigate }: { currentPage: Page; onNavig
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function StudentPanel({ onLogout }: StudentPanelProps) {
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
+  const [currentPage, setCurrentPage] = useState<Page>(() => {
+    // Restore the section the user was on from ?page= (the panel shares one
+    // URL, so without this a refresh always jumps back to the dashboard).
+    if (typeof window === 'undefined') return 'dashboard'
+    const p = new URLSearchParams(window.location.search).get('page')
+    return p && (STUDENT_PAGES as string[]).includes(p) ? p as Page : 'dashboard'
+  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -141,6 +151,23 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
+  // Self-heal the URL on first render: after logging in from /?view=signin the
+  // address still points at the login view, which would bounce the user there
+  // on refresh. Normalize it to view=student&page=<current>.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const view = url.searchParams.get('view')
+      const page = url.searchParams.get('page')
+      if (view !== 'student' || !page) {
+        url.searchParams.set('view', 'student')
+        url.searchParams.set('page', currentPage)
+        window.history.replaceState({}, '', url.toString())
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const navItems: { id: Page; label: string; icon: typeof LayoutDashboard; section: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Learning' },
     { id: 'quiz', label: 'Quizzes', icon: Brain, section: 'Learning' },
@@ -161,7 +188,16 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
     { id: 'profile', label: 'Edit Profile', icon: UserCog, section: 'Account' },
   ]
 
-  const handleNavClick = (page: Page) => { setCurrentPage(page); setSidebarOpen(false) }
+  const handleNavClick = (page: Page) => {
+    setCurrentPage(page); setSidebarOpen(false)
+    try {
+      // Keep the active section in the URL so a refresh stays on this page.
+      const url = new URL(window.location.href)
+      url.searchParams.set('view', 'student')
+      url.searchParams.set('page', page)
+      window.history.replaceState({}, '', url.toString())
+    } catch { /* ignore */ }
+  }
 
   const SidebarContent = () => {
     // Group nav items by section

@@ -580,66 +580,6 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
             ))}
           </div>
 
-          {/* Achievements */}
-          <Card className="overflow-hidden">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-amber-500" /> Achievements
-                </CardTitle>
-                <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  {unlockedCount}/{totalAchievements} Unlocked
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-4">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-500 dark:text-slate-400">Progress</span>
-                  <span className="text-slate-600 dark:text-slate-300 font-medium">{Math.round((unlockedCount / totalAchievements) * 100)}%</span>
-                </div>
-                <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500 relative" style={{ width: `${(unlockedCount / totalAchievements) * 100}%` }}>
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent shimmer-bar" />
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3">
-                {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
-                  <TooltipProvider key={a.id}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
-                          a.unlocked
-                            ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
-                            : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
-                        }`}
-                          style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
-                          {a.unlocked ? (
-                            <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
-                          ) : (
-                            <div className="relative">
-                              <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
-                              <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
-                            </div>
-                          )}
-                          <span className={`text-[10px] font-medium text-center leading-tight ${
-                            a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
-                          }`}>{a.name}</span>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="font-semibold">{a.name}</p>
-                        <p className="text-xs">{a.description}</p>
-                        <p className="text-xs text-slate-400 mt-1">{a.threshold} study score needed</p>
-                        {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Right Column: Daily Goal + Leaderboard */}
@@ -746,6 +686,67 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
           </Card>
         </div>
       </div>
+
+      {/* Achievements */}
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-500" /> Achievements
+            </CardTitle>
+            <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              {unlockedCount}/{totalAchievements} Unlocked
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-slate-500 dark:text-slate-400">Progress</span>
+              <span className="text-slate-600 dark:text-slate-300 font-medium">{Math.round((unlockedCount / totalAchievements) * 100)}%</span>
+            </div>
+            <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500 relative" style={{ width: `${(unlockedCount / totalAchievements) * 100}%` }}>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent shimmer-bar" />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3">
+            {(achievementsData?.achievements || ACHIEVEMENT_TIERS.map((t, i) => ({ ...t, id: `tier-${i}`, unlocked: false, unlockedAt: null }))).map((a: any) => (
+              <TooltipProvider key={a.id}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all relative overflow-hidden card-hover ${
+                      a.unlocked
+                        ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 border-amber-300 dark:border-amber-700 badge-shimmer shadow-sm'
+                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+                    }`}
+                      style={a.unlocked ? { backgroundImage: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 50%, transparent 75%)', backgroundSize: '200% 100%' } : undefined}>
+                      {a.unlocked ? (
+                        <span className="text-2xl drop-shadow-sm">{a.icon || '🏆'}</span>
+                      ) : (
+                        <div className="relative">
+                          <span className="text-2xl opacity-30 grayscale">{a.icon || '🏆'}</span>
+                          <div className="absolute inset-0 flex items-center justify-center"><Lock className="w-4 h-4 text-slate-400 dark:text-slate-500" /></div>
+                        </div>
+                      )}
+                      <span className={`text-[10px] font-medium text-center leading-tight ${
+                        a.unlocked ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'
+                      }`}>{a.name}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="font-semibold">{a.name}</p>
+                    <p className="text-xs">{a.description}</p>
+                    <p className="text-xs text-slate-400 mt-1">{a.threshold} study score needed</p>
+                    {a.unlockedAt && <p className="text-xs text-emerald-500 mt-0.5">✓ Unlocked</p>}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

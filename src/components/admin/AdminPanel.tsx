@@ -95,6 +95,10 @@ function InjectStyles() {
 interface AdminPanelProps { onLogout: () => void }
 type PageKey = 'dashboard' | 'analytics' | 'students' | 'courses' | 'subjects' | 'chapters' | 'top-performers' | 'reviews' | 'approvals' | 'discussions' | 'quizzes' | 'materials' | 'groups' | 'live-study' | 'discussion-rooms' | 'virtual-libraries' | 'notifications' | 'ip-logs' | 'settings'
 
+// All admin pages, used to validate ?page= so a refresh restores the section
+// the admin was on (the panel renders under a single URL).
+const ALL_ADMIN_PAGES: PageKey[] = ['dashboard', 'analytics', 'students', 'courses', 'subjects', 'chapters', 'top-performers', 'reviews', 'approvals', 'discussions', 'quizzes', 'materials', 'groups', 'live-study', 'discussion-rooms', 'virtual-libraries', 'notifications', 'ip-logs', 'settings']
+
 interface DashboardData { totalStudents:number; totalCourses:number; totalSubjects:number; totalChapters:number; totalReviews:number; totalDiscussions:number; totalQuizzes?:number; totalQuizAttempts?:number; totalNotes?:number; recentSignups:any[]; weeklySignups?:any[]; activityLog?:any[] }
 interface Student { id:string; name:string; email:string; mobile:string; courseId:string; course?:{title:string}; status:string; createdAt:string }
 interface Course { id:string; title:string; slug:string; _count?:{students:number;subjects:number} }
@@ -791,8 +795,23 @@ function SendNotificationPage() {
 
 // ─── Main AdminPanel Component ───────────────────────────────────
 export default function AdminPanel({ onLogout }: AdminPanelProps) {
-  const [activePage, setActivePage] = useState<PageKey>('dashboard')
+  const [activePage, setActivePage] = useState<PageKey>(() => {
+    if (typeof window === 'undefined') return 'dashboard'
+    const p = new URLSearchParams(window.location.search).get('page')
+    return p && (ALL_ADMIN_PAGES as string[]).includes(p) ? p as PageKey : 'dashboard'
+  })
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+
+  // Switch the active section and mirror it into ?page= so refreshing the
+  // browser doesn't drop the admin back to the dashboard.
+  const navigateTo = (key: PageKey) => {
+    setActivePage(key)
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('page', key)
+      window.history.replaceState({}, '', url.toString())
+    } catch { /* ignore */ }
+  }
 
   // Fetch notification badge counts (refreshes every 60s)
   const { data: notifications, refresh: refreshNotifications } = useFetch<NotificationCounts>(
@@ -866,7 +885,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   const isActive = activePage===item.key
                   const badgeCount = badgeCountFor(item.key)
                   return <SidebarMenuItem key={item.key}>
-                    <SidebarMenuButton isActive={isActive} onClick={()=>setActivePage(item.key)} tooltip={item.label} className={`group relative transition-all duration-200 ${isActive?'bg-gradient-to-r from-emerald-500/8 to-teal-500/4 dark:from-emerald-500/12 dark:to-teal-500/6':''}`}>
+                    <SidebarMenuButton isActive={isActive} onClick={()=>navigateTo(item.key)} tooltip={item.label} className={`group relative transition-all duration-200 ${isActive?'bg-gradient-to-r from-emerald-500/8 to-teal-500/4 dark:from-emerald-500/12 dark:to-teal-500/6':''}`}>
                       <div className={`flex size-8 items-center justify-center rounded-lg transition-all duration-200 ${isActive?item.color+' shadow-sm':'bg-transparent text-muted-foreground group-hover:bg-muted group-hover:scale-105'}`}>
                         <item.icon className="size-4" />
                       </div>
