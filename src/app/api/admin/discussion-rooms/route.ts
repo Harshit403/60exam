@@ -1,11 +1,14 @@
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
+import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
 
 // GET /api/admin/discussion-rooms - list audio rooms with live members (real identity)
 export async function GET(request: Request) {
   try {
     const auth = verifyAuth(request)
     if (!auth || auth.role !== 'admin') return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+    await ensureStageInvitedColumn()
 
     const rooms = await db.discussionRoom.findMany({
       include: {

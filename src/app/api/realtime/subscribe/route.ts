@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { initSSE, sendSSE, sendHeartbeat } from '@/lib/sse'
 import { hubSubscribe, hubPublish } from '@/lib/realtime-hub'
+import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
 
 const LIVE_ROOM_ID = 'mission-cs-public'
 const POLL_INTERVAL = 3000
@@ -248,7 +249,7 @@ export async function GET(req: NextRequest) {
       let unsubHub: (() => void) | null = null
       if (channel.startsWith('droom:')) {
         const roomId = channel.slice(6)
-        const MOD_INACTIVE_MS = 6 * 60 * 1000
+        const MOD_INACTIVE_MS = 5 * 60 * 1000
         const MOD_ROTATION_MS = 5 * 60 * 1000
 
         const buildDroomState = async () => {
@@ -264,6 +265,7 @@ export async function GET(req: NextRequest) {
             members: room.members.map(m => ({
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested,
+              stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
             })),
           }
@@ -289,7 +291,7 @@ export async function GET(req: NextRequest) {
               }
               // Inactive removal (mirrors study-group auto-exit)
               if ((now - lastActive) >= MOD_INACTIVE_MS) {
-                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false } })
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
                 changed = true
               }
             }
@@ -297,8 +299,16 @@ export async function GET(req: NextRequest) {
           } catch { /* ignore */ }
         }
 
-        emitDroomState()
-        unsubHub = hubSubscribe(`droom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
+        // Make sure the stageInvited column exists before any member query runs.
+        const bootDroom = async () => {
+          await ensureStageInvitedColumn()
+          await emitDroomState()
+        }
+        bootDroom()
+        unsubHub = hubSubscribe(`droom:${roomId}`, (event, data) => {
+          if (event === 'refresh') { emitDroomState(); return }
+          sendSSE(res, event, data)
+        })
 
         let lastDroomSignal = new Date(0)
         signalTimer = setInterval(async () => {
@@ -326,7 +336,8 @@ export async function GET(req: NextRequest) {
       // Virtual library (video) WebRTC channel
       if (channel.startsWith('vroom:')) {
         const roomId = channel.slice(6)
-        const LIB_INACTIVE_MS = 6 * 60 * 1000
+        const LIB_INACTIVE_MS = 5 * 60 * 1000
+        const MOD_ROTATION_MS = 5 * 60 * 1000
 
         const buildVroomState = async () => {
           const room = await db.virtualLibrary.findUnique({
@@ -340,7 +351,8 @@ export async function GET(req: NextRequest) {
             },
             members: room.members.map(m => ({
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
-              onStage: m.onStage,
+              role: m.role, onStage: m.onStage, stageRequested: m.stageRequested, stageInvited: m.stageInvited,
+              onStageSince: m.onStageSince?.getTime() || null,
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
             })),
           }
@@ -360,18 +372,39 @@ export async function GET(req: NextRequest) {
             const needed = Math.ceil((2 / 3) * activeCount)
             let changed = false
 
+            // If no moderator remains, promote the longest-standing member and
+            // put them on stage so the room always has a host.
+            const mods = members.filter(m => m.role === 'moderator')
+            if (mods.length === 0) {
+              const candidates = members
+                .filter(m => m.role !== 'moderator')
+                .sort((a, b) => new Date(a.onStageSince || a.joinedAt).getTime() - new Date(b.onStageSince || b.joinedAt).getTime())
+              if (candidates.length > 0) {
+                await db.virtualLibraryMember.update({
+                  where: { id: candidates[0].id },
+                  data: { role: 'moderator', onStage: true, stageRequested: false, stageInvited: false, onStageSince: candidates[0].onStageSince || new Date() },
+                })
+                changed = true
+              }
+            }
+
             for (const m of members) {
+              // Add/modify: promote on-stage members to moderator after 5 minutes
+              if (m.onStage && m.role !== 'moderator' && m.onStageSince && (now - new Date(m.onStageSince).getTime()) >= MOD_ROTATION_MS) {
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { role: 'moderator' } })
+                changed = true
+              }
               // Inactive removal
               const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
               if ((now - lastActive) >= LIB_INACTIVE_MS) {
-                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false } })
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
                 changed = true
                 continue
               }
               // 2/3 majority vote to remove (excludes the target's own vote naturally)
               const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
               if (votes.length >= needed && activeCount >= 2) {
-                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false } })
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
                 hubPublish(`vroom:${roomId}`, 'user-removed', { userId: m.studentId })
                 changed = true
               }
@@ -380,7 +413,12 @@ export async function GET(req: NextRequest) {
           } catch { /* ignore */ }
         }
 
-        emitVroomState()
+        // Make sure the stage columns exist before any member query runs.
+        const bootVroom = async () => {
+          await ensureVirtualLibraryStageColumns()
+          await emitVroomState()
+        }
+        bootVroom()
         unsubHub = hubSubscribe(`vroom:${roomId}`, (event, data) => { sendSSE(res, event, data) })
 
         let lastVroomSignal = new Date(0)

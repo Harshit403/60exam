@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
+import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
 
 // GET /api/admin/discussion-rooms/[id] - room detail with live members
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -8,6 +9,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!auth || auth.role !== 'admin') return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { id } = await params
+    await ensureStageInvitedColumn()
     const room = await db.discussionRoom.findUnique({
       where: { id },
       include: {

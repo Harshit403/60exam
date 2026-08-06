@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
+import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
 
 // DELETE /api/admin/discussion-rooms/[id]/kick?memberId=xxx - kick a member from an audio room
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -13,6 +14,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     if (!memberId) return Response.json({ error: 'memberId query parameter is required' }, { status: 400 })
 
+    await ensureStageInvitedColumn()
     const member = await db.discussionRoomMember.findFirst({
       where: { id: memberId, roomId: id, leftAt: null },
     })
@@ -20,7 +22,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     await db.discussionRoomMember.update({
       where: { id: member.id },
-      data: { leftAt: new Date(), onStage: false, stageRequested: false },
+      data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false },
     })
     return Response.json({ success: true })
   } catch (error: any) {

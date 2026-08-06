@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity } from '@/lib/anonymous-identity'
+import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
 
 // GET /api/student/virtual-libraries/[id] - room detail + presence (anonymized)
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -9,6 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!auth || auth.role !== 'student') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
+  await ensureVirtualLibraryStageColumns()
 
   const room = await db.virtualLibrary.findUnique({
     where: { id },
@@ -24,6 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     displayName: m.displayName,
     color: m.color,
     gender: m.gender,
+    role: m.role,
     onStage: m.onStage,
   }))
 
@@ -40,6 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       userId: myMember.studentId,
       displayName: myMember.displayName,
       color: myMember.color,
+      role: myMember.role,
       onStage: myMember.onStage,
       gender: myMember.gender,
     } : null,
@@ -54,6 +58,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params
   const studentId = auth.id
+
+  const body = await _req.json().catch(() => ({}))
+  const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
+  await ensureVirtualLibraryStageColumns()
 
   const room = await db.virtualLibrary.findUnique({ where: { id } })
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
@@ -70,6 +78,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       userId: existing.studentId,
       displayName: existing.displayName,
       color: existing.color,
+      role: existing.role,
       onStage: existing.onStage,
       gender: existing.gender,
     } })
@@ -84,9 +93,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     where: { roomId: id, leftAt: null },
     select: { displayName: true, color: true },
   })
-  const identity = randomAnonymousIdentity(null, taken.map(t => ({ name: t.displayName, color: t.color })))
+  const identity = randomAnonymousIdentity(gender, taken.map(t => ({ name: t.displayName, color: t.color })))
 
-  // In video library everyone is a speaker by default (onStage=true); no fixed moderator
+  // First joiner becomes the moderator and goes on stage; everyone else is audience
+  let role = 'audience'
+  let onStage = false
+  if (activeCount === 0) {
+    role = 'moderator'
+    onStage = true
+  }
+
   const member = await db.virtualLibraryMember.upsert({
     where: { roomId_studentId: { roomId: id, studentId } },
     update: {
@@ -94,7 +110,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       displayName: identity.name,
       color: identity.color,
       gender: identity.gender,
-      onStage: true,
+      role,
+      onStage,
+      stageRequested: false,
+      stageInvited: false,
+      onStageSince: onStage ? new Date() : null,
       removalVotes: [],
       lastActiveAt: new Date(),
     },
@@ -104,7 +124,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       displayName: identity.name,
       color: identity.color,
       gender: identity.gender,
-      onStage: true,
+      role,
+      onStage,
+      onStageSince: onStage ? new Date() : null,
     },
   })
 
@@ -112,6 +134,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     userId: member.studentId,
     displayName: member.displayName,
     color: member.color,
+    role: member.role,
     onStage: member.onStage,
     gender: member.gender,
   } })
@@ -127,7 +150,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     where: { roomId_studentId: { roomId: id, studentId: auth.id } },
   })
   if (member && !member.leftAt) {
-    await db.virtualLibraryMember.update({ where: { id: member.id }, data: { leftAt: new Date() } })
+    await db.virtualLibraryMember.update({
+      where: { id: member.id },
+      data: { leftAt: new Date(), stageRequested: false, stageInvited: false },
+    })
   }
   return NextResponse.json({ success: true })
 }

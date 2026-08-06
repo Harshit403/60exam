@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
 import { hubPublish } from '@/lib/realtime-hub'
+import { ensureStageInvitedColumn, ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
 
 function newSignalId(): string {
   try {
@@ -207,39 +208,72 @@ export async function POST(req: NextRequest) {
       const { roomId, target, stageAction } = body
       if (!roomId || !target) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
+      await ensureStageInvitedColumn()
       const myMember = await db.discussionRoomMember.findFirst({
         where: { roomId, studentId: auth.id, leftAt: null },
+        select: { id: true, role: true, onStage: true, stageRequested: true, stageInvited: true },
       })
       if (!myMember) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
 
+      // ── Self actions (any member) ──
       if (stageAction === 'request') {
         if (myMember.onStage) return NextResponse.json({ error: 'Already on stage' }, { status: 400 })
-        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: true, lastActiveAt: new Date() } })
+        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: true, stageInvited: false, lastActiveAt: new Date() } })
+        hubPublish(`droom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'cancel-request') {
+        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageRequested: false } })
+        hubPublish(`droom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'accept-invite') {
+        if (myMember.onStage) return NextResponse.json({ error: 'Already on stage' }, { status: 400 })
+        if (!myMember.stageInvited) return NextResponse.json({ error: 'No pending invitation' }, { status: 400 })
+        await db.discussionRoomMember.update({
+          where: { id: myMember.id },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date(), lastActiveAt: new Date() },
+        })
+        hubPublish(`droom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'decline-invite') {
+        if (!myMember.stageInvited) return NextResponse.json({ error: 'No pending invitation' }, { status: 400 })
+        await db.discussionRoomMember.update({ where: { id: myMember.id }, data: { stageInvited: false } })
         hubPublish(`droom:${roomId}`, 'refresh', {})
         return NextResponse.json({ ok: true })
       }
 
-      // approve/deny/remove require moderator
+      // ── Moderator actions ──
       if (myMember.role !== 'moderator') {
         return NextResponse.json({ error: 'Only a moderator can do that' }, { status: 403 })
       }
       const targetMember = await db.discussionRoomMember.findFirst({
         where: { roomId, studentId: target, leftAt: null },
+        select: { id: true, role: true, stageRequested: true, stageInvited: true },
       })
       if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
 
       if (stageAction === 'approve') {
         await db.discussionRoomMember.update({
           where: { id: targetMember.id },
-          data: { role: 'stage', onStage: true, stageRequested: false, onStageSince: new Date() },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date() },
         })
       } else if (stageAction === 'deny') {
         await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { stageRequested: false } })
       } else if (stageAction === 'remove') {
         await db.discussionRoomMember.update({
           where: { id: targetMember.id },
-          data: { role: 'audience', onStage: false, stageRequested: false, onStageSince: null },
+          data: { role: 'audience', onStage: false, stageRequested: false, stageInvited: false, onStageSince: null },
         })
+      } else if (stageAction === 'invite') {
+        if (targetMember.stageInvited) return NextResponse.json({ error: 'Already invited' }, { status: 400 })
+        await db.discussionRoomMember.update({
+          where: { id: targetMember.id },
+          data: { stageInvited: true, stageRequested: false },
+        })
+      } else if (stageAction === 'uninvite') {
+        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { stageInvited: false } })
       } else {
         return NextResponse.json({ error: 'Unknown stage action' }, { status: 400 })
       }
@@ -268,6 +302,85 @@ export async function POST(req: NextRequest) {
         data: { lastActiveAt: new Date() },
       }).catch(() => {})
       await relaySignal(`vroom:${roomId}`, auth.id, to, data)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Virtual Library: stage control (mirrors discussion rooms) ─
+    case 'library-stage': {
+      const { roomId, target, stageAction } = body
+      if (!roomId || !target) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      await ensureVirtualLibraryStageColumns()
+      const myMember = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        select: { id: true, role: true, onStage: true, stageRequested: true, stageInvited: true },
+      })
+      if (!myMember) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+
+      // ── Self actions (any member) ──
+      if (stageAction === 'request') {
+        if (myMember.onStage) return NextResponse.json({ error: 'Already on stage' }, { status: 400 })
+        await db.virtualLibraryMember.update({ where: { id: myMember.id }, data: { stageRequested: true, stageInvited: false, lastActiveAt: new Date() } })
+        hubPublish(`vroom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'cancel-request') {
+        await db.virtualLibraryMember.update({ where: { id: myMember.id }, data: { stageRequested: false } })
+        hubPublish(`vroom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'accept-invite') {
+        if (myMember.onStage) return NextResponse.json({ error: 'Already on stage' }, { status: 400 })
+        if (!myMember.stageInvited) return NextResponse.json({ error: 'No pending invitation' }, { status: 400 })
+        await db.virtualLibraryMember.update({
+          where: { id: myMember.id },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date(), lastActiveAt: new Date() },
+        })
+        hubPublish(`vroom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+      if (stageAction === 'decline-invite') {
+        if (!myMember.stageInvited) return NextResponse.json({ error: 'No pending invitation' }, { status: 400 })
+        await db.virtualLibraryMember.update({ where: { id: myMember.id }, data: { stageInvited: false } })
+        hubPublish(`vroom:${roomId}`, 'refresh', {})
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Moderator actions ──
+      if (myMember.role !== 'moderator') {
+        return NextResponse.json({ error: 'Only a moderator can do that' }, { status: 403 })
+      }
+      const targetMember = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: target, leftAt: null },
+        select: { id: true, role: true, stageRequested: true, stageInvited: true },
+      })
+      if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+
+      if (stageAction === 'approve') {
+        await db.virtualLibraryMember.update({
+          where: { id: targetMember.id },
+          data: { role: 'stage', onStage: true, stageRequested: false, stageInvited: false, onStageSince: new Date() },
+        })
+      } else if (stageAction === 'deny') {
+        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { stageRequested: false } })
+      } else if (stageAction === 'remove') {
+        await db.virtualLibraryMember.update({
+          where: { id: targetMember.id },
+          data: { role: 'audience', onStage: false, stageRequested: false, stageInvited: false, onStageSince: null },
+        })
+      } else if (stageAction === 'invite') {
+        if (targetMember.stageInvited) return NextResponse.json({ error: 'Already invited' }, { status: 400 })
+        await db.virtualLibraryMember.update({
+          where: { id: targetMember.id },
+          data: { stageInvited: true, stageRequested: false },
+        })
+      } else if (stageAction === 'uninvite') {
+        await db.virtualLibraryMember.update({ where: { id: targetMember.id }, data: { stageInvited: false } })
+      } else {
+        return NextResponse.json({ error: 'Unknown stage action' }, { status: 400 })
+      }
+
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
       return NextResponse.json({ ok: true })
     }
 

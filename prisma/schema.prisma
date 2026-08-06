@@ -464,6 +464,7 @@ model DiscussionRoomMember {
   role          String           @default("audience") // audience, moderator, stage
   onStage       Boolean          @default(false)
   stageRequested Boolean         @default(false)
+  stageInvited  Boolean          @default(false)
   onStageSince  DateTime?
   joinedAt      DateTime         @default(now())
   leftAt        DateTime?
@@ -498,7 +499,11 @@ model VirtualLibraryMember {
   displayName   String
   color         String
   gender        String          @default("other")
-  onStage       Boolean         @default(true) // in video everyone is a speaker unless removed
+  role          String          @default("audience") // audience, moderator, stage
+  onStage       Boolean         @default(false) // on-stage members broadcast; audience requests to join
+  stageRequested Boolean         @default(false)
+  stageInvited  Boolean          @default(false)
+  onStageSince  DateTime?
   removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
   removalExpires DateTime?
   joinedAt      DateTime        @default(now())

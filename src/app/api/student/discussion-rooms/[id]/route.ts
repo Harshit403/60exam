@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity } from '@/lib/anonymous-identity'
+import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
 
 // GET /api/student/discussion-rooms/[id] - room detail + current presence (anonymized)
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -9,6 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!auth || auth.role !== 'student') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
+  await ensureStageInvitedColumn()
 
   const room = await db.discussionRoom.findUnique({
     where: { id },
@@ -58,6 +60,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const studentId = auth.id
 
+  const body = await _req.json().catch(() => ({}))
+  const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
+  await ensureStageInvitedColumn()
+
   const room = await db.discussionRoom.findUnique({ where: { id } })
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
   if (!room.isActive) return NextResponse.json({ error: 'Room is inactive' }, { status: 403 })
@@ -93,7 +99,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     select: { displayName: true, color: true },
   })
 
-  const identity = randomAnonymousIdentity(null, taken.map(t => ({ name: t.displayName, color: t.color })))
+  const identity = randomAnonymousIdentity(gender, taken.map(t => ({ name: t.displayName, color: t.color })))
 
   // First two joiners become moderators (and go on stage); everyone else is audience
   let role = 'audience'
@@ -146,6 +152,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!auth || auth.role !== 'student') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
+  await ensureStageInvitedColumn()
 
   const member = await db.discussionRoomMember.findUnique({
     where: { roomId_studentId: { roomId: id, studentId: auth.id } },
@@ -153,7 +160,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (member && !member.leftAt) {
     await db.discussionRoomMember.update({
       where: { id: member.id },
-      data: { leftAt: new Date() },
+      data: { leftAt: new Date(), stageRequested: false, stageInvited: false },
     })
   }
 

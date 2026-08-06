@@ -120,3 +120,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* "Who is speaking" equalizer bars (Discussion Rooms) */
+.speaking-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: bottom;
+  transition: height 110ms linear;
+  animation: speaking-bounce 420ms ease-in-out infinite;
+}
+@keyframes speaking-bounce {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}

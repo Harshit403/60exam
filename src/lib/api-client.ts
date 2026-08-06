@@ -277,14 +277,14 @@ export const api = {
   // ── Discussion Rooms (audio) ──
   studentDiscussionRooms: () => apiFetch('/student/discussion-rooms'),
   studentDiscussionRoomDetail: (id: string) => apiFetch(`/student/discussion-rooms/${id}`),
-  studentDiscussionRoomJoin: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'POST' }),
+  studentDiscussionRoomJoin: (id: string, gender?: 'male' | 'female') => apiFetch(`/student/discussion-rooms/${id}`, { method: 'POST', body: JSON.stringify({ gender }) }),
   studentDiscussionRoomLeave: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'DELETE' }),
   studentDiscussionRoomHeartbeat: (id: string) => apiFetch(`/student/discussion-rooms/${id}`, { method: 'PATCH' }),
 
   // ── Virtual Libraries (video) ──
   studentVirtualLibraries: () => apiFetch('/student/virtual-libraries'),
   studentVirtualLibraryDetail: (id: string) => apiFetch(`/student/virtual-libraries/${id}`),
-  studentVirtualLibraryJoin: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'POST' }),
+  studentVirtualLibraryJoin: (id: string, gender?: 'male' | 'female') => apiFetch(`/student/virtual-libraries/${id}`, { method: 'POST', body: JSON.stringify({ gender }) }),
   studentVirtualLibraryLeave: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'DELETE' }),
   studentVirtualLibraryHeartbeat: (id: string) => apiFetch(`/student/virtual-libraries/${id}`, { method: 'PATCH' }),
 

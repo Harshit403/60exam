@@ -16,6 +16,20 @@ const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
 ]
 
+// Video quality ladder for the Virtual Library. Everyone starts at the lowest
+// rung (240p) and a gradient-descent-style controller climbs toward the best
+// rung the network can sustain, backing off one step whenever packet loss or
+// latency rises — converging to an equilibrium near the available capacity.
+// `scale` is applied relative to the captured source (~720p) via
+// RTCRtpSender.setParameters()'s scaleResolutionDownBy; `maxBitrate` caps the
+// encoder in bits per second.
+const VIDEO_QUALITY_LEVELS = [
+  { label: '240p', scale: 3, maxBitrate: 200_000 },
+  { label: '360p', scale: 2, maxBitrate: 450_000 },
+  { label: '480p', scale: 1.5, maxBitrate: 800_000 },
+  { label: '720p', scale: 1, maxBitrate: 1_400_000 },
+]
+
 export interface RoomMember {
   userId: string
   displayName: string
@@ -23,6 +37,8 @@ export interface RoomMember {
   gender?: string
   role?: string
   onStage: boolean
+  stageRequested?: boolean
+  stageInvited?: boolean
   onStageSince?: number | null
 }
 
@@ -38,6 +54,7 @@ export interface RoomCallOptions {
   onStreamRemoved: (userId: string) => void
   onLocalMedia: (stream: MediaStream | null) => void
   onPeerOpen?: (userId: string, pc: RTCPeerConnection) => void
+  onQualityChange?: (label: string) => void
 }
 
 export class RoomCall {
@@ -47,11 +64,17 @@ export class RoomCall {
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>()
   private local: MediaStream | null = null
   private speaker = false
+  private micEnabled = true
+  private camEnabled = true
   private livePeers = new Map<string, RoomMember>()
   private lastOfferAt = new Map<string, number>()
   private disposed = false
   private reconcileTimer: ReturnType<typeof setInterval> | null = null
   private seenSignalIds = new Set<string>()
+  private qualityTimer: ReturnType<typeof setInterval> | null = null
+  private qualityApplied = false
+  private lastQualityLabel: string | null = null
+  private quality: { level: number; goodTicks: number; lossEwma: number; rttEwma: number; last: { lost: number; received: number } | null } | null = null
 
   constructor(opts: RoomCallOptions) {
     this.opts = opts
@@ -74,9 +97,13 @@ export class RoomCall {
     try {
       this.local = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: this.opts.kind === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false,
+        // Capture ~720p so the quality ladder can downscale to 240p default and
+        // climb back up to 720p without restarting the camera.
+        video: this.opts.kind === 'video' ? { width: { ideal: 1280, height: 720 }, facingMode: 'user' } : false,
       })
       this.log('local media ok', { tracks: this.local.getTracks().map(t => t.kind) })
+      for (const t of this.local.getAudioTracks()) t.enabled = this.micEnabled
+      for (const t of this.local.getVideoTracks()) t.enabled = this.camEnabled
       this.opts.onLocalMedia?.(this.local)
       this.syncAllLocalTracks()
     } catch (err) {
@@ -90,6 +117,24 @@ export class RoomCall {
     if (this.speaker === isSpeaker) return
     this.speaker = isSpeaker
     this.reconcile()
+  }
+
+  setMicEnabled(enabled: boolean) {
+    if (this.micEnabled === enabled) return
+    this.micEnabled = enabled
+    this.log('mic', enabled ? 'on' : 'off')
+    if (this.local) {
+      for (const t of this.local.getAudioTracks()) t.enabled = enabled
+    }
+  }
+
+  setCamEnabled(enabled: boolean) {
+    if (this.camEnabled === enabled) return
+    this.camEnabled = enabled
+    this.log('cam', enabled ? 'on' : 'off')
+    if (this.local) {
+      for (const t of this.local.getVideoTracks()) t.enabled = enabled
+    }
   }
 
   private isInitiator(targetId: string): boolean {
@@ -281,9 +326,120 @@ export class RoomCall {
     this.reconcileTimer = setInterval(() => this.reconcile(), 2500)
   }
 
+  // ── Adaptive video quality (gradient-descent-style controller) ──
+
+  private startQualityTimer() {
+    if (this.qualityTimer || this.disposed) return
+    this.qualityTimer = setInterval(() => this.runQualityAdaptation(), 2000)
+  }
+
+  private async sampleNetwork(): Promise<{ lost: number; received: number; rtt: number } | null> {
+    let lost = 0
+    let received = 0
+    let rtt = 0
+    let found = false
+    for (const pc of this.pcs.values()) {
+      try {
+        const stats = await pc.getStats()
+        let outbound: any = null
+        let remote: any = null
+        stats.forEach((s: any) => {
+          if (s.type === 'outbound-rtp' && s.kind === 'video' && s.trackIdentifier) outbound = s
+          if (s.type === 'remote-inbound-rtp' && s.kind === 'video') remote = s
+        })
+        if (!outbound) continue
+        found = true
+        const recv = remote?.packetsReceived || 0
+        const lostCount = remote?.packetsLost ?? (typeof outbound.packetsLost === 'number' ? outbound.packetsLost : 0)
+        lost += lostCount
+        received += recv
+        rtt = Math.max(rtt, remote?.roundTripTime || 0)
+      } catch { /* ignore */ }
+    }
+    if (!found) return null
+    return { lost, received, rtt }
+  }
+
+  private applySenderQuality(pc: RTCPeerConnection, cfg: { scale: number; maxBitrate: number }) {
+    const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+    if (!sender) return
+    try {
+      const params = sender.getParameters()
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
+      const enc = params.encodings[0]
+      enc.maxBitrate = cfg.maxBitrate
+      enc.scaleResolutionDownBy = cfg.scale
+      sender.setParameters(params).catch(() => {})
+    } catch { /* ignore */ }
+  }
+
+  private applyQualityLevel(level: number) {
+    const cfg = VIDEO_QUALITY_LEVELS[level]
+    this.log('quality →', cfg.label, { maxBitrate: cfg.maxBitrate, scale: cfg.scale })
+    for (const pc of this.pcs.values()) {
+      if (pc.signalingState === 'stable') this.applySenderQuality(pc, cfg)
+    }
+  }
+
+  private async runQualityAdaptation() {
+    if (this.disposed || this.opts.kind !== 'video' || !this.speaker) return
+    if (this.pcs.size === 0) return
+    if (!this.local || this.local.getVideoTracks().length === 0) return
+
+    const q = this.quality || (this.quality = { level: 0, goodTicks: 0, lossEwma: 0, rttEwma: 0, last: null })
+    if (!this.qualityApplied) {
+      this.qualityApplied = true
+      this.applyQualityLevel(q.level)
+    }
+
+    const net = await this.sampleNetwork()
+    if (net) {
+      // Windowed packet loss over the last tick (gradient of the "cost").
+      const lostDelta = q.last ? Math.max(0, net.lost - q.last.lost) : net.lost
+      const recvDelta = q.last ? Math.max(0, net.received - q.last.received) : net.received
+      const totalDelta = lostDelta + recvDelta
+      const loss = totalDelta > 0 ? lostDelta / totalDelta : 0
+      q.last = { lost: net.lost, received: net.received }
+      q.lossEwma = q.lossEwma * 0.7 + loss * 0.3
+      q.rttEwma = q.rttEwma * 0.7 + net.rtt * 0.3
+    }
+
+    const loss = q.lossEwma
+    const rtt = q.rttEwma
+    const maxLevel = VIDEO_QUALITY_LEVELS.length - 1
+    let next = q.level
+
+    if (loss > 0.05 || rtt > 700) {
+      // Network degraded → step back down the ladder (move against the gradient).
+      next = Math.max(0, q.level - 1)
+      q.goodTicks = 0
+    } else if (q.level < maxLevel) {
+      // Climb one rung only after sustained headroom (ascend the gradient).
+      q.goodTicks += 1
+      if (q.goodTicks >= 3 && rtt < 350) {
+        next = q.level + 1
+        q.goodTicks = 0
+      }
+    } else {
+      q.goodTicks = 0
+    }
+
+    if (next !== q.level) {
+      q.level = next
+      this.applyQualityLevel(next)
+    }
+
+    const label = VIDEO_QUALITY_LEVELS[q.level].label
+    if (label !== this.lastQualityLabel) {
+      this.lastQualityLabel = label
+      this.opts.onQualityChange?.(label)
+    }
+  }
+
   private reconcile() {
     if (this.disposed) return
     if (this.speaker) this.ensureMedia()
+    if (this.opts.kind === 'video' && this.speaker) this.startQualityTimer()
 
     const now = Date.now()
     for (const [id] of this.livePeers) {
@@ -315,11 +471,15 @@ export class RoomCall {
   dispose() {
     this.disposed = true
     if (this.reconcileTimer) clearInterval(this.reconcileTimer)
+    if (this.qualityTimer) { clearInterval(this.qualityTimer); this.qualityTimer = null }
     for (const pc of this.pcs.values()) { try { pc.close() } catch { /* ignore */ } }
     this.pcs.clear()
     this.remotes.clear()
     this.pendingCandidates.clear()
     this.local?.getTracks().forEach(t => t.stop())
     this.local = null
+    this.quality = null
+    this.qualityApplied = false
+    this.lastQualityLabel = null
   }
 }
