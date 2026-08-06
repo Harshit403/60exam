@@ -26,14 +26,18 @@ const TYPE_CONFIG = {
   'announcement': { icon: BellRing, color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/40 dark:text-purple-300' },
 }
 
-const NOTIFICATIONS_READ_KEY = 'mission-cs-notifications-read-at'
+const NOTIFICATIONS_READ_IDS_KEY = 'mission-cs-notifications-read-ids'
 
-function getLastReadAt(): number {
-  try { return parseInt(localStorage.getItem(NOTIFICATIONS_READ_KEY) || '0', 10) } catch { return 0 }
+function getReadIds(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(NOTIFICATIONS_READ_IDS_KEY) || '[]')) } catch { return new Set() }
 }
 
-function setLastReadAt() {
-  try { localStorage.setItem(NOTIFICATIONS_READ_KEY, String(Date.now())) } catch { /* noop */ }
+function markReadIds(ids: string[]) {
+  try {
+    const set = getReadIds()
+    ids.forEach(id => { if (id) set.add(id) })
+    localStorage.setItem(NOTIFICATIONS_READ_IDS_KEY, JSON.stringify([...set]))
+  } catch { /* noop */ }
 }
 
 function formatTimeAgo(date: string | Date): string {
@@ -81,11 +85,12 @@ export function NotificationBell({ onNavigate }: { onNavigate?: (page: string) =
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const lastReadAt = getLastReadAt()
-  const unreadCount = notifications.filter(n => new Date(n.timestamp).getTime() > lastReadAt).length
+  const readIds = getReadIds()
+  const unreadCount = notifications.filter(n => !readIds.has(n.id)).length
 
   const handleNotificationClick = (n: Notification) => {
     setOpen(false)
+    markReadIds([n.id])
     if (n.link && onNavigate) {
       onNavigate(n.link)
     }
@@ -129,7 +134,7 @@ export function NotificationBell({ onNavigate }: { onNavigate?: (page: string) =
           </div>
 
           {/* Notifications list */}
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[70vh] overflow-y-auto">
             {loading ? (
               <div className="p-4 space-y-2">
                 {[1, 2, 3].map(i => (
@@ -164,7 +169,7 @@ export function NotificationBell({ onNavigate }: { onNavigate?: (page: string) =
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">{n.title}</p>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 mt-0.5">{n.message}</p>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 break-words whitespace-pre-line mt-0.5">{n.message}</p>
                         <p className="text-[10px] text-slate-400 mt-1">{formatTimeAgo(n.timestamp)}</p>
                       </div>
                     </button>
@@ -178,7 +183,7 @@ export function NotificationBell({ onNavigate }: { onNavigate?: (page: string) =
           {notifications.length > 0 && (
             <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
               <button
-                onClick={() => { setLastReadAt(); setOpen(false); toast.success('Marked all as read') }}
+                onClick={() => { markReadIds(notifications.map(n => n.id)); setOpen(false); toast.success('Marked all as read') }}
                 className="w-full text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 py-1.5 rounded transition-colors"
               >
                 Mark all as read

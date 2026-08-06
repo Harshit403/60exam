@@ -138,10 +138,10 @@ export async function GET(req: NextRequest) {
         id: 'review-pending',
         type: 'info',
         title: 'Share your experience',
-        message: 'Submit a review to help other students',
+        message: 'Submit a review to help other students — tap to share yours',
         timestamp: new Date(),
         read: false,
-        link: 'landing',
+        link: 'reviews',
       })
     }
 

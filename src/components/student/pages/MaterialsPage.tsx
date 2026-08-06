@@ -6,10 +6,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 import {
   BookMarked, FileText, PlayCircle, Link as LinkIcon, File, Search,
   ExternalLink, Download, FolderTree, LayoutGrid, Library, Clock, HardDrive, ChevronRight,
+  Plus, Pencil, Trash2, Loader2, Share2, User,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 
@@ -28,6 +34,8 @@ interface MaterialItem {
   course: { id: string; title: string; slug?: string } | null
   subject: { id: string; name: string } | null
   chapter: { id: string; name: string } | null
+  sharedBy: { id: string; fullName: string } | null
+  mine?: boolean
 }
 
 interface GroupedChapter {
@@ -57,6 +65,13 @@ interface CourseOption {
   id: string
   title: string
   slug: string
+}
+
+interface SubjectOption {
+  id: string
+  name: string
+  courseId: string
+  chapters: { id: string; name: string }[]
 }
 
 // ─── Type Meta ───────────────────────────────────────────────────────────
@@ -106,6 +121,7 @@ export function MaterialsPage() {
   const [data, setData] = useState<MaterialsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [courses, setCourses] = useState<CourseOption[]>([])
+  const [subjectTree, setSubjectTree] = useState<SubjectOption[]>([])
 
   // Filters
   const [courseFilter, setCourseFilter] = useState('all')
@@ -115,13 +131,39 @@ export function MaterialsPage() {
   // View mode: 'flat' | 'grouped'
   const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('grouped')
 
+  // Share/edit/delete form state
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [formLoading, setFormLoading] = useState(false)
+  const [formTitle, setFormTitle] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formType, setFormType] = useState('link')
+  const [formUrl, setFormUrl] = useState('')
+  const [formCourseId, setFormCourseId] = useState('')
+  const [formSubjectId, setFormSubjectId] = useState('')
+  const [formChapterId, setFormChapterId] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<MaterialItem | null>(null)
+
   // Fetch available courses for filter (uses public endpoint)
   useEffect(() => {
     async function fetchCourses() {
       try {
         const result = await api.publicCourses()
         const list = result.courses || result || []
-        setCourses(Array.isArray(list) ? list : [])
+        const arr = Array.isArray(list) ? list : []
+        setCourses(arr.map((c: any) => ({ id: c.id, title: c.title, slug: c.slug })))
+        const subjects: SubjectOption[] = []
+        for (const c of arr) {
+          for (const s of c.subjects || []) {
+            subjects.push({
+              id: s.id,
+              name: s.name,
+              courseId: c.id,
+              chapters: (s.chapters || []).map((ch: any) => ({ id: ch.id, name: ch.name })),
+            })
+          }
+        }
+        setSubjectTree(subjects)
       } catch (err) {
         console.error('Failed to fetch courses for filter:', err)
       }
@@ -221,6 +263,78 @@ export function MaterialsPage() {
     return Array.from(courseMap.values())
   }, [filteredMaterials])
 
+  // Filtered subjects/chapters for the share form
+  const formSubjects = useMemo(
+    () => (formCourseId ? subjectTree.filter((s) => s.courseId === formCourseId) : []),
+    [formCourseId, subjectTree]
+  )
+  const formChapters = useMemo(
+    () => (formSubjectId ? formSubjects.find((s) => s.id === formSubjectId)?.chapters || [] : []),
+    [formSubjectId, formSubjects]
+  )
+
+  // Share form handlers
+  const resetShareForm = () => {
+    setFormTitle(''); setFormDescription(''); setFormType('link'); setFormUrl('')
+    setFormCourseId(''); setFormSubjectId(''); setFormChapterId('')
+    setEditingId(null); setShowForm(false)
+  }
+
+  const openShare = () => {
+    resetShareForm()
+    setShowForm(true)
+  }
+
+  const openEdit = (m: MaterialItem) => {
+    setFormTitle(m.title); setFormDescription(m.description || ''); setFormType(m.type); setFormUrl(m.url)
+    setFormCourseId(m.course?.id || ''); setFormSubjectId(m.subject?.id || ''); setFormChapterId(m.chapter?.id || '')
+    setEditingId(m.id); setShowForm(true)
+  }
+
+  const handleShareSubmit = async () => {
+    if (!formTitle.trim() || !formUrl.trim()) {
+      toast.error('Title and URL are required')
+      return
+    }
+    setFormLoading(true)
+    try {
+      const payload = {
+        title: formTitle.trim(),
+        description: formDescription.trim() || null,
+        type: formType,
+        url: formUrl.trim(),
+        courseId: formCourseId || null,
+        subjectId: formSubjectId || null,
+        chapterId: formChapterId || null,
+      }
+      if (editingId) {
+        await api.studentUpdateMaterial(editingId, payload)
+        toast.success('Note updated')
+      } else {
+        await api.studentCreateMaterial(payload)
+        toast.success('Note shared with everyone')
+      }
+      resetShareForm()
+      fetchMaterials()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save note')
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.studentDeleteMaterial(deleteTarget.id)
+      toast.success('Note removed')
+      setDeleteTarget(null)
+      fetchMaterials()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete note')
+    }
+  }
+
   // Stats
   const stats = useMemo(() => {
     const total = filteredMaterials.length
@@ -247,32 +361,42 @@ export function MaterialsPage() {
           </div>
         </div>
 
-        {/* View mode toggle */}
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800">
-          <button
-            onClick={() => setViewMode('grouped')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'grouped'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-            }`}
-            title="Grouped view"
+        {/* View mode toggle + Share button */}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={openShare}
+            size="sm"
+            className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
           >
-            <FolderTree className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Grouped</span>
-          </button>
-          <button
-            onClick={() => setViewMode('flat')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'flat'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-            }`}
-            title="Grid view"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Grid</span>
-          </button>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Share Note
+          </Button>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800">
+            <button
+              onClick={() => setViewMode('grouped')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                viewMode === 'grouped'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+              title="Grouped view"
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Grouped</span>
+            </button>
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                viewMode === 'flat'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+              title="Grid view"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Grid</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -394,7 +518,7 @@ export function MaterialsPage() {
         /* Flat Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredMaterials.map((m, i) => (
-            <MaterialCard key={m.id} material={m} index={i} />
+            <MaterialCard key={m.id} material={m} index={i} onEdit={openEdit} onDelete={setDeleteTarget} />
           ))}
         </div>
       ) : (
@@ -422,7 +546,7 @@ export function MaterialsPage() {
               {group.materials.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-10">
                   {group.materials.map((m, i) => (
-                    <MaterialCard key={m.id} material={m} index={i} />
+                    <MaterialCard key={m.id} material={m} index={i} onEdit={openEdit} onDelete={setDeleteTarget} />
                   ))}
                 </div>
               )}
@@ -451,7 +575,7 @@ export function MaterialsPage() {
                     {subj.materials.length > 0 && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-10">
                         {subj.materials.map((m, i) => (
-                          <MaterialCard key={m.id} material={m} index={i} compact />
+                          <MaterialCard key={m.id} material={m} index={i} compact onEdit={openEdit} onDelete={setDeleteTarget} />
                         ))}
                       </div>
                     )}
@@ -472,7 +596,7 @@ export function MaterialsPage() {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
                               {ch.materials.map((m, i) => (
-                                <MaterialCard key={m.id} material={m} index={i} compact />
+                                <MaterialCard key={m.id} material={m} index={i} compact onEdit={openEdit} onDelete={setDeleteTarget} />
                               ))}
                             </div>
                           </div>
@@ -486,6 +610,151 @@ export function MaterialsPage() {
           ))}
         </div>
       )}
+
+      {/* Share / Edit Note Dialog */}
+      <Dialog open={showForm} onOpenChange={(o) => { if (!o) resetShareForm(); setShowForm(o) }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600">
+                <Share2 className="size-4" />
+              </div>
+              {editingId ? 'Edit Your Note' : 'Share a Note'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? 'Update your shared note below. It stays visible to everyone until you remove it.'
+                : 'Share a study resource with all students. You can edit or remove it anytime.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs font-medium">Title *</Label>
+                <Input
+                  placeholder="e.g., Company Law - Important Sections Summary"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Type</Label>
+                <Select value={formType} onValueChange={setFormType}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPE_FILTERS.filter((f) => f.value !== 'all').map((f) => (
+                      <SelectItem key={f.value} value={f.value}>
+                        {f.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">URL *</Label>
+              <Input
+                placeholder="https://example.com/notes/..."
+                value={formUrl}
+                onChange={(e) => setFormUrl(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Description</Label>
+              <Textarea
+                placeholder="What does this note cover?"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Course</Label>
+                <Select value={formCourseId || '__none__'} onValueChange={(v) => { setFormCourseId(v === '__none__' ? '' : v); setFormSubjectId(''); setFormChapterId('') }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="No specific course" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— No specific course —</SelectItem>
+                    {courses.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Subject</Label>
+                <Select value={formSubjectId || '__none__'} onValueChange={(v) => { setFormSubjectId(v === '__none__' ? '' : v); setFormChapterId('') }} disabled={!formCourseId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="No specific subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— No specific subject —</SelectItem>
+                    {formSubjects.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Chapter</Label>
+                <Select value={formChapterId || '__none__'} onValueChange={(v) => setFormChapterId(v === '__none__' ? '' : v)} disabled={!formSubjectId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="No specific chapter" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— No specific chapter —</SelectItem>
+                    {formChapters.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={resetShareForm}>Cancel</Button>
+            <Button
+              onClick={handleShareSubmit}
+              disabled={formLoading}
+              className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+            >
+              {formLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {editingId ? 'Update Note' : 'Share Note'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Shared Note</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove <span className="font-semibold">{deleteTarget?.title}</span>?
+              Other students will no longer see it. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -510,11 +779,15 @@ function countMaterialsInSubject(s: GroupedSubject): number {
 
 // ─── Material Card Component ─────────────────────────────────────────────
 
-function MaterialCard({ material, index = 0, compact = false }: { material: MaterialItem; index?: number; compact?: boolean }) {
+function MaterialCard({ material, index = 0, compact = false, onEdit, onDelete }: {
+  material: MaterialItem; index?: number; compact?: boolean;
+  onEdit?: (m: MaterialItem) => void; onDelete?: (m: MaterialItem) => void;
+}) {
   const meta = TYPE_META[material.type] || TYPE_META.pdf
   const Icon = meta.icon
   const isLink = material.type === 'link'
   const isVideo = material.type === 'video'
+  const isMine = !!material.mine
 
   // Build breadcrumb
   const breadcrumb = [material.course?.title, material.subject?.name, material.chapter?.name]
@@ -543,7 +816,40 @@ function MaterialCard({ material, index = 0, compact = false }: { material: Mate
               </p>
             )}
           </div>
+          {isMine && (
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onEdit?.(material)}
+                className="hover:bg-sky-500/10 hover:text-sky-600 transition-colors p-1.5 h-auto"
+                title="Edit your note"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onDelete?.(material)}
+                className="hover:bg-destructive/10 transition-colors p-1.5 h-auto"
+                title="Remove your note"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Shared by badge */}
+        {material.sharedBy && (
+          <div className="flex items-center gap-1 mb-2 flex-wrap">
+            <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-medium text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800/60 gap-1">
+              <User className="w-2.5 h-2.5" />
+              Shared by {material.sharedBy.fullName || 'Student'}
+              {isMine && ' (You)'}
+            </Badge>
+          </div>
+        )}
 
         {/* Description */}
         {material.description && (

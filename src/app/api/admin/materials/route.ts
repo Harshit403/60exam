@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
         course: { select: { id: true, title: true } },
         subject: { select: { id: true, name: true } },
         chapter: { select: { id: true, name: true } },
+        sharedBy: { select: { id: true, fullName: true } },
       },
     })
 
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
         course: m.course ? { id: m.course.id, title: m.course.title } : null,
         subject: m.subject ? { id: m.subject.id, name: m.subject.name } : null,
         chapter: m.chapter ? { id: m.chapter.id, name: m.chapter.name } : null,
+        sharedBy: m.sharedBy ? { id: m.sharedBy.id, fullName: m.sharedBy.fullName } : null,
       })),
     })
   } catch (error: any) {

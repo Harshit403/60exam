@@ -259,7 +259,7 @@ export async function POST(req: NextRequest) {
         if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
         const next = [...votes, auth.id]
         const activeCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null } })
-        const needed = Math.max(1, Math.ceil((activeCount * 2) / 3))
+        const needed = Math.max(1, Math.ceil(activeCount / 3))
         if (next.length >= needed) {
           await db.discussionRoomMember.update({
             where: { id: targetMember.id },
@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
         if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
         const next = [...votes, auth.id]
         const activeCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null } })
-        const needed = Math.max(1, Math.ceil((activeCount * 2) / 3))
+        const needed = Math.max(1, Math.ceil(activeCount / 3))
         if (next.length >= needed) {
           await db.virtualLibraryMember.update({
             where: { id: targetMember.id },

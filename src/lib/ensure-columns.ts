@@ -60,3 +60,38 @@ export async function ensureVirtualLibraryStageColumns() {
     vlibStageReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }
+
+// StudyMaterial gained a `sharedById` column so students can publish their own
+// notes to the shared materials page. Add it lazily and idempotently.
+let studyMaterialSharedReady = false
+
+export async function ensureStudyMaterialSharedColumn() {
+  if (studyMaterialSharedReady) return
+  try {
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "StudyMaterial" ADD COLUMN IF NOT EXISTS "sharedById" TEXT`,
+    )
+    studyMaterialSharedReady = true
+  } catch { /* table may not exist yet; the rest of the flow will surface it */ }
+}
+
+// StudySession gained server-authoritative "lecture mode" columns (mode,
+// plannedMin, startedAt) so the Pomodoro timer can run on the server and its
+// elapsed study time is stored in the DB even if the tab is in the background.
+let studySessionLectureReady = false
+
+export async function ensureStudySessionLectureColumns() {
+  if (studySessionLectureReady) return
+  try {
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "StudySession" ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT 'client'`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "StudySession" ADD COLUMN IF NOT EXISTS "plannedMin" INTEGER`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "StudySession" ADD COLUMN IF NOT EXISTS "startedAt" TIMESTAMP(3)`,
+    )
+    studySessionLectureReady = true
+  } catch { /* table may not exist yet; the rest of the flow will surface it */ }
+}

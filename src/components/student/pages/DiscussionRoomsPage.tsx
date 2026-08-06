@@ -6,9 +6,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Mic, MicOff, Users, Wifi, WifiOff, ArrowLeft, Loader2, ShieldCheck,
-  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle,
+  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle, Share2,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
+import { toast } from 'sonner'
 import { useSSE } from '@/hooks/useSSE'
 import { useRoomActivity } from '@/hooks/useRoomActivity'
 import { RoomCall, RoomMember } from '@/lib/room-call'
@@ -345,6 +346,48 @@ export function DiscussionRoomsPage() {
     else setGenderPickRoom(room)
   }
 
+  // Build a deep link to this room and share it (native share sheet where
+  // available, otherwise copy the link to the clipboard).
+  const shareRoom = async (room: RoomInfo) => {
+    const url = `${window.location.origin}${window.location.pathname}?view=student&page=discussion-rooms&room=${encodeURIComponent(room.id)}`
+    const shareData = {
+      title: 'MISSION CS Discussion Room',
+      text: `Join the "${room.name}" discussion room on MISSION CS and talk to us!`,
+      url,
+    }
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share(shareData)
+      } else {
+        await navigator.clipboard.writeText(url)
+        toast.success('Room link copied to clipboard')
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return // user cancelled the share sheet
+      try {
+        await navigator.clipboard.writeText(url)
+        toast.success('Room link copied to clipboard')
+      } catch {
+        toast.error('Could not share room link')
+      }
+    }
+  }
+
+  // Deep link support: a shared link like ?page=discussion-rooms&room=<id> should
+  // drop the visitor straight into that room (reusing their saved identity, or
+  // showing the gender picker if they've never joined before).
+  const deepLinkProcessedRef = useRef(false)
+  useEffect(() => {
+    if (loading || active || deepLinkProcessedRef.current) return
+    const roomId = new URLSearchParams(window.location.search).get('room')
+    if (!roomId) { deepLinkProcessedRef.current = true; return }
+    const room = rooms.find(r => r.id === roomId)
+    if (!room) { deepLinkProcessedRef.current = true; return }
+    deepLinkProcessedRef.current = true
+    const t = setTimeout(() => requestJoin(room), 400)
+    return () => clearTimeout(t)
+  }, [loading, active, rooms, requestJoin])
+
   // Route incoming audio through Web Audio (analyser → speakers) and meter the
   // volume so we can show a "who is speaking" wave on each stage member.
   useEffect(() => {
@@ -537,6 +580,9 @@ export function DiscussionRoomsPage() {
                           {full ? 'Room Full' : 'Join Voice'}
                         </Button>
                       )}
+                      <Button size="sm" variant="outline" onClick={() => shareRoom(r)} className="text-xs">
+                        <Share2 className="w-3.5 h-3.5 mr-1" /> Share
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -562,9 +608,9 @@ export function DiscussionRoomsPage() {
   // ── Call view ───────────────────────────────────────────────────
   const onStage = members.filter(m => m.onStage)
   const audience = members.filter(m => !m.onStage)
-  // When no moderator is in the room, a 2/3 majority can approve a stage request.
+  // When no moderator is in the room, a 1/3 majority can approve a stage request.
   const moderatorPresent = members.some(m => m.role === 'moderator')
-  const approveNeeded = Math.max(1, Math.ceil((members.length * 2) / 3))
+  const approveNeeded = Math.max(1, Math.ceil(members.length / 3))
   const stageCountdown = (onStageSince?: number | null) => {
     if (!onStageSince) return null
     const left = (onStageSince + 5 * 60 * 1000) - Date.now()

@@ -522,9 +522,9 @@ export function VirtualLibrariesPage() {
   const audience = members.filter(m => !m.onStage && m.userId !== userIdRef.current)
   const activeCount = members.length
   const needed = Math.max(2, Math.ceil((2 / 3) * activeCount))
-  // When no moderator is in the room, a 2/3 majority can approve a stage request.
+  // When no moderator is in the room, a 1/3 majority can approve a stage request.
   const moderatorPresent = members.some(m => m.role === 'moderator')
-  const approveNeeded = Math.max(1, Math.ceil((activeCount * 2) / 3))
+  const approveNeeded = Math.max(1, Math.ceil(activeCount / 3))
   const removedMe = removed.includes('me')
 
   return (

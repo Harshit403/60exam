@@ -219,6 +219,12 @@ export const api = {
     const qs = q.toString()
     return apiFetch(`/student/materials${qs ? `?${qs}` : ''}`)
   },
+  studentCreateMaterial: (payload: any) =>
+    apiFetch('/student/materials', { method: 'POST', body: JSON.stringify(payload) }),
+  studentUpdateMaterial: (id: string, payload: any) =>
+    apiFetch(`/student/materials/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  studentDeleteMaterial: (id: string) =>
+    apiFetch(`/student/materials/${id}`, { method: 'DELETE' }),
 
   // Student Group Study
   studentGroups: () => apiFetch('/student/groups'),

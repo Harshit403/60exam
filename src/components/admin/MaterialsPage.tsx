@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import {
   BookMarked, Plus, Pencil, Trash2, Loader2, FileText, PlayCircle, Link as LinkIcon, File,
-  Search, ExternalLink, Library, HardDrive, Clock, CheckCircle2,
+  Search, ExternalLink, Library, HardDrive, Clock, CheckCircle2, User,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
@@ -34,6 +34,7 @@ interface Material {
   course: { id: string; title: string } | null
   subject: { id: string; name: string } | null
   chapter: { id: string; name: string } | null
+  sharedBy: { id: string; fullName: string } | null
 }
 
 interface Course { id: string; title: string }
@@ -529,7 +530,15 @@ export function MaterialsPage() {
                                 <TypeIcon className={`size-4 ${meta.color}`} />
                               </div>
                               <div className="min-w-0">
-                                <p className="font-medium text-sm line-clamp-1">{m.title}</p>
+                                <p className="font-medium text-sm line-clamp-1 flex items-center gap-1.5 flex-wrap">
+                                  {m.title}
+                                  {m.sharedBy && (
+                                    <Badge variant="outline" className="text-[9px] py-0 px-1.5 font-medium text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800/60 gap-1 shrink-0">
+                                      <User className="w-2 h-2" />
+                                      {m.sharedBy.fullName}
+                                    </Badge>
+                                  )}
+                                </p>
                                 {m.description && (
                                   <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{m.description}</p>
                                 )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
+import { ensureStudyMaterialSharedColumn } from '@/lib/ensure-columns'
 
 // GET /api/student/materials
 // Returns all active study materials, optionally filtered, grouped by course → subject → chapter.
@@ -10,6 +11,8 @@ export async function GET(req: NextRequest) {
     if (!auth || auth.role !== 'student') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    await ensureStudyMaterialSharedColumn()
 
     const student = await db.student.findUnique({ where: { id: auth.id } })
     if (!student) {
@@ -38,6 +41,7 @@ export async function GET(req: NextRequest) {
         course: { select: { id: true, title: true, slug: true } },
         subject: { select: { id: true, name: true } },
         chapter: { select: { id: true, name: true } },
+        sharedBy: { select: { id: true, fullName: true } },
       },
     })
 
@@ -55,6 +59,8 @@ export async function GET(req: NextRequest) {
       course: m.course ? { id: m.course.id, title: m.course.title, slug: m.course.slug } : null,
       subject: m.subject ? { id: m.subject.id, name: m.subject.name } : null,
       chapter: m.chapter ? { id: m.chapter.id, name: m.chapter.name } : null,
+      sharedBy: m.sharedBy ? { id: m.sharedBy.id, fullName: m.sharedBy.fullName } : null,
+      mine: m.sharedById === auth.id,
     }))
 
     // Group by course → subject → chapter
@@ -143,5 +149,69 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('Student materials GET error:', error)
     return NextResponse.json({ error: error.message || 'Failed to fetch materials' }, { status: 500 })
+  }
+}
+
+// POST /api/student/materials - Student shares their own note/material
+export async function POST(req: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(req.headers)
+    if (!auth || auth.role !== 'student') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    await ensureStudyMaterialSharedColumn()
+
+    const student = await db.student.findUnique({ where: { id: auth.id } })
+    if (!student) {
+      return NextResponse.json({ error: 'Student not found' }, { status: 404 })
+    }
+
+    const body = await req.json()
+    const { title, description, type, url, courseId, subjectId, chapterId, fileSize, duration } = body
+
+    if (!title || !url) {
+      return NextResponse.json({ error: 'Title and URL are required' }, { status: 400 })
+    }
+
+    // Validate course/subject/chapter relationships if provided
+    if (subjectId) {
+      const subject = await db.subject.findUnique({ where: { id: subjectId } })
+      if (!subject) return NextResponse.json({ error: 'Invalid subjectId' }, { status: 400 })
+      if (courseId && subject.courseId !== courseId) {
+        return NextResponse.json({ error: 'Subject does not belong to the selected course' }, { status: 400 })
+      }
+    }
+    if (chapterId) {
+      const chapter = await db.chapter.findUnique({ where: { id: chapterId } })
+      if (!chapter) return NextResponse.json({ error: 'Invalid chapterId' }, { status: 400 })
+      if (subjectId && chapter.subjectId !== subjectId) {
+        return NextResponse.json({ error: 'Chapter does not belong to the selected subject' }, { status: 400 })
+      }
+    }
+
+    const validTypes = ['pdf', 'video', 'link', 'document']
+    const finalType = validTypes.includes(type) ? type : 'pdf'
+
+    const material = await db.studyMaterial.create({
+      data: {
+        title,
+        description: description || null,
+        type: finalType,
+        url,
+        courseId: courseId || null,
+        subjectId: subjectId || null,
+        chapterId: chapterId || null,
+        fileSize: fileSize || null,
+        duration: duration || null,
+        sharedById: auth.id,
+        isActive: true,
+      },
+    })
+
+    return NextResponse.json({ material })
+  } catch (error: any) {
+    console.error('Student materials POST error:', error)
+    return NextResponse.json({ error: error.message || 'Failed to share note' }, { status: 500 })
   }
 }

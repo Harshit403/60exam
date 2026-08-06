@@ -60,6 +60,7 @@ model Student {
   pushSubscriptions     PushSubscription[]
   discussionRoomMembers DiscussionRoomMember[]
   virtualLibraryMembers VirtualLibraryMember[]
+  sharedMaterials       StudyMaterial[]
 }
 
 // ==================== COURSE ====================
@@ -113,16 +114,19 @@ model Chapter {
 
 // ==================== STUDY SESSION ====================
 model StudySession {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   studentId   String
-  student     Student  @relation(fields: [studentId], references: [id])
+  student     Student   @relation(fields: [studentId], references: [id])
   chapterId   String?
-  chapter     Chapter? @relation(fields: [chapterId], references: [id])
+  chapter     Chapter?  @relation(fields: [chapterId], references: [id])
   durationMin Int
-  completed   Boolean  @default(false)
+  completed   Boolean   @default(false)
   notes       String?
-  date        DateTime @default(now())
-  createdAt   DateTime @default(now())
+  date        DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  mode        String    @default("client")
+  plannedMin  Int?
+  startedAt   DateTime?
 }
 
 // ==================== STUDY PLAN ====================
@@ -285,6 +289,8 @@ model StudyMaterial {
   subject     Subject? @relation(fields: [subjectId], references: [id])
   chapterId   String?
   chapter     Chapter? @relation(fields: [chapterId], references: [id])
+  sharedById  String?
+  sharedBy    Student? @relation(fields: [sharedById], references: [id], onDelete: SetNull)
   fileSize    String?
   duration    String?
   isActive    Boolean  @default(true)

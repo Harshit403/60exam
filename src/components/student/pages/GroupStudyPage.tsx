@@ -748,7 +748,7 @@ export function GroupStudyPage() {
       {showMembersPanel && (
         <div className="fixed inset-0 z-50 md:hidden" onClick={() => setShowMembersPanel(false)}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-          <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-700"
+          <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-2xl flex flex-col min-h-0 border-l border-slate-200 dark:border-slate-700"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700">
               <span className="text-sm font-semibold text-white">Members ({members.length})</span>
@@ -903,7 +903,7 @@ export function GroupStudyPage() {
       )}
 
       {/* Main Chat Room */}
-      <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-[calc(100dvh-110px)] max-h-full md:h-[calc(100dvh-160px)] lg:h-[calc(100dvh-178px)] relative">
+      <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/50 h-[calc(100dvh-110px)] max-h-full md:h-[calc(100dvh-160px)] lg:h-[calc(100dvh-178px)] relative overflow-hidden">
         {/* ── Header ── */}
         <div className="flex-shrink-0 bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-700 dark:to-blue-700 text-white px-2 sm:px-4 py-3 flex items-center gap-3 shadow-lg backdrop-blur-md border-b border-white/10 sticky top-0 z-30">
           {/* Back button (mobile only) */}
@@ -1001,7 +1001,7 @@ export function GroupStudyPage() {
         {/* ── Messages area ── */}
         <div className="flex-1 min-h-0 flex">
           {/* Members sidebar (desktop) */}
-          <div className="hidden md:flex md:w-60 lg:w-72 flex-shrink-0 flex-col border-r border-slate-200 dark:border-slate-700/80 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm">
+          <div className="hidden md:flex md:w-60 lg:w-72 flex-shrink-0 flex-col min-h-0 border-r border-slate-200 dark:border-slate-700/80 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm">
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700/80">
               <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Members ({members.length})</p>
             </div>
@@ -1022,7 +1022,7 @@ export function GroupStudyPage() {
           </div>
 
           {/* Chat messages */}
-          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
             <ScrollArea className="flex-1">
               <div className="px-2 sm:px-4 py-4">
                 {messages.length === 0 ? (

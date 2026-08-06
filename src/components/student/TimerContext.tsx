@@ -1,5 +1,6 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react'
+import { api } from '@/lib/api-client'
 
 const TIMER_STORAGE_KEY = 'mission-cs-pomodoro-state'
 
@@ -14,6 +15,9 @@ interface TimerPersistState {
   sessionQuote: string
   chapterName: string
   timerStartedAt: number | null
+  activeSessionId: string | null
+  reportedMinutes: number
+  lectureMode: boolean
 }
 
 interface TimerContextType {
@@ -27,6 +31,8 @@ interface TimerContextType {
   screenLocked: boolean
   sessionQuote: string
   chapterName: string
+  lectureMode: boolean
+  setLectureMode: (v: boolean) => void
   setSelectedSubjectId: (id: string) => void
   setSelectedChapterId: (id: string) => void
   setTimerSeconds: React.Dispatch<React.SetStateAction<number>>
@@ -38,6 +44,7 @@ interface TimerContextType {
   setChapterName: (name: string) => void
   startTimer: (minutes: number) => void
   resetTimer: () => void
+  finalizeSession: (completed: boolean, notes?: string) => Promise<void>
 }
 
 const TimerContext = createContext<TimerContextType | null>(null)
@@ -50,13 +57,10 @@ function loadTimerState(): TimerPersistState | null {
   try {
     const raw = localStorage.getItem(TIMER_STORAGE_KEY)
     if (!raw) return null
-    const state = JSON.parse(raw) as TimerPersistState
-    if (state.timerRunning && !state.timerPaused && state.timerSeconds > 0) {
-      const start = state.timerStartedAt || state.timestamp
-      const elapsed = Math.floor((Date.now() - start) / 1000)
-      state.timerSeconds = Math.max(0, state.timerSeconds - elapsed)
-    }
-    return state
+    // Never adjust the countdown by wall-clock time: study time only accrues
+    // while the countdown is actually running on this page. If the browser was
+    // closed (or the tab was killed) the remaining seconds stay where they were.
+    return JSON.parse(raw) as TimerPersistState
   } catch { return null }
 }
 
@@ -74,11 +78,19 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [timerCompleted, setTimerCompleted] = useState(false)
   const [sessionQuote, setSessionQuote] = useState('')
   const [chapterName, setChapterName] = useState('')
+  const [lectureMode, setLectureMode] = useState(false)
   const [screenLocked, setScreenLocked] = useState(false)
   const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Minutes already stored on the server for the current session.
+  const reportedMinRef = useRef(0)
+  // Guards the per-minute sync against overlapping requests.
+  const syncingRef = useRef(false)
+  // Throttles lecture-mode syncs so the server is hit at most once per minute.
+  const lastLectureSyncRef = useRef(0)
 
   // ─── Restore timer from localStorage on mount ────────────────────────
   useEffect(() => {
@@ -87,17 +99,19 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       setSelectedSubjectId(saved.selectedSubjectId)
       setSelectedChapterId(saved.selectedChapterId)
       setChapterName(saved.chapterName)
+      setLectureMode(saved.lectureMode || false)
       setTimerTotalSeconds(saved.timerTotalSeconds)
       setSessionQuote(saved.sessionQuote)
-      if (saved.timerRunning && !saved.timerPaused) {
-        if (saved.timerSeconds <= 0) {
-          setTimerSeconds(0)
-          setTimerRunning(false)
-          setTimerCompleted(true)
-        } else {
-          setTimerSeconds(saved.timerSeconds)
-          setTimerRunning(true)
-        }
+      setActiveSessionId(saved.activeSessionId || null)
+      reportedMinRef.current = saved.reportedMinutes || 0
+      if (saved.timerRunning && saved.timerSeconds > 0) {
+        // The browser was closed (or the tab was killed) while the timer was
+        // running. Never auto-resume: the countdown only runs while this page
+        // is actually open, so no study time accrues while away. Restore it
+        // paused and let the user resume manually if they still want to.
+        setTimerSeconds(saved.timerSeconds)
+        setTimerRunning(true)
+        setTimerPaused(true)
       } else {
         setTimerSeconds(saved.timerSeconds)
         setTimerRunning(saved.timerRunning)
@@ -117,12 +131,13 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       saveTimerState({
         selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds,
         timerRunning, timerPaused, timestamp: Date.now(), sessionQuote, chapterName,
-        timerStartedAt,
+        timerStartedAt, activeSessionId, reportedMinutes: reportedMinRef.current,
+        lectureMode,
       })
     } else if (timerSeconds === 0 && timerTotalSeconds === 0) {
       clearTimerState()
     }
-  }, [selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds, timerRunning, timerPaused, sessionQuote, chapterName, timerStartedAt])
+  }, [selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds, timerRunning, timerPaused, sessionQuote, chapterName, timerStartedAt, activeSessionId, lectureMode])
 
   // ─── Wake Lock ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -209,9 +224,28 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setTimerPaused(false)
     setTimerCompleted(false)
     setTimerStartedAt(Date.now())
-  }, [])
+    setActiveSessionId(null)
+    reportedMinRef.current = 0
+    if (lectureMode && selectedChapterId) {
+      // Server-authoritative: create the session on the server and let it
+      // record startedAt, then sync elapsed time from the server clock.
+      api.studentStartSession({
+        mode: 'lecture',
+        action: 'start',
+        chapterId: selectedChapterId,
+        plannedMin: minutes,
+      }).then((res: any) => {
+        if (res?.session?.id) setActiveSessionId(res.session.id)
+      }).catch(err => console.error('Lecture session start failed:', err))
+    }
+  }, [lectureMode, selectedChapterId])
 
   const resetTimer = useCallback(() => {
+    // In lecture mode, tell the server to stop accruing time for this session
+    // so the stored study time is not inflated after the timer is reset.
+    if (activeSessionId && lectureMode) {
+      api.studentStartSession({ id: activeSessionId, mode: 'lecture', action: 'pause' }).catch(() => {})
+    }
     setTimerRunning(false)
     setTimerPaused(false)
     setTimerSeconds(0)
@@ -220,20 +254,177 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setSessionQuote('')
     setChapterName('')
     setTimerStartedAt(null)
+    setActiveSessionId(null)
+    reportedMinRef.current = 0
     clearTimerState()
     if (timerInterval.current) {
       clearInterval(timerInterval.current)
       timerInterval.current = null
     }
-  }, [])
+  }, [activeSessionId, lectureMode])
+
+  // ─── Per-minute study-time sync ───────────────────────────────────────
+  // While the timer runs, every full minute of study time is reported to the
+  // server. The first report creates the session row, subsequent ones update it
+  // incrementally, so study time is stored even if the session is interrupted.
+  const reportTick = useCallback(async () => {
+    if (syncingRef.current || timerTotalSeconds <= 0) return
+
+    if (lectureMode && activeSessionId) {
+      // Server-authoritative: ask the server to fold its own elapsed time into
+      // the session, then adopt its count so the client clock stays honest even
+      // if the tab spent time in the background. Throttled to once per minute.
+      if (Date.now() - lastLectureSyncRef.current < 60000) return
+      lastLectureSyncRef.current = Date.now()
+      syncingRef.current = true
+      try {
+        const res = await api.studentStartSession({ id: activeSessionId, mode: 'lecture', action: 'sync' })
+        const elapsedMin = Number(res?.elapsedMin || 0)
+        reportedMinRef.current = elapsedMin
+        // If the server is ahead of the local countdown (backgrounded tab),
+        // pull the display forward to match the stored study time.
+        const serverSeconds = Math.max(0, timerTotalSeconds - elapsedMin * 60)
+        setTimerSeconds(prev => (serverSeconds < prev ? serverSeconds : prev))
+      } catch (err) {
+        console.error('Lecture sync failed:', err)
+      } finally {
+        syncingRef.current = false
+      }
+      return
+    }
+
+    // In lecture mode the server is authoritative; skip the client-side
+    // reporting path entirely (it would create a competing client session).
+    if (lectureMode) return
+
+    const studiedMin = Math.floor((timerTotalSeconds - timerSeconds) / 60)
+    const toReport = studiedMin - reportedMinRef.current
+    if (toReport <= 0) return
+    syncingRef.current = true
+    try {
+      const res = await api.studentStartSession({
+        ...(activeSessionId ? { id: activeSessionId } : {}),
+        chapterId: selectedChapterId || undefined,
+        durationMin: toReport,
+        completed: false,
+      })
+      if (!activeSessionId && res?.session?.id) {
+        setActiveSessionId(res.session.id)
+      }
+      reportedMinRef.current = studiedMin
+    } catch (err) {
+      console.error('Study time sync failed:', err)
+    } finally {
+      syncingRef.current = false
+    }
+  }, [timerTotalSeconds, timerSeconds, activeSessionId, selectedChapterId, lectureMode])
+
+  useEffect(() => {
+    if (!timerRunning || timerPaused) return
+    reportTick()
+  }, [reportTick, timerRunning, timerPaused])
+
+  // ─── Lecture mode: pause/resume on the server ─────────────────────────
+  // Keep the server's startedAt in sync with the local pause state so the
+  // authoritative elapsed time only accrues while the user is actually running.
+  const prevPausedRef = useRef(timerPaused)
+  useEffect(() => {
+    if (!lectureMode || !activeSessionId) {
+      prevPausedRef.current = timerPaused
+      return
+    }
+    if (timerPaused !== prevPausedRef.current) {
+      const wasPaused = prevPausedRef.current
+      prevPausedRef.current = timerPaused
+      if (timerPaused && !wasPaused) {
+        api.studentStartSession({ id: activeSessionId, mode: 'lecture', action: 'pause' }).catch(() => {})
+      } else if (!timerPaused && wasPaused) {
+        api.studentStartSession({ id: activeSessionId, mode: 'lecture', action: 'resume' }).catch(() => {})
+      }
+    }
+  }, [lectureMode, activeSessionId, timerPaused])
+
+  // ─── Lecture mode: freeze the server clock when the page is closed ────
+  // If the tab/browser is closed mid-session, tell the server to stop accruing
+  // time so no study time is stored while the page is gone. Note: we do NOT
+  // pause on visibilitychange, because lecture mode is meant to keep counting
+  // while the tab sits in the background.
+  useEffect(() => {
+    if (!lectureMode || !activeSessionId || timerPaused) return
+    const pauseOnUnload = () => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      try {
+        fetch('/api/student/study-session', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ id: activeSessionId, mode: 'lecture', action: 'pause' }),
+        }).catch(() => {})
+      } catch {}
+    }
+    window.addEventListener('pagehide', pauseOnUnload)
+    window.addEventListener('beforeunload', pauseOnUnload)
+    return () => {
+      window.removeEventListener('pagehide', pauseOnUnload)
+      window.removeEventListener('beforeunload', pauseOnUnload)
+    }
+  }, [lectureMode, activeSessionId, timerPaused])
+
+  // ─── Finalize session on the completion screen ────────────────────────
+  // Stores any minutes the per-minute sync didn't get to and marks the session
+  // completed (or not), along with the student's optional notes.
+  const finalizeSession = useCallback(async (completed: boolean, notes?: string) => {
+    const id = activeSessionId
+    const cleanNotes = typeof notes === 'string' && notes.trim() ? notes.trim() : undefined
+
+    if (lectureMode) {
+      if (id) {
+        try {
+          await api.studentStartSession({
+            id,
+            mode: 'lecture',
+            action: 'complete',
+            completed,
+            ...(cleanNotes ? { notes: cleanNotes } : {}),
+          })
+        } catch (err) {
+          console.error('Finalize lecture session error:', err)
+        }
+      }
+      setActiveSessionId(null)
+      reportedMinRef.current = 0
+      return
+    }
+
+    const finalDelta = Math.max(0, Math.floor((timerTotalSeconds - timerSeconds) / 60) - reportedMinRef.current)
+    if (!id && finalDelta <= 0) {
+      setActiveSessionId(null)
+      reportedMinRef.current = 0
+      return
+    }
+    try {
+      await api.studentStartSession({
+        ...(id ? { id } : {}),
+        chapterId: selectedChapterId || undefined,
+        durationMin: finalDelta,
+        completed,
+        ...(cleanNotes ? { notes: cleanNotes } : {}),
+      })
+    } catch (err) {
+      console.error('Finalize session error:', err)
+    }
+    setActiveSessionId(null)
+    reportedMinRef.current = 0
+  }, [activeSessionId, timerTotalSeconds, timerSeconds, selectedChapterId, lectureMode])
 
   return (
     <TimerContext.Provider value={{
       selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds,
       timerRunning, timerPaused, timerCompleted, screenLocked, sessionQuote, chapterName,
+      lectureMode, setLectureMode,
       setSelectedSubjectId, setSelectedChapterId, setTimerSeconds, setTimerTotalSeconds,
       setTimerRunning, setTimerPaused, setTimerCompleted, setSessionQuote, setChapterName,
-      startTimer, resetTimer,
+      startTimer, resetTimer, finalizeSession,
     }}>
       {children}
     </TimerContext.Provider>

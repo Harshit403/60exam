@@ -10,10 +10,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Switch } from '@/components/ui/switch'
 import {
   Flame, Settings, CheckCircle2, Clock, Play, Pause, RotateCcw,
   ChevronRight, Trophy, BookOpen, Target, Loader2, Lock, Crown, Sparkles, ListChecks, StickyNote,
-  CalendarCheck, ArrowRight, MonitorSmartphone,
+  CalendarCheck, ArrowRight, MonitorSmartphone, Server,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { ACHIEVEMENT_TIERS } from '@/lib/achievements'
@@ -33,9 +34,11 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
   const {
     selectedSubjectId, selectedChapterId, timerSeconds, timerTotalSeconds,
     timerRunning, timerPaused, timerCompleted, screenLocked, sessionQuote, chapterName,
+    lectureMode, setLectureMode,
     setSelectedSubjectId, setSelectedChapterId, setTimerRunning, setTimerPaused,
     setTimerSeconds, setTimerTotalSeconds, setTimerCompleted, setSessionQuote, setChapterName,
     startTimer: contextStartTimer, resetTimer: contextResetTimer,
+    finalizeSession: contextFinalizeSession,
   } = useTimer()
   const [timerPreset, setTimerPreset] = useState(0)
   const [customMinutes, setCustomMinutes] = useState('')
@@ -99,7 +102,7 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
     try {
       // Ranked by today's study minutes so the current student's own time is
       // always shown (the API also returns their rank when not in the top).
-      const data = await api.studentLeaderboard(5, undefined, 'today')
+      const data = await api.studentLeaderboard(5, undefined, '24h')
       setLeaderboardData(data.leaderboard || [])
       setCurrentUserRank(data.currentUserRank || null)
     } catch (err) { console.error('Leaderboard fetch error:', err) }
@@ -160,9 +163,8 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
   }
 
   const handleTimerComplete = async (completed: boolean) => {
-    const durationMin = Math.round(timerTotalSeconds / 60)
     try {
-      await api.studentStartSession({ chapterId: selectedChapterId, durationMin, completed, notes: sessionNotes.trim() || undefined })
+      await contextFinalizeSession(completed, sessionNotes)
       if (completed) await api.studentMarkChapter(selectedChapterId, true)
     } catch (err) { console.error('Session save error:', err) }
     setSessionNotes('')
@@ -309,18 +311,34 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
       ═══════════════════════════════════════════════════════════════════ */}
       <Card id="study-session-card" className="overflow-hidden border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/20">
         <CardHeader className="pb-3 border-b border-emerald-100 dark:border-emerald-900/50">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-lg flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center flex-shrink-0 shadow-sm">
                 <BookOpen className="w-4 h-4 text-white" />
               </div>
               Study Session
             </CardTitle>
-            {timerRunning && (
-              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-                <Clock className="w-3 h-3 mr-1" /> {timerPaused ? 'Paused' : 'In Progress'}
-              </Badge>
-            )}
+            <div className="flex items-center gap-3">
+              {timerRunning && (
+                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+                  <Clock className="w-3 h-3 mr-1" /> {timerPaused ? 'Paused' : 'In Progress'}
+                </Badge>
+              )}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <label className={`flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 border transition-colors ${lectureMode ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30' : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                      <Server className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span className={`text-xs font-semibold ${lectureMode ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}`}>Lecture Mode</span>
+                      <Switch checked={lectureMode} onCheckedChange={setLectureMode} disabled={timerRunning} className="data-[state=checked]:bg-emerald-600" />
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-center">
+                    <p>Run the Pomodoro timer on the server and store the study session in the database — study time keeps counting even if you switch tabs.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
           <CardDescription className="text-emerald-700/70 dark:text-emerald-400/70">Which chapter do you want to study today?</CardDescription>
         </CardHeader>
