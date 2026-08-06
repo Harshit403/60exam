@@ -6,9 +6,14 @@
 // "perfect negotiation": when both sides currently hold a local offer, the
 // smaller userId yields (rollback) and accepts the peer's offer.
 
+const TURN_USERNAME = '000000002101377832'
+const TURN_PASSWORD = 'LontLkAukn0glzMGPwfSwSPPrs3='
+
 const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun3.l.google.com:19302', 'stun:global.stun.twilio.com:3478', 'stun:stun.cloudflare.com:3478'] },
-  { urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:5349?transport=tcp'] },
+  { urls: ['stun:free.expressturn.com:3478'], username: TURN_USERNAME, credential: TURN_PASSWORD },
+  { urls: ['turn:free.expressturn.com:3478?transport=udp'], username: TURN_USERNAME, credential: TURN_PASSWORD },
+  { urls: ['turns:free.expressturn.com:443'], username: TURN_USERNAME, credential: TURN_PASSWORD },
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
 ]
 
 export interface RoomMember {
@@ -146,7 +151,7 @@ export class RoomCall {
     this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
-      .then(() => { if (pc.localDescription) this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription }) })
+      .then(() => { if (pc.localDescription) this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription.sdp }) })
       .catch(() => { /* ignore */ })
   }
 
@@ -186,7 +191,7 @@ export class RoomCall {
           .then(() => this.flushCandidates(from))
           .then(() => pc.createAnswer())
           .then(answer => pc.setLocalDescription(answer))
-          .then(() => { if (pc.localDescription) this.sendSignal(from, { type: 'answer', sdp: pc.localDescription }) })
+          .then(() => { if (pc.localDescription) this.sendSignal(from, { type: 'answer', sdp: pc.localDescription.sdp }) })
           .catch(() => { /* ignore */ })
       } else {
         // Store the offer until we're ready to answer.
