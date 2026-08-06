@@ -10,6 +10,29 @@ function newSignalId(): string {
   return `sig-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+// RoomSignal was added to the schema after the app was first deployed, so the
+// table may not exist on the live DB yet. Create it lazily on first use so
+// cross-instance signaling works without requiring a manual migration.
+let roomSignalTableReady = false
+async function ensureRoomSignalTable() {
+  if (roomSignalTableReady) return
+  await db.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "RoomSignal" (
+      "id" TEXT NOT NULL,
+      "channel" TEXT NOT NULL,
+      "from" TEXT NOT NULL,
+      "to" TEXT,
+      "data" JSONB NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "RoomSignal_pkey" PRIMARY KEY ("id")
+    );
+  `)
+  await db.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "RoomSignal_channel_createdAt_idx" ON "RoomSignal" ("channel", "createdAt")`,
+  ).catch(() => {})
+  roomSignalTableReady = true
+}
+
 // Relay a WebRTC signal: persist to the shared DB (works across serverless
 // instances) and also fan out through the in-memory hub (instant on one
 // instance). The same id is used on both paths so clients can dedupe.
@@ -18,8 +41,16 @@ async function relaySignal(channel: string, from: string, to: string | null, dat
   try {
     await db.roomSignal.create({
       data: { id, channel, from, to: to || null, data: data as any },
-    }).catch(() => { throw new Error('db') })
-  } catch { /* DB relay unavailable; rely on in-memory hub fallback */ }
+    })
+  } catch {
+    // Table likely missing on the live DB — self-heal once, then retry.
+    try {
+      await ensureRoomSignalTable()
+      await db.roomSignal.create({
+        data: { id, channel, from, to: to || null, data: data as any },
+      })
+    } catch { /* DB relay still unavailable; rely on in-memory hub fallback */ }
+  }
   hubPublish(channel, 'signal', { id, from, to: to || null, data })
 }
 

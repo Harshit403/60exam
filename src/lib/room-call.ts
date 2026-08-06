@@ -56,9 +56,15 @@ export class RoomCall {
   constructor(opts: RoomCallOptions) {
     this.opts = opts
     this.speaker = opts.getMyIsSpeaker()
+    try { (window as any).__roomCall = this } catch { /* ignore */ }
+  }
+
+  private log(...args: any[]) {
+    console.log(`[RoomCall:${this.opts.kind}]`, ...args)
   }
 
   start() {
+    this.log('start', { userId: this.opts.userId, roomId: this.opts.roomId, speaker: this.speaker })
     this.startReconcile()
   }
 
@@ -70,9 +76,11 @@ export class RoomCall {
         audio: true,
         video: this.opts.kind === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false,
       })
+      this.log('local media ok', { tracks: this.local.getTracks().map(t => t.kind) })
       this.opts.onLocalMedia?.(this.local)
       this.syncAllLocalTracks()
-    } catch {
+    } catch (err) {
+      this.log('local media FAILED', err)
       this.opts.onLocalMedia?.(null)
     }
     return this.local
@@ -95,6 +103,7 @@ export class RoomCall {
   private createPc(targetId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(this.pcConfig())
     this.pcs.set(targetId, pc)
+    this.log('pc created', targetId, this.isInitiator(targetId) ? 'initiator' : 'polite')
 
     const sync = () => this.syncLocalTrack(pc)
 
@@ -107,7 +116,14 @@ export class RoomCall {
         this.makeOffer(targetId)
       }
     }
+    pc.onconnectionstatechange = () => {
+      this.log('conn', targetId, pc.connectionState)
+    }
+    pc.oniceconnectionstatechange = () => {
+      this.log('ice', targetId, pc.iceConnectionState)
+    }
     pc.ontrack = (e) => {
+      this.log('remote track', targetId, e.track.kind)
       const stream = e.streams?.[0] || new MediaStream([e.track])
       this.remotes.set(targetId, stream)
       if (this.pendingCandidates.get(targetId)?.length) this.flushCandidates(targetId)
@@ -151,8 +167,13 @@ export class RoomCall {
     this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
-      .then(() => { if (pc.localDescription) this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription.sdp }) })
-      .catch(() => { /* ignore */ })
+      .then(() => {
+        if (pc.localDescription) {
+          this.log('sending offer', targetId)
+          this.sendSignal(targetId, { type: 'offer', sdp: pc.localDescription.sdp })
+        }
+      })
+      .catch((err) => { this.log('makeOffer error', targetId, err) })
   }
 
   onSignal(from: string, to: string | null, data: any, sigId?: string) {
@@ -160,6 +181,7 @@ export class RoomCall {
     const me = this.opts.userId
     if (from === me) return
     if (to && to !== me) return
+    this.log('recv signal', from, data?.type, { sigId })
     // Dedupe relayed signals (delivered via both the DB poll and the hub).
     if (sigId) {
       if (this.seenSignalIds.has(sigId)) return
@@ -225,10 +247,12 @@ export class RoomCall {
   }
 
   private sendSignal(to: string, data: any) {
+    this.log('send signal', to, data?.type)
     this.opts.sendSignal(to, data)
   }
 
   setPresence(members: RoomMember[]) {
+    this.log('setPresence', members.length, 'peers')
     // Connect to every other participant (both speakers and audience). This
     // guarantees a transport exists so speakers' media reaches the audience and
     // audience members can be promoted to the stage without re-creating peers.
