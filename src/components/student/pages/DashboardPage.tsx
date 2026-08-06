@@ -324,20 +324,11 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
                   <Clock className="w-3 h-3 mr-1" /> {timerPaused ? 'Paused' : 'In Progress'}
                 </Badge>
               )}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <label className={`flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 border transition-colors ${lectureMode ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30' : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-                      <Server className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span className={`text-xs font-semibold ${lectureMode ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}`}>Lecture Mode</span>
-                      <Switch checked={lectureMode} onCheckedChange={setLectureMode} disabled={timerRunning} className="data-[state=checked]:bg-emerald-600" />
-                    </label>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs text-center">
-                    <p>Run the Pomodoro timer on the server and store the study session in the database — study time keeps counting even if you switch tabs.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <label className={`flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 border transition-colors ${lectureMode ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30' : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <Server className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span className={`text-xs font-semibold ${lectureMode ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}`}>Lecture Mode</span>
+                <Switch checked={lectureMode} onCheckedChange={setLectureMode} disabled={timerRunning} className="data-[state=checked]:bg-emerald-600" />
+              </label>
             </div>
           </div>
           <CardDescription className="text-emerald-700/70 dark:text-emerald-400/70">Which chapter do you want to study today?</CardDescription>

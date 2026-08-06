@@ -762,7 +762,7 @@ export function GroupStudyPage() {
                 <Play className="w-3.5 h-3.5" /> Start Studying
               </button>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="p-2 space-y-0.5">
                 {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
                 {members.length === 0 && (
@@ -1011,7 +1011,7 @@ export function GroupStudyPage() {
                 <Play className="w-3.5 h-3.5" /> Start Studying
               </button>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="p-2 space-y-0.5">
                 {members.map(m => (<MemberItem key={m.userId} member={m} currentUserId={userId} />))}
                 {members.length === 0 && (
@@ -1022,8 +1022,13 @@ export function GroupStudyPage() {
           </div>
 
           {/* Chat messages */}
-          <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
-            <ScrollArea className="flex-1">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(99,102,241,0.07) 1px, transparent 1px), radial-gradient(rgba(99,102,241,0.05) 1px, transparent 1px)',
+              backgroundSize: '22px 22px, 22px 22px',
+              backgroundPosition: '0 0, 11px 11px',
+            }}>
+            <ScrollArea className="flex-1 min-h-0">
               <div className="px-2 sm:px-4 py-4">
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
