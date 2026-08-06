@@ -205,7 +205,9 @@ export function VirtualLibrariesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, setupLocalAnalyser])
 
-  // Detect speech from the local mic with hysteresis and drive sender quality.
+  // Detect speech from the local mic with hysteresis, drive sender quality,
+  // and broadcast the shared speaking flag so every connected peer renders the
+  // same speaking state (the publish triggers an immediate vroom-state refresh).
   useEffect(() => {
     if (!active) return
     const t = setInterval(() => {
@@ -214,6 +216,7 @@ export function VirtualLibrariesPage() {
       if (speaking !== speakingRef.current) {
         speakingRef.current = speaking
         callRef.current?.setSpeaking(speaking)
+        api.realtimePublish({ action: 'library-state', roomId: active.id, speaking }).catch(() => {})
       }
     }, 250)
     return () => { clearInterval(t); callRef.current?.setSpeaking(false) }
@@ -259,6 +262,14 @@ export function VirtualLibrariesPage() {
     } catch (err: any) {
       alert(err?.message || 'Could not join room')
     } finally { setActionBusy(false) }
+  }
+
+  // Join straight away if the user already picked a gender before (saved in
+  // localStorage); only ask again the very first time.
+  const requestJoin = (room: RoomInfo) => {
+    const saved = getLastSavedIdentity()
+    if (saved) join(room, saved.gender)
+    else setGenderPickRoom(room)
   }
 
   // Attach streams to the actual <video> elements once they arrive. Setting
@@ -354,7 +365,7 @@ export function VirtualLibrariesPage() {
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">You are currently in this video room</p>
               </div>
             </div>
-            <Button size="sm" onClick={() => setGenderPickRoom(currentRoom)} className="bg-blue-600 hover:bg-blue-700">
+            <Button size="sm" onClick={() => requestJoin(currentRoom)} className="bg-blue-600 hover:bg-blue-700">
               <Video className="w-4 h-4 mr-1" /> Join Video
             </Button>
           </div>
@@ -387,7 +398,7 @@ export function VirtualLibrariesPage() {
                     </Badge>
                   </div>
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <Button size="sm" onClick={() => setGenderPickRoom(r)} disabled={full || actionBusy} className="bg-blue-600 hover:bg-blue-700 text-xs">
+                    <Button size="sm" onClick={() => requestJoin(r)} disabled={full || actionBusy} className="bg-blue-600 hover:bg-blue-700 text-xs">
                       {full ? 'Room Full' : 'Join Video'}
                     </Button>
                   </div>
@@ -558,6 +569,11 @@ export function VirtualLibrariesPage() {
                       <span className="px-1.5 py-0.5 rounded-full bg-black/60 text-white/90 text-[9px] font-medium backdrop-blur" title="Auto video quality (climbs toward the best the network can sustain)">
                         {qualityLabel}
                       </span>
+                      {speakingRef.current && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/90 text-white text-[9px] font-medium backdrop-blur flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Speaking
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -588,6 +604,11 @@ export function VirtualLibrariesPage() {
                         <span className="px-1.5 py-0.5 rounded-full bg-black/60 text-white text-[9px] font-medium backdrop-blur truncate flex items-center gap-1" style={{ borderLeft: `3px solid ${m.color}` }}>
                           {m.displayName}
                         </span>
+                        {m.speaking && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/90 text-white text-[9px] font-medium backdrop-blur flex items-center gap-1 shrink-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Speaking
+                          </span>
+                        )}
                       </div>
                       {/* Muted mic indicator for everyone else in the room */}
                       {m.micOff && (

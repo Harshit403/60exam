@@ -41,6 +41,7 @@ export interface RoomMember {
   stageInvited?: boolean
   onStageSince?: number | null
   micOff?: boolean
+  speaking?: boolean
 }
 
 export interface RoomCallOptions {
@@ -76,6 +77,9 @@ export class RoomCall {
   private qualityTimer: ReturnType<typeof setInterval> | null = null
   private qualityApplied = false
   private lastQualityLabel: string | null = null
+  // When the user stops speaking, hold the highest quality level reached for
+  // this long before falling back to the lowest rung (144p).
+  private silentSince: number | null = null
   private quality: { level: number; goodTicks: number; lossEwma: number; rttEwma: number; last: { lost: number; received: number } | null } | null = null
 
   constructor(opts: RoomCallOptions) {
@@ -237,10 +241,28 @@ export class RoomCall {
     for (const pc of this.pcs.values()) this.syncLocalTrack(pc)
   }
 
+  // True when this pc is carrying every required, un-muted local track kind.
+  // Muted kinds are intentionally detached (true mute) and don't count as
+  // missing, so a cam-off video participant won't renegotiate forever.
+  private hasLocalTracks(pc: RTCPeerConnection): boolean {
+    const kinds = this.opts.kind === 'video' ? ['audio', 'video'] : ['audio']
+    return kinds.every(kind => {
+      const muted = (kind === 'audio' && !this.micEnabled) || (kind === 'video' && !this.camEnabled)
+      if (muted) return true
+      return pc.getSenders().some(s => s.track?.kind === kind)
+    })
+  }
+
   private makeOffer(targetId: string) {
     const pc = this.pcs.get(targetId)
     if (!pc) return
     if (pc.signalingState !== 'stable') return
+    // Never send a trackless offer. Local media arrives asynchronously (the mic
+    // permission prompt can take seconds), so an early offer would establish a
+    // media-less connection and the follow-up renegotiation that adds the audio
+    // track can be lost — leaving peers with silence. Wait for media instead;
+    // reconcile() re-offers as soon as tracks exist.
+    if (!this.local) return
     this.syncLocalTrack(pc)
     this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
@@ -421,23 +443,27 @@ export class RoomCall {
 
     const q = this.quality || (this.quality = { level: 0, goodTicks: 0, lossEwma: 0, rttEwma: 0, last: null })
 
-    // Not speaking → everyone receives you at the lowest rung (144p).
+    // Not speaking → hold the highest quality reached during short pauses and
+    // only fall back to the lowest rung (144p) after 30s of continuous silence.
     if (!this.speaking) {
-      q.last = null
-      // Apply the lowest rung even on the first run (q.level starts at 0, so
-      // `q.level !== 0` alone would skip the very first downscale).
-      if (!this.qualityApplied || q.level !== 0) {
+      if (this.silentSince === null) this.silentSince = Date.now()
+      const silentFor = Date.now() - this.silentSince
+      // First run caps at 144p immediately; later runs hold the current level
+      // and only step back to 144p after 30s of silence.
+      if (!this.qualityApplied || (silentFor >= 30000 && q.level !== 0)) {
+        q.last = null
         q.level = 0
         this.applyQualityLevel(0)
-      }
-      this.qualityApplied = true
-      const silentLabel = VIDEO_QUALITY_LEVELS[0].label
-      if (silentLabel !== this.lastQualityLabel) {
-        this.lastQualityLabel = silentLabel
-        this.opts.onQualityChange?.(silentLabel)
+        this.qualityApplied = true
+        const silentLabel = VIDEO_QUALITY_LEVELS[0].label
+        if (silentLabel !== this.lastQualityLabel) {
+          this.lastQualityLabel = silentLabel
+          this.opts.onQualityChange?.(silentLabel)
+        }
       }
       return
     }
+    this.silentSince = null
 
     if (!this.qualityApplied) {
       this.qualityApplied = true
@@ -500,15 +526,19 @@ export class RoomCall {
         this.createPc(id)
         this.syncLocalTrack(this.pcs.get(id)!)
         if (this.isInitiator(id)) this.makeOffer(id)
-      } else if (this.isInitiator(id)) {
+      } else {
         const pc = this.pcs.get(id)!
-        const state = pc.iceConnectionState
-        const notEstablished = state !== 'connected' && state !== 'completed'
-        if (pc.signalingState === 'stable' && notEstablished && (now - (this.lastOfferAt.get(id) || 0)) >= 4000) {
+        const established = pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed'
+        // Renegotiate when the transport is up but missing our local tracks.
+        // Media (mic permission) can arrive after the first offer, so this is
+        // what turns a media-less connection into one that actually carries
+        // audio/video. Either side may re-offer (perfect negotiation resolves
+        // glare), throttled to once per 4s window.
+        const missingTracks = this.speaker && !!this.local && !this.hasLocalTracks(pc)
+        if (pc.signalingState === 'stable' && (!established || missingTracks) && (now - (this.lastOfferAt.get(id) || 0)) >= 4000) {
           this.makeOffer(id)
         }
-      } else {
-        this.syncLocalTrack(this.pcs.get(id)!)
+        this.syncLocalTrack(pc)
       }
       this.syncAllLocalTracks()
     }
@@ -534,5 +564,6 @@ export class RoomCall {
     this.quality = null
     this.qualityApplied = false
     this.lastQualityLabel = null
+    this.silentSince = null
   }
 }

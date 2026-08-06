@@ -74,12 +74,15 @@ const ZERO_METER: VoiceMeter = { lvl: 0, bands: new Array(BAND_COUNT).fill(0) }
 // participants get no effect at all (space is reserved so cards don't jump).
 // When speaking, each bar's height follows its frequency band's energy so
 // louder/pitchier speech raises taller bars, with a pulse animation.
-function SpeakingWave({ meter, color }: { meter: VoiceMeter; color: string }) {
-  const speaking = meter.lvl >= SPEAKING_THRESHOLD
+function SpeakingWave({ meter, color, speaking }: { meter: VoiceMeter; color: string; speaking: boolean }) {
   if (!speaking) return <div className="flex items-end justify-center gap-[2px] h-4" aria-hidden="true" />
+  // The shared `speaking` flag is the source of truth (it comes from the peer's
+  // own mic), so when this client has no analyser data for that user yet (bars
+  // all zero) animate a neutral wave instead of going blank.
+  const bands = meter.bands.some(b => b > 0) ? meter.bands : [0.3, 0.45, 0.35, 0.5, 0.4, 0.45, 0.3]
   return (
     <div className="flex items-end justify-center gap-[2px] h-4" style={{ color }}>
-      {meter.bands.map((b, i) => (
+      {bands.map((b, i) => (
         <span
           key={i}
           className="speaking-bar"
@@ -115,6 +118,7 @@ export function DiscussionRoomsPage() {
   const audioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; trackId: string }>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
+  const speakingRef = useRef(false)
 
   // Only send heartbeats while the user is genuinely present: they interacted
   // with the page recently, or they're listening (visible tab + audio running).
@@ -305,6 +309,10 @@ export function DiscussionRoomsPage() {
 
   const join = async (room: RoomInfo, gender?: 'male' | 'female') => {
     setActionBusy(true)
+    // Create the AudioContext synchronously inside this click gesture. Browsers
+    // suspend a context created outside a user activation (e.g. after the await
+    // below), which would make every incoming remote voice inaudible.
+    ensureAudioCtx()
     try {
       const saved = gender ? getSavedAnonymousIdentity(gender) : null
       const data = await api.studentDiscussionRoomJoin(room.id, gender, saved || undefined)
@@ -319,10 +327,17 @@ export function DiscussionRoomsPage() {
       setActive(room)
       setCurrentRoom(room)
       setRooms(prev => prev.map(r => r.id === room.id ? { ...r, isFull: true } : r))
-      ensureAudioCtx()
     } catch (err: any) {
       alert(err?.message || 'Could not join room')
     } finally { setActionBusy(false) }
+  }
+
+  // Join straight away if the user already picked a gender before (saved in
+  // localStorage); only ask again the very first time.
+  const requestJoin = (room: RoomInfo) => {
+    const saved = getLastSavedIdentity()
+    if (saved) join(room, saved.gender)
+    else setGenderPickRoom(room)
   }
 
   // Route incoming audio through Web Audio (analyser → speakers) and meter the
@@ -363,6 +378,24 @@ export function DiscussionRoomsPage() {
     return () => clearInterval(t)
   }, [active])
 
+  // Detect when the local user starts/stops talking and broadcast it so every
+  // connected peer shows the same speaking state. Peers can't trust their own
+  // local meters — silence thresholds and audio routing differ per client — so
+  // this shared flag is the source of truth for the wave/pulse. Publishing
+  // triggers an immediate `refresh` → `droom-state` re-broadcast over SSE.
+  useEffect(() => {
+    if (!active) return
+    speakingRef.current = false
+    const t = setInterval(() => {
+      const lvl = localAnalyserRef.current ? computeLevel(localAnalyserRef.current) : 0
+      const speaking = lvl >= SPEAKING_THRESHOLD
+      if (speaking === speakingRef.current) return
+      speakingRef.current = speaking
+      api.realtimePublish({ action: 'discussion-state', roomId: active.id, speaking }).catch(() => {})
+    }, 250)
+    return () => { clearInterval(t); speakingRef.current = false }
+  }, [active?.id])
+
   // Browsers suspend the AudioContext when autoplay policy can't be satisfied
   // (context created outside a gesture, after tab switch, etc.). If it's ever
   // suspended, incoming remote audio is routed but silent — so keep nudging it
@@ -374,6 +407,24 @@ export function DiscussionRoomsPage() {
       if (ctx && ctx.state === 'suspended') ctx.resume?.().catch(() => {})
     }, 1000)
     return () => clearInterval(t)
+  }, [active])
+
+  // Any user interaction (clicking mute, the stage buttons, anywhere) is a
+  // fresh user activation, so `resume()` succeeds there. Wire the common
+  // gestures to unlock the context the moment the user does anything, instead
+  // of waiting for the interval nudge above (which has no gesture and can be
+  // rejected). This guarantees incoming remote voice is actually audible.
+  useEffect(() => {
+    if (!active) return
+    const unlock = () => audioCtxRef.current?.resume?.().catch(() => {})
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    window.addEventListener('click', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+      window.removeEventListener('click', unlock)
+    }
   }, [active])
 
   const leaveRoom = async () => {
@@ -420,7 +471,7 @@ export function DiscussionRoomsPage() {
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">You are currently in this voice room</p>
               </div>
             </div>
-            <Button size="sm" onClick={() => setGenderPickRoom(currentRoom)} className="bg-orange-600 hover:bg-orange-700">
+            <Button size="sm" onClick={() => requestJoin(currentRoom)} className="bg-orange-600 hover:bg-orange-700">
               <Mic className="w-4 h-4 mr-1" /> Join Voice
             </Button>
           </div>
@@ -462,9 +513,9 @@ export function DiscussionRoomsPage() {
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex items-center justify-between gap-2">
                       {r.isCurrentUserMember ? (
-                        <Button size="sm" onClick={() => setGenderPickRoom(r)} className="text-xs">Rejoin Voice</Button>
+                        <Button size="sm" onClick={() => requestJoin(r)} className="text-xs">Rejoin Voice</Button>
                       ) : (
-                        <Button size="sm" onClick={() => setGenderPickRoom(r)} disabled={full || actionBusy} className="bg-rose-600 hover:bg-rose-700 text-xs">
+                        <Button size="sm" onClick={() => requestJoin(r)} disabled={full || actionBusy} className="bg-rose-600 hover:bg-rose-700 text-xs">
                           {full ? 'Room Full' : 'Join Voice'}
                         </Button>
                       )}
@@ -576,7 +627,7 @@ export function DiscussionRoomsPage() {
                       : 'You are muted · listeners only'}
               </p>
               {me.onStage && (
-                <div className="mt-1"><SpeakingWave meter={levels['me'] || ZERO_METER} color={me.color} /></div>
+                <div className="mt-1"><SpeakingWave meter={levels['me'] || ZERO_METER} color={me.color} speaking={meSpeaking} /></div>
               )}
               {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
                 <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
@@ -631,7 +682,10 @@ export function DiscussionRoomsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {onStage.map(m => {
               const isMe = m.userId === userIdRef.current
-              const speaking = (levels[m.userId]?.lvl ?? 0) >= SPEAKING_THRESHOLD
+              // Shared flag is the source of truth for peers; self uses the
+              // local analyser so the wave reacts instantly, before the SSE
+              // round-trip of our own broadcast comes back.
+              const speaking = isMe ? (levels[m.userId]?.lvl ?? 0) >= SPEAKING_THRESHOLD : !!m.speaking
               return (
                 <div key={m.userId} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex flex-col items-center gap-1.5 shadow-sm text-center">
                   <div className="relative">
@@ -650,7 +704,7 @@ export function DiscussionRoomsPage() {
                       {m.role === 'moderator' ? <><ShieldCheck className="w-2.5 h-2.5 mr-0.5 text-amber-500" />Moderator</> : 'On Stage'}
                     </Badge>
                   </div>
-                  <div className="-mt-1"><SpeakingWave meter={levels[m.userId] || ZERO_METER} color={m.color} /></div>
+                  <div className="-mt-1"><SpeakingWave meter={levels[m.userId] || ZERO_METER} color={m.color} speaking={speaking} /></div>
                   {!isMe && m.role !== 'moderator' && me?.role === 'moderator' && (
                     <Button size="sm" variant="outline" className="text-[10px] h-7 text-rose-600 hover:text-rose-700 border-rose-200 dark:border-rose-900" onClick={() => stageAction(m.userId, 'remove')} disabled={actionBusy}>
                       <UserX className="w-3 h-3 mr-1" /> Remove

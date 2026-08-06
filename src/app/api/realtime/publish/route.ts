@@ -293,14 +293,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ─── Discussion Room: mic mute state ───────────────────────────
+    // ─── Discussion Room: mic mute + speaking state ───────────────
     case 'discussion-state': {
-      const { roomId, micOff } = body
-      if (!roomId || typeof micOff !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      const { roomId, micOff, speaking } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      if (typeof micOff !== 'boolean' && typeof speaking !== 'boolean') {
+        return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      }
       await ensureStageInvitedColumn()
+      const droomData: any = { lastActiveAt: new Date() }
+      if (typeof micOff === 'boolean') droomData.micOff = micOff
+      if (typeof speaking === 'boolean') droomData.speaking = speaking
       await db.discussionRoomMember.updateMany({
         where: { roomId, studentId: auth.id, leftAt: null },
-        data: { micOff, lastActiveAt: new Date() },
+        data: droomData,
       }).catch(() => {})
       hubPublish(`droom:${roomId}`, 'refresh', {})
       return NextResponse.json({ ok: true })
@@ -397,11 +403,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ─── Virtual Library: camera/mic media state ───────────────────
+    // ─── Virtual Library: camera/mic media + speaking state ───────
     case 'library-state': {
-      const { roomId, videoOff, micOff } = body
+      const { roomId, videoOff, micOff, speaking } = body
       if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
-      if (typeof videoOff !== 'boolean' && typeof micOff !== 'boolean') {
+      if (typeof videoOff !== 'boolean' && typeof micOff !== 'boolean' && typeof speaking !== 'boolean') {
         return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
       }
 
@@ -409,6 +415,7 @@ export async function POST(req: NextRequest) {
       const data: any = { lastActiveAt: new Date() }
       if (typeof videoOff === 'boolean') data.videoOff = videoOff
       if (typeof micOff === 'boolean') data.micOff = micOff
+      if (typeof speaking === 'boolean') data.speaking = speaking
       await db.virtualLibraryMember.updateMany({
         where: { roomId, studentId: auth.id, leftAt: null },
         data,

@@ -46,19 +46,34 @@ export function LeaderboardPage() {
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('24h')
 
-  const fetchLeaderboard = useCallback(async () => {
-    setLoading(true)
+  const fetchLeaderboard = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const result = await api.studentLeaderboard(5, undefined, period)
       setData(result)
     } catch (err) {
       console.error('Leaderboard fetch error:', err)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [period])
 
   useEffect(() => { fetchLeaderboard() }, [fetchLeaderboard])
+
+  // Keep the leaderboard fresh: poll periodically and refetch when the tab
+  // regains focus/visibility (e.g. after finishing a Pomodoro session).
+  useEffect(() => {
+    const id = setInterval(() => fetchLeaderboard(true), 20000)
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchLeaderboard(true) }
+    const onFocus = () => fetchLeaderboard(true)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [fetchLeaderboard])
 
   const leaderboard = data?.leaderboard || []
   const currentUserRank = data?.currentUserRank

@@ -94,20 +94,32 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
   }, [timerCompleted, chapterName, sendCompletionNotification])
 
   // ─── Fetch data ──────────────────────────────────────────────────────
-  useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        setLeaderboardLoading(true)
-        // Ranked by today's study minutes so the current student's own time is
-        // always shown (the API also returns their rank when not in the top).
-        const data = await api.studentLeaderboard(5, undefined, 'today')
-        setLeaderboardData(data.leaderboard || [])
-        setCurrentUserRank(data.currentUserRank || null)
-      } catch (err) { console.error('Leaderboard fetch error:', err) }
-      finally { setLeaderboardLoading(false) }
-    }
-    fetchLeaderboard()
+  const fetchLeaderboard = useCallback(async (silent = false) => {
+    if (!silent) setLeaderboardLoading(true)
+    try {
+      // Ranked by today's study minutes so the current student's own time is
+      // always shown (the API also returns their rank when not in the top).
+      const data = await api.studentLeaderboard(5, undefined, 'today')
+      setLeaderboardData(data.leaderboard || [])
+      setCurrentUserRank(data.currentUserRank || null)
+    } catch (err) { console.error('Leaderboard fetch error:', err) }
+    finally { if (!silent) setLeaderboardLoading(false) }
   }, [])
+
+  useEffect(() => { fetchLeaderboard() }, [fetchLeaderboard])
+
+  // Refetch when the tab regains focus/visibility so the embedded leaderboard
+  // reflects newly completed study sessions.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchLeaderboard(true) }
+    const onFocus = () => fetchLeaderboard(true)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [fetchLeaderboard])
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -154,7 +166,7 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
       if (completed) await api.studentMarkChapter(selectedChapterId, true)
     } catch (err) { console.error('Session save error:', err) }
     setSessionNotes('')
-    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh()
+    setTimerCompleted(false); setShowConfetti(false); resetTimer(); onRefresh(); fetchLeaderboard()
   }
 
   const handleStrike = async () => {

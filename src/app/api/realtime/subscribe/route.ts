@@ -268,6 +268,7 @@ export async function GET(req: NextRequest) {
               stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
               micOff: !!m.micOff,
+              speaking: !!m.speaking,
             })),
           }
         }
@@ -311,17 +312,26 @@ export async function GET(req: NextRequest) {
           sendSSE(res, event, data)
         })
 
-        let lastDroomSignal = new Date(0)
+        // Start the cursor from a short window so a reconnecting client never
+        // replays ancient offers/answers (which could tear down a live media
+        // connection); fresh joins generate their own new signals anyway.
+        let lastDroomSignal = new Date(Date.now() - 30 * 1000)
+        const sentDroomSignalIds = new Set<string>()
         signalTimer = setInterval(async () => {
           try {
             const sigs = await db.roomSignal.findMany({
-              where: { channel: `droom:${roomId}`, createdAt: { gt: lastDroomSignal } },
-              orderBy: { createdAt: 'asc' },
+              where: { channel: `droom:${roomId}`, createdAt: { gte: lastDroomSignal } },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             })
             for (const sig of sigs) {
+              // `gte` re-fetches the boundary millisecond; skip rows we already
+              // sent so same-timestamp signals are never dropped.
+              if (sentDroomSignalIds.has(sig.id)) continue
+              sentDroomSignalIds.add(sig.id)
               sendSSE(res, 'signal', { id: sig.id, from: sig.from, to: sig.to, data: sig.data })
-              lastDroomSignal = sig.createdAt
+              if (sig.createdAt > lastDroomSignal) lastDroomSignal = sig.createdAt
             }
+            if (sentDroomSignalIds.size > 2000) sentDroomSignalIds.clear()
           } catch { /* ignore */ }
         }, 900)
 
@@ -356,6 +366,7 @@ export async function GET(req: NextRequest) {
               onStageSince: m.onStageSince?.getTime() || null,
               videoOff: m.videoOff,
               micOff: !!m.micOff,
+              speaking: !!m.speaking,
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
             })),
           }
@@ -427,17 +438,21 @@ export async function GET(req: NextRequest) {
           sendSSE(res, event, data)
         })
 
-        let lastVroomSignal = new Date(0)
+        let lastVroomSignal = new Date(Date.now() - 30 * 1000)
+        const sentVroomSignalIds = new Set<string>()
         signalTimer = setInterval(async () => {
           try {
             const sigs = await db.roomSignal.findMany({
-              where: { channel: `vroom:${roomId}`, createdAt: { gt: lastVroomSignal } },
-              orderBy: { createdAt: 'asc' },
+              where: { channel: `vroom:${roomId}`, createdAt: { gte: lastVroomSignal } },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             })
             for (const sig of sigs) {
+              if (sentVroomSignalIds.has(sig.id)) continue
+              sentVroomSignalIds.add(sig.id)
               sendSSE(res, 'signal', { id: sig.id, from: sig.from, to: sig.to, data: sig.data })
-              lastVroomSignal = sig.createdAt
+              if (sig.createdAt > lastVroomSignal) lastVroomSignal = sig.createdAt
             }
+            if (sentVroomSignalIds.size > 2000) sentVroomSignalIds.clear()
           } catch { /* ignore */ }
         }, 900)
 
