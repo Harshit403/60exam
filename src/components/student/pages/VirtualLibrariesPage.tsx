@@ -6,13 +6,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Users, Wifi, WifiOff, ArrowLeft, ShieldCheck, Video, VideoOff,
-  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX,
+  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX, Clock,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useSSE } from '@/hooks/useSSE'
 import { useRoomActivity } from '@/hooks/useRoomActivity'
 import { RoomCall, RoomMember } from '@/lib/room-call'
 import { GenderJoinModal } from '@/components/student/GenderJoinModal'
+import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity } from '@/lib/identity-storage'
 
 interface RoomInfo {
   id: string; name: string; description: string | null
@@ -31,6 +32,17 @@ interface VStateMember extends RoomMember {
 
 function avatarColorStyle(color: string) {
   return { backgroundColor: color + '22', color, borderColor: color + '44' }
+}
+
+// Time until an on-stage, non-moderator member is auto-promoted to moderator
+// (mirrors Discussion Rooms so both rooms behave the same way).
+const stageCountdown = (onStageSince?: number | null) => {
+  if (!onStageSince) return null
+  const left = (onStageSince + 5 * 60 * 1000) - Date.now()
+  if (left <= 0) return null
+  const m = Math.floor(left / 60000)
+  const s = Math.floor((left % 60000) / 1000)
+  return `${m}m ${s}s`
 }
 
 // RMS loudness of an analyser node, mapped to 0..1. Used to decide locally
@@ -177,11 +189,11 @@ export function VirtualLibrariesPage() {
     callRef.current = call
     call.start()
     // Mic/camera on by default — push the current UI state so a fresh call
-    // always starts un-muted (also resets any stale camera-off flag from a
-    // previous visit to this room).
+    // always starts un-muted (also resets any stale camera-off/mic-off flags
+    // from a previous visit to this room).
     call.setMicEnabled(micOn)
     call.setCamEnabled(camOn)
-    api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !camOn }).catch(() => {})
+    api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !camOn, micOff: !micOn }).catch(() => {})
     // Media is acquired lazily by reconcile() once this user is on stage
     return () => {
       call.dispose(); callRef.current = null; setLocalStream(null); setQualityLabel('144p')
@@ -207,6 +219,14 @@ export function VirtualLibrariesPage() {
     return () => { clearInterval(t); callRef.current?.setSpeaking(false) }
   }, [active?.id])
 
+  // Browsers suspend a fresh AudioContext until a user gesture; keep resuming
+  // so the mic analyser actually samples audio and speech is detected.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => { audioCtxRef.current?.resume?.().catch(() => {}) }, 1000)
+    return () => clearInterval(t)
+  }, [active?.id])
+
   // Keep speaker (broadcast) state in sync with my stage status
   useEffect(() => {
     callRef.current?.setSpeaker(!!me?.onStage)
@@ -224,9 +244,13 @@ export function VirtualLibrariesPage() {
   const join = async (room: RoomInfo, gender?: 'male' | 'female') => {
     setActionBusy(true)
     try {
-      const data = await api.studentVirtualLibraryJoin(room.id, gender)
+      const saved = gender ? getSavedAnonymousIdentity(gender) : null
+      const data = await api.studentVirtualLibraryJoin(room.id, gender, saved || undefined)
       const m = data.member
-      if (m) setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+      if (m) {
+        if (m.gender === 'male' || m.gender === 'female') saveAnonymousIdentity(m.gender, { name: m.displayName, color: m.color })
+        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+      }
       wasMemberRef.current = true
       setInactiveRemoved(false)
       setRemoteStreams(new Map()); setRemoved([])
@@ -274,12 +298,16 @@ export function VirtualLibrariesPage() {
     setMicOn(next)
     callRef.current?.setMicEnabled(next)
     localStream?.getAudioTracks().forEach(t => { t.enabled = next; void t })
+    audioCtxRef.current?.resume?.().catch(() => {})
+    // Broadcast the new mic state so every participant sees the muted icon.
+    if (active) api.realtimePublish({ action: 'library-state', roomId: active.id, micOff: !next }).catch(() => {})
   }
   const toggleCam = () => {
     const next = !camOn
     setCamOn(next)
     callRef.current?.setCamEnabled(next)
     localStream?.getVideoTracks().forEach(t => { t.enabled = next; void t })
+    audioCtxRef.current?.resume?.().catch(() => {})
     // Broadcast the new camera state so every participant sees "Camera off".
     if (active) api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !next }).catch(() => {})
   }
@@ -375,6 +403,7 @@ export function VirtualLibrariesPage() {
         title="Join Virtual Library"
         subtitle="Select your identity — a random anonymous name will be assigned for this room."
         confirmLabel="Join Video"
+        savedIdentity={getLastSavedIdentity()}
         onClose={() => setGenderPickRoom(null)}
         onConfirm={(g) => { const room = genderPickRoom; setGenderPickRoom(null); if (room) join(room, g) }}
       />
@@ -462,6 +491,11 @@ export function VirtualLibrariesPage() {
                           ? 'Request pending · waiting for the moderator'
                           : 'You are in the audience · camera is off'}
                   </p>
+                  {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Auto-promote to moderator in {stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince)}
+                    </p>
+                  )}
                 </div>
               </div>
               {me.onStage ? (
@@ -555,6 +589,12 @@ export function VirtualLibrariesPage() {
                           {m.displayName}
                         </span>
                       </div>
+                      {/* Muted mic indicator for everyone else in the room */}
+                      {m.micOff && (
+                        <div className="absolute left-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-500/90 text-white text-[9px] font-medium backdrop-blur">
+                          <MicOff className="w-3 h-3" /> Muted
+                        </div>
+                      )}
                       {/* Moderator: remove from stage */}
                       {me?.role === 'moderator' && m.role !== 'moderator' && (
                         <button

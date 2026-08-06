@@ -12,6 +12,9 @@ export async function ensureStageInvitedColumn() {
     await db.$executeRawUnsafe(
       `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "stageInvited" BOOLEAN NOT NULL DEFAULT false`,
     )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "micOff" BOOLEAN NOT NULL DEFAULT false`,
+    )
     stageInvitedReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }
@@ -38,6 +41,9 @@ export async function ensureVirtualLibraryStageColumns() {
     )
     await db.$executeRawUnsafe(
       `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "videoOff" BOOLEAN NOT NULL DEFAULT false`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "micOff" BOOLEAN NOT NULL DEFAULT false`,
     )
     vlibStageReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }

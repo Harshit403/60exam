@@ -267,6 +267,7 @@ export async function GET(req: NextRequest) {
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested,
               stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
+              micOff: !!m.micOff,
             })),
           }
         }
@@ -354,6 +355,7 @@ export async function GET(req: NextRequest) {
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested, stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
               videoOff: m.videoOff,
+              micOff: !!m.micOff,
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
             })),
           }

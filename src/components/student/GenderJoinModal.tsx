@@ -11,16 +11,17 @@ interface GenderJoinModalProps {
   title: string
   subtitle?: string
   confirmLabel: string
+  savedIdentity?: { gender: 'male' | 'female'; name: string } | null
   onClose: () => void
   onConfirm: (gender: 'male' | 'female') => void
 }
 
-export function GenderJoinModal({ open, title, subtitle, confirmLabel, onClose, onConfirm }: GenderJoinModalProps) {
+export function GenderJoinModal({ open, title, subtitle, confirmLabel, savedIdentity, onClose, onConfirm }: GenderJoinModalProps) {
   const [gender, setGender] = useState<'male' | 'female' | null>(null)
 
   useEffect(() => {
-    if (open) setGender(null)
-  }, [open])
+    if (open) setGender(savedIdentity?.gender ?? null)
+  }, [open, savedIdentity])
 
   const card = (g: 'male' | 'female') =>
     `flex flex-col items-center gap-2 rounded-lg border px-4 py-5 transition-colors cursor-pointer ${
@@ -46,17 +47,25 @@ export function GenderJoinModal({ open, title, subtitle, confirmLabel, onClose, 
         <DialogHeader>
           <DialogTitle className="text-center">{title}</DialogTitle>
           <DialogDescription className="text-center">
-            {subtitle || 'Select your identity and a random anonymous name will be assigned.'}
+            {savedIdentity
+              ? `Your saved identity “${savedIdentity.name}” will be reused for this room.`
+              : (subtitle || 'Select your identity and a random anonymous name will be assigned.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => setGender('male')} className={card('male')}>
             <span className="text-3xl leading-none">👨</span>
             <span className={label('male')}>Male</span>
+            {gender === 'male' && savedIdentity?.gender === 'male' && (
+              <span className="text-[9px] text-slate-400 truncate max-w-full">as {savedIdentity.name}</span>
+            )}
           </button>
           <button type="button" onClick={() => setGender('female')} className={card('female')}>
             <span className="text-3xl leading-none">👩</span>
             <span className={label('female')}>Female</span>
+            {gender === 'female' && savedIdentity?.gender === 'female' && (
+              <span className="text-[9px] text-slate-400 truncate max-w-full">as {savedIdentity.name}</span>
+            )}
           </button>
         </div>
         <DialogFooter className="sm:justify-between">

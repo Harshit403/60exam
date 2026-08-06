@@ -13,6 +13,7 @@ import { useSSE } from '@/hooks/useSSE'
 import { useRoomActivity } from '@/hooks/useRoomActivity'
 import { RoomCall, RoomMember } from '@/lib/room-call'
 import { GenderJoinModal } from '@/components/student/GenderJoinModal'
+import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity } from '@/lib/identity-storage'
 
 interface RoomInfo {
   id: string; name: string; description: string | null
@@ -111,7 +112,7 @@ export function DiscussionRoomsPage() {
   const wasMemberRef = useRef(false)
   const callRef = useRef<RoomCall | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const audioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>>(new Map())
+  const audioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; trackId: string }>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
 
@@ -160,7 +161,17 @@ export function DiscussionRoomsPage() {
   }, [])
 
   const attachRemoteAudio = useCallback((userId: string, stream: MediaStream) => {
-    if (audioNodesRef.current.has(userId)) return
+    const audioTrack = stream.getAudioTracks()[0]
+    if (!audioTrack) return
+    // Key the analyser on the audio track id so a peer renegotiating their mic
+    // (mute toggle detaches the track and re-adds it) rebinds the meter instead
+    // of keeping a stale analyser that reads silence forever.
+    const prev = audioNodesRef.current.get(userId)
+    if (prev && prev.trackId === audioTrack.id) return
+    if (prev) {
+      try { prev.source.disconnect(); prev.analyser.disconnect() } catch { /* ignore */ }
+      audioNodesRef.current.delete(userId)
+    }
     const ctx = ensureAudioCtx()
     if (!ctx) return
     try {
@@ -171,7 +182,7 @@ export function DiscussionRoomsPage() {
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
-      audioNodesRef.current.set(userId, { source, analyser })
+      audioNodesRef.current.set(userId, { source, analyser, trackId: audioTrack.id })
     } catch (err) { console.error('[AudioMeter] attach failed', userId, err) }
   }, [ensureAudioCtx])
 
@@ -268,8 +279,10 @@ export function DiscussionRoomsPage() {
     callRef.current = call
     call.start()
     // Speaker is on by default — push the current UI state so the engine always
-    // starts un-muted when a fresh call is created.
+    // starts un-muted when a fresh call is created (also resets any stale micOff
+    // flag left over from a previous visit to this room).
     call.setMicEnabled(micOn)
+    api.realtimePublish({ action: 'discussion-state', roomId: active.id, micOff: !micOn }).catch(() => {})
     return () => { call.dispose(); callRef.current = null; cleanupAudio() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id])
@@ -293,9 +306,13 @@ export function DiscussionRoomsPage() {
   const join = async (room: RoomInfo, gender?: 'male' | 'female') => {
     setActionBusy(true)
     try {
-      const data = await api.studentDiscussionRoomJoin(room.id, gender)
+      const saved = gender ? getSavedAnonymousIdentity(gender) : null
+      const data = await api.studentDiscussionRoomJoin(room.id, gender, saved || undefined)
       const m = data.member
-      if (m) setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+      if (m) {
+        if (m.gender === 'male' || m.gender === 'female') saveAnonymousIdentity(m.gender, { name: m.displayName, color: m.color })
+        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+      }
       wasMemberRef.current = true
       setInactiveRemoved(false)
       setRemoteStreams(new Map())
@@ -465,6 +482,7 @@ export function DiscussionRoomsPage() {
         title="Join Discussion Room"
         subtitle="Select your identity — a random anonymous name will be assigned for this room."
         confirmLabel="Join Audio"
+        savedIdentity={getLastSavedIdentity()}
         onClose={() => setGenderPickRoom(null)}
         onConfirm={(g) => { const room = genderPickRoom; setGenderPickRoom(null); if (room) join(room, g) }}
       />
@@ -571,7 +589,7 @@ export function DiscussionRoomsPage() {
             <Button
               size="sm"
               variant={micOn ? 'default' : 'destructive'}
-              onClick={() => { const next = !micOn; setMicOn(next); callRef.current?.setMicEnabled(next); audioCtxRef.current?.resume?.().catch(() => {}) }}
+              onClick={() => { const next = !micOn; setMicOn(next); callRef.current?.setMicEnabled(next); if (active) api.realtimePublish({ action: 'discussion-state', roomId: active.id, micOff: !next }).catch(() => {}); audioCtxRef.current?.resume?.().catch(() => {}) }}
               className="shrink-0"
             >
               {micOn ? <><Mic className="w-3 h-3 mr-1" /> Mute</> : <><MicOff className="w-3 h-3 mr-1" /> Unmute</>}
@@ -622,8 +640,8 @@ export function DiscussionRoomsPage() {
                         {m.displayName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className={`absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white ring-2 ring-white dark:ring-slate-900 ${speaking ? 'animate-pulse' : ''}`}>
-                      <Mic className="w-2.5 h-2.5" />
+                    <div className={`absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-5 h-5 rounded-full ring-2 ring-white dark:ring-slate-900 ${m.micOff ? 'bg-rose-500 text-white' : `bg-emerald-500 text-white ${speaking ? 'animate-pulse' : ''}`}`}>
+                      {m.micOff ? <MicOff className="w-2.5 h-2.5" /> : <Mic className="w-2.5 h-2.5" />}
                     </div>
                   </div>
                   <div>

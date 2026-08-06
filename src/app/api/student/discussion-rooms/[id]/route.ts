@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
-import { randomAnonymousIdentity } from '@/lib/anonymous-identity'
+import { randomAnonymousIdentity, type AnonymousIdentity } from '@/lib/anonymous-identity'
 import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
 
 // GET /api/student/discussion-rooms/[id] - room detail + current presence (anonymized)
@@ -102,7 +102,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     select: { displayName: true, color: true },
   })
 
-  const identity = randomAnonymousIdentity(gender, taken.map(t => ({ name: t.displayName, color: t.color })))
+  // Prefer the identity the user already saved on their device (localStorage) so
+  // their anonymous name stays the same across visits; regenerate only if that
+  // name/color happens to be taken in this room.
+  const saved = body?.identity && typeof body.identity?.name === 'string' && typeof body.identity?.color === 'string'
+    ? { name: body.identity.name, color: body.identity.color }
+    : null
+  const takenList = taken.map(t => ({ name: t.displayName, color: t.color }))
+  const takenPairs = new Set(takenList.map(t => `${t.name}:${t.color}`))
+  const identity: AnonymousIdentity = saved && !takenPairs.has(`${saved.name}:${saved.color}`)
+    ? { ...saved, gender: gender || 'neutral' }
+    : randomAnonymousIdentity(gender, takenList)
 
   // First two joiners become moderators (and go on stage); everyone else is audience
   let role = 'audience'

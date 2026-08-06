@@ -40,6 +40,7 @@ export interface RoomMember {
   stageRequested?: boolean
   stageInvited?: boolean
   onStageSince?: number | null
+  micOff?: boolean
 }
 
 export interface RoomCallOptions {
@@ -189,6 +190,10 @@ export class RoomCall {
       this.log('ice', targetId, pc.iceConnectionState)
     }
     pc.ontrack = (e) => {
+      // A muted peer detaching their sender fires ontrack with track == null;
+      // keep the existing stream (its analyser already goes silent) instead of
+      // replacing it with an empty one that would never re-meter audio.
+      if (!e.track) return
       this.log('remote track', targetId, e.track.kind)
       const stream = e.streams?.[0] || new MediaStream([e.track])
       this.remotes.set(targetId, stream)
@@ -358,7 +363,7 @@ export class RoomCall {
 
   private startQualityTimer() {
     if (this.qualityTimer || this.disposed) return
-    this.qualityTimer = setInterval(() => this.runQualityAdaptation(), 2000)
+    this.qualityTimer = setInterval(() => this.runQualityAdaptation(), 1000)
   }
 
   private async sampleNetwork(): Promise<{ lost: number; received: number; rtt: number } | null> {
@@ -418,12 +423,14 @@ export class RoomCall {
 
     // Not speaking → everyone receives you at the lowest rung (144p).
     if (!this.speaking) {
-      this.qualityApplied = true
       q.last = null
-      if (q.level !== 0) {
+      // Apply the lowest rung even on the first run (q.level starts at 0, so
+      // `q.level !== 0` alone would skip the very first downscale).
+      if (!this.qualityApplied || q.level !== 0) {
         q.level = 0
         this.applyQualityLevel(0)
       }
+      this.qualityApplied = true
       const silentLabel = VIDEO_QUALITY_LEVELS[0].label
       if (silentLabel !== this.lastQualityLabel) {
         this.lastQualityLabel = silentLabel
@@ -459,9 +466,10 @@ export class RoomCall {
       next = Math.max(0, q.level - 1)
       q.goodTicks = 0
     } else if (q.level < maxLevel) {
-      // Climb one rung only after sustained headroom (ascend the gradient).
+      // Climb one rung per clean tick so a speaking user reaches 480p quickly
+      // (144p → 240p → 360p → 480p within a few seconds of talking).
       q.goodTicks += 1
-      if (q.goodTicks >= 3 && rtt < 350) {
+      if (q.goodTicks >= 1 && rtt < 350) {
         next = q.level + 1
         q.goodTicks = 0
       }

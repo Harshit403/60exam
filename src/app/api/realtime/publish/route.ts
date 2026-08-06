@@ -293,6 +293,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // ─── Discussion Room: mic mute state ───────────────────────────
+    case 'discussion-state': {
+      const { roomId, micOff } = body
+      if (!roomId || typeof micOff !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      await ensureStageInvitedColumn()
+      await db.discussionRoomMember.updateMany({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        data: { micOff, lastActiveAt: new Date() },
+      }).catch(() => {})
+      hubPublish(`droom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
     // ─── Virtual Library: WebRTC signaling ─────────────────────────
     case 'library-signal': {
       const { roomId, to, data } = body
@@ -386,13 +399,19 @@ export async function POST(req: NextRequest) {
 
     // ─── Virtual Library: camera/mic media state ───────────────────
     case 'library-state': {
-      const { roomId, videoOff } = body
-      if (!roomId || typeof videoOff !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      const { roomId, videoOff, micOff } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      if (typeof videoOff !== 'boolean' && typeof micOff !== 'boolean') {
+        return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      }
 
       await ensureVirtualLibraryStageColumns()
+      const data: any = { lastActiveAt: new Date() }
+      if (typeof videoOff === 'boolean') data.videoOff = videoOff
+      if (typeof micOff === 'boolean') data.micOff = micOff
       await db.virtualLibraryMember.updateMany({
         where: { roomId, studentId: auth.id, leftAt: null },
-        data: { videoOff, lastActiveAt: new Date() },
+        data,
       }).catch(() => {})
       hubPublish(`vroom:${roomId}`, 'refresh', {})
       return NextResponse.json({ ok: true })
