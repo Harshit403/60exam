@@ -17,7 +17,6 @@ export async function GET(req: NextRequest) {
       by: ['studentId'],
       where: {
         date: { gte: todayStart, lte: todayEnd },
-        completed: true,
       },
       _sum: { durationMin: true },
       orderBy: { _sum: { durationMin: 'desc' } },

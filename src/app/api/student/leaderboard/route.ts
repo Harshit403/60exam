@@ -29,11 +29,13 @@ export async function GET(req: NextRequest) {
       dateFrom = new Date(Date.now() - 24 * 60 * 60 * 1000)
     }
 
-    // Aggregate study sessions in period
+    // Aggregate study sessions in period. In-progress sessions count too:
+    // study time is stored incrementally in `durationMin` while the Pomodoro
+    // runs, so filtering by `completed` would hide real study time (a session
+    // only flips to completed when the user finishes the completion screen).
     const sessions = await db.studySession.findMany({
       where: {
         date: { gte: dateFrom, lte: dateTo },
-        completed: true,
         student: { status: 'approved', ...(courseId ? { courseId } : {}) },
       },
       select: { studentId: true, durationMin: true },

@@ -61,6 +61,7 @@ model Student {
   discussionRoomMembers DiscussionRoomMember[]
   virtualLibraryMembers VirtualLibraryMember[]
   sharedMaterials       StudyMaterial[]
+  roomActivityLogs      RoomActivityLog[]
 }
 
 // ==================== COURSE ====================
@@ -478,9 +479,31 @@ model DiscussionRoomMember {
   joinedAt      DateTime         @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime         @default(now())
+  ipAddress     String?
 
   @@unique([roomId, studentId])
   @@index([roomId, leftAt])
+}
+
+// ==================== ROOM ACTIVITY LOG ====================
+// Append-only log of every join/leave in discussion rooms and virtual
+// libraries so admins can see who was present in a room and when, with the
+// student's real identity (joined via `student`), the anonymous room name, and
+// the IP address they connected from.
+model RoomActivityLog {
+  id          String   @id @default(cuid())
+  kind        String // 'discussion' | 'library'
+  roomId      String
+  roomName    String
+  studentId   String?
+  student     Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  displayName String
+  color       String
+  action      String   // 'join' | 'leave'
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([kind, roomId, createdAt])
 }
 
 // ==================== VIRTUAL LIBRARIES (VIDEO) ====================
@@ -522,6 +545,7 @@ model VirtualLibraryMember {
   joinedAt      DateTime        @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime        @default(now())
+  ipAddress     String?
 
   @@unique([roomId, studentId])
   @@index([roomId, leftAt])

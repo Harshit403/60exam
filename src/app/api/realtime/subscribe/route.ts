@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { initSSE, sendSSE, sendHeartbeat } from '@/lib/sse'
 import { hubSubscribe, hubPublish } from '@/lib/realtime-hub'
-import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
+import { ensureVirtualLibraryStageColumns, logRoomActivity } from '@/lib/ensure-columns'
 
 const LIVE_ROOM_ID = 'mission-cs-public'
 const POLL_INTERVAL = 3000
@@ -283,6 +283,8 @@ export async function GET(req: NextRequest) {
           if (closed) return
           try {
             const now = Date.now()
+            const room = await db.discussionRoom.findUnique({ where: { id: roomId }, select: { name: true } })
+            const roomName = room?.name || roomId
             const members = await db.discussionRoomMember.findMany({ where: { roomId, leftAt: null } })
             let changed = false
             for (const m of members) {
@@ -295,6 +297,16 @@ export async function GET(req: NextRequest) {
               // Inactive removal (mirrors study-group auto-exit)
               if ((now - lastActive) >= MOD_INACTIVE_MS) {
                 await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await logRoomActivity({
+                  kind: 'discussion',
+                  roomId,
+                  roomName,
+                  studentId: m.studentId,
+                  displayName: m.displayName,
+                  color: m.color,
+                  action: 'leave',
+                  ipAddress: m.ipAddress,
+                })
                 changed = true
               }
             }
@@ -383,6 +395,8 @@ export async function GET(req: NextRequest) {
           if (closed) return
           try {
             const now = Date.now()
+            const room = await db.virtualLibrary.findUnique({ where: { id: roomId }, select: { name: true } })
+            const roomName = room?.name || roomId
             const members = await db.virtualLibraryMember.findMany({ where: { roomId, leftAt: null } })
             const activeCount = members.length
             const needed = Math.ceil((2 / 3) * activeCount)
@@ -414,6 +428,16 @@ export async function GET(req: NextRequest) {
               const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
               if ((now - lastActive) >= LIB_INACTIVE_MS) {
                 await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await logRoomActivity({
+                  kind: 'library',
+                  roomId,
+                  roomName,
+                  studentId: m.studentId,
+                  displayName: m.displayName,
+                  color: m.color,
+                  action: 'leave',
+                  ipAddress: m.ipAddress,
+                })
                 changed = true
                 continue
               }
@@ -421,6 +445,16 @@ export async function GET(req: NextRequest) {
               const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
               if (votes.length >= needed && activeCount >= 2) {
                 await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await logRoomActivity({
+                  kind: 'library',
+                  roomId,
+                  roomName,
+                  studentId: m.studentId,
+                  displayName: m.displayName,
+                  color: m.color,
+                  action: 'leave',
+                  ipAddress: m.ipAddress,
+                })
                 hubPublish(`vroom:${roomId}`, 'user-removed', { userId: m.studentId })
                 changed = true
               }

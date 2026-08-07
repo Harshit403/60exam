@@ -312,6 +312,15 @@ export const api = {
   adminKickVirtualMember: (roomId: string, memberId: string) =>
     apiFetch(`/admin/virtual-libraries/${roomId}/kick?memberId=${encodeURIComponent(memberId)}`, { method: 'DELETE' }),
 
+  // ── Admin room activity (join/leave history with IP) ──
+  adminRoomActivity: (kind: string, opts?: { roomId?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams({ kind })
+    if (opts?.roomId) params.set('roomId', opts.roomId)
+    if (opts?.page) params.set('page', String(opts.page))
+    if (opts?.limit) params.set('limit', String(opts.limit))
+    return apiFetch(`/admin/room-activity?${params.toString()}`)
+  },
+
   // ── Admin room blocking (global across discussion/video rooms) ──
   adminBlockFromRooms: (studentId: string, reason?: string) =>
     apiFetch('/admin/room-blocks', { method: 'POST', body: JSON.stringify({ studentId, reason }) }),

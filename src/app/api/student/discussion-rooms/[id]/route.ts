@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity, type AnonymousIdentity } from '@/lib/anonymous-identity'
-import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
+import { ensureStageInvitedColumn, ensureRoomMemberIpColumn, logRoomActivity } from '@/lib/ensure-columns'
+import { getClientIp } from '@/lib/request-ip'
 
 // GET /api/student/discussion-rooms/[id] - room detail + current presence (anonymized)
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -63,6 +64,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const body = await _req.json().catch(() => ({}))
   const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
   await ensureStageInvitedColumn()
+  await ensureRoomMemberIpColumn()
+  const ipAddress = getClientIp(_req)
 
   const room = await db.discussionRoom.findUnique({ where: { id } })
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
@@ -134,6 +137,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       stageRequested: false,
       onStageSince: onStage ? new Date() : null,
       lastActiveAt: new Date(),
+      ipAddress,
     },
     create: {
       roomId: id,
@@ -144,7 +148,19 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       role,
       onStage,
       onStageSince: onStage ? new Date() : null,
+      ipAddress,
     },
+  })
+
+  await logRoomActivity({
+    kind: 'discussion',
+    roomId: id,
+    roomName: room.name,
+    studentId,
+    displayName: member.displayName,
+    color: member.color,
+    action: 'join',
+    ipAddress,
   })
 
   return NextResponse.json({
@@ -166,6 +182,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params
   await ensureStageInvitedColumn()
+  await ensureRoomMemberIpColumn()
+  const ipAddress = getClientIp(_req)
 
   const member = await db.discussionRoomMember.findUnique({
     where: { roomId_studentId: { roomId: id, studentId: auth.id } },
@@ -174,6 +192,17 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     await db.discussionRoomMember.update({
       where: { id: member.id },
       data: { leftAt: new Date(), stageRequested: false, stageInvited: false },
+    })
+    const room = await db.discussionRoom.findUnique({ where: { id }, select: { name: true } })
+    await logRoomActivity({
+      kind: 'discussion',
+      roomId: id,
+      roomName: room?.name || id,
+      studentId: auth.id,
+      displayName: member.displayName,
+      color: member.color,
+      action: 'leave',
+      ipAddress: ipAddress || member.ipAddress,
     })
   }
 
@@ -188,7 +217,7 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params
   await db.discussionRoomMember.updateMany({
     where: { roomId: id, studentId: auth.id, leftAt: null },
-    data: { lastActiveAt: new Date() },
+    data: { lastActiveAt: new Date(), ipAddress: getClientIp(_req) },
   })
 
   return NextResponse.json({ success: true })

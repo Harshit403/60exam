@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity, type AnonymousIdentity } from '@/lib/anonymous-identity'
-import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
+import { ensureVirtualLibraryStageColumns, ensureRoomMemberIpColumn, logRoomActivity } from '@/lib/ensure-columns'
+import { getClientIp } from '@/lib/request-ip'
 
 // GET /api/student/virtual-libraries/[id] - room detail + presence (anonymized)
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -62,6 +63,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const body = await _req.json().catch(() => ({}))
   const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
   await ensureVirtualLibraryStageColumns()
+  await ensureRoomMemberIpColumn()
+  const ipAddress = getClientIp(_req)
 
   const room = await db.virtualLibrary.findUnique({ where: { id } })
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
@@ -131,6 +134,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStageSince: onStage ? new Date() : null,
       removalVotes: [],
       lastActiveAt: new Date(),
+      ipAddress,
     },
     create: {
       roomId: id,
@@ -141,7 +145,19 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       role,
       onStage,
       onStageSince: onStage ? new Date() : null,
+      ipAddress,
     },
+  })
+
+  await logRoomActivity({
+    kind: 'library',
+    roomId: id,
+    roomName: room.name,
+    studentId,
+    displayName: member.displayName,
+    color: member.color,
+    action: 'join',
+    ipAddress,
   })
 
   return NextResponse.json({ member: {
@@ -161,6 +177,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params
   await ensureVirtualLibraryStageColumns()
+  await ensureRoomMemberIpColumn()
+  const ipAddress = getClientIp(_req)
   const member = await db.virtualLibraryMember.findUnique({
     where: { roomId_studentId: { roomId: id, studentId: auth.id } },
   })
@@ -168,6 +186,17 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     await db.virtualLibraryMember.update({
       where: { id: member.id },
       data: { leftAt: new Date(), stageRequested: false, stageInvited: false },
+    })
+    const room = await db.virtualLibrary.findUnique({ where: { id }, select: { name: true } })
+    await logRoomActivity({
+      kind: 'library',
+      roomId: id,
+      roomName: room?.name || id,
+      studentId: auth.id,
+      displayName: member.displayName,
+      color: member.color,
+      action: 'leave',
+      ipAddress: ipAddress || member.ipAddress,
     })
   }
   return NextResponse.json({ success: true })
@@ -181,7 +210,7 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params
   await db.virtualLibraryMember.updateMany({
     where: { roomId: id, studentId: auth.id, leftAt: null },
-    data: { lastActiveAt: new Date() },
+    data: { lastActiveAt: new Date(), ipAddress: getClientIp(_req) },
   })
   return NextResponse.json({ success: true })
 }

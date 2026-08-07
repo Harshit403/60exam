@@ -556,7 +556,18 @@ export function DiscussionRoomsPage() {
                         <Volume2 className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{r.name}</p>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+                          {r.present > 0 && (
+                            <span className="flex items-center gap-1 shrink-0">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                              </span>
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500">Live</span>
+                            </span>
+                          )}
+                          {r.name}
+                        </p>
                         {r.speakers && r.speakers.length > 0 ? (
                           <p className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
