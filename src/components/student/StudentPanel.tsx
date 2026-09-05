@@ -127,6 +127,12 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
     return p && (STUDENT_PAGES as string[]).includes(p) ? p as Page : 'dashboard'
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Mini-room state: the discussion-room / virtual-library pages stay mounted
+  // even when the user navigates away, so an active room keeps running in the
+  // background. These track whether a room is active so we can show a pill to
+  // return to it.
+  const [discussionRoomState, setDiscussionRoomState] = useState({ inRoom: false, name: '' })
+  const [libraryRoomState, setLibraryRoomState] = useState({ inRoom: false, name: '' })
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const { theme, setTheme } = useTheme()
@@ -319,8 +325,8 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
       case 'group-study': return <GroupStudyPage />
       case 'live-chat': return <LiveChatPage />
       case 'discussion': return <DiscussionPage />
-      case 'discussion-rooms': return <DiscussionRoomsPage />
-      case 'virtual-libraries': return <VirtualLibrariesPage />
+      // NOTE: discussion-rooms and virtual-libraries are NOT rendered here —
+      // they are always mounted below so a minimized room stays connected.
       case 'reviews': return <ReviewsPage />
       case 'syllabus': return <SyllabusPage />
       case 'profile': return <EditProfilePage data={dashboardData} onRefresh={fetchDashboard} />
@@ -405,11 +411,47 @@ export default function StudentPanel({ onLogout }: StudentPanelProps) {
           </div>
 
           <div className="p-4 md:p-6 lg:p-8 max-w-6xl mx-auto">
-            <div key={currentPage} className="page-transition">
-              {renderPage()}
+            {/* Room pages stay mounted so a minimized room keeps its voice/video
+                connection alive; hidden with CSS instead of unmounted. */}
+            <div className={currentPage === 'discussion-rooms' ? 'page-transition' : 'hidden'}>
+              <DiscussionRoomsPage
+                onRoomChange={(inRoom, name) => setDiscussionRoomState({ inRoom, name })}
+                onMinimize={() => handleNavClick('dashboard')}
+              />
             </div>
+            <div className={currentPage === 'virtual-libraries' ? 'page-transition' : 'hidden'}>
+              <VirtualLibrariesPage
+                onRoomChange={(inRoom, name) => setLibraryRoomState({ inRoom, name })}
+                onMinimize={() => handleNavClick('dashboard')}
+              />
+            </div>
+            {currentPage !== 'discussion-rooms' && currentPage !== 'virtual-libraries' && (
+              <div key={currentPage} className="page-transition">
+                {renderPage()}
+              </div>
+            )}
           </div>
         </main>
+        {/* Mini-room pill: shown while a room runs in the background */}
+        {(() => {
+          const mini =
+            currentPage !== 'discussion-rooms' && discussionRoomState.inRoom
+              ? { page: 'discussion-rooms' as Page, name: discussionRoomState.name }
+              : currentPage !== 'virtual-libraries' && libraryRoomState.inRoom
+                ? { page: 'virtual-libraries' as Page, name: libraryRoomState.name }
+                : null
+          if (!mini) return null
+          return (
+            <button
+              onClick={() => handleNavClick(mini.page)}
+              className="fixed bottom-4 right-4 z-50 flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full bg-slate-900 dark:bg-slate-800 text-white shadow-xl hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors border border-white/10"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className="text-xs font-medium max-w-[140px] sm:max-w-[200px] truncate">{mini.name}</span>
+              <span className="text-[10px] text-slate-300 flex-shrink-0 hidden sm:inline">Return to room</span>
+            </button>
+          )
+        })()}
       </div>
       <PwaInstallDialog open={showInstallDialog} onClose={() => setShowInstallDialog(false)} deferredPrompt={deferredPrompt} />
     </TimerProvider>

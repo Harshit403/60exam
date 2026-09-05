@@ -152,6 +152,24 @@ export async function ensureRoomLockColumns() {
     )
     await db.$executeRawUnsafe(
       `ALTER TABLE "VirtualLibrary" ADD COLUMN IF NOT EXISTS "lockVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE "VirtualLibrary" ADD COLUMN IF NOT EXISTS "studyEndsAt" TIMESTAMP(3)`,
+    )
+    // moderatorEligibleAt: join time + 5 min — non-first joiners can become
+    // moderator only after this timestamp (1st joiner has it null).
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "moderatorEligibleAt" TIMESTAMP(3)`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "moderatorEligibleAt" TIMESTAMP(3)`,
+    )
+    // modNotes: private moderator notes ({id,text,at}) stored on the author's
+    // own member row — only that moderator ever sees them, and they are wiped
+    // whenever the member leaves the room.
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "modNotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "modNotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
     )
     roomLockReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }

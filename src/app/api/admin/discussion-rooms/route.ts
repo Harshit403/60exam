@@ -18,7 +18,8 @@ export async function GET(request: Request) {
           orderBy: { joinedAt: 'asc' },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      // Oldest rooms first: newer rooms appear below older ones.
+      orderBy: { createdAt: 'asc' },
     })
 
     return Response.json({

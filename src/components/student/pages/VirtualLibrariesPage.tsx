@@ -5,13 +5,14 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Users, Wifi, WifiOff, ArrowLeft, ShieldCheck, Video, VideoOff,
-  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX, Clock, Lock,
+  Users, Wifi, WifiOff, ArrowLeft, ShieldCheck, Video, VideoOff, Search, ChevronDown,
+  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX, Clock, Lock, StickyNote, Pencil,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useSSE } from '@/hooks/useSSE'
 import { useRoomActivity } from '@/hooks/useRoomActivity'
-import { RoomCall, RoomMember } from '@/lib/room-call'
+import { useWakeLock } from '@/hooks/useWakeLock'
+import { RoomCall, RoomMember, ModNote } from '@/lib/room-call'
 import { GenderJoinModal } from '@/components/student/GenderJoinModal'
 import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity } from '@/lib/identity-storage'
 
@@ -19,11 +20,13 @@ interface RoomInfo {
   id: string; name: string; description: string | null
   maxCapacity: number; present: number; isFull: boolean
   isLocked?: boolean; lockVotes?: string[]
+  studyEndsAt?: number | null // moderator-set study session end (ms epoch); countdown shown to everyone
 }
 
 interface MeInfo {
   userId: string; displayName: string; color: string; gender?: string
   role: string; onStage: boolean; stageRequested?: boolean; stageInvited?: boolean
+  moderatorEligibleAt?: number | null
 }
 
 interface VStateMember extends RoomMember {
@@ -35,15 +38,27 @@ function avatarColorStyle(color: string) {
   return { backgroundColor: color + '22', color, borderColor: color + '44' }
 }
 
-// Time until an on-stage, non-moderator member is auto-promoted to moderator
-// (mirrors Discussion Rooms so both rooms behave the same way).
-const stageCountdown = (onStageSince?: number | null) => {
-  if (!onStageSince) return null
-  const left = (onStageSince + 5 * 60 * 1000) - Date.now()
+// Time until this member becomes moderator. Everyone except the 1st joiner
+// waits 5 minutes from JOIN time (moderatorEligibleAt); the 1st joiner has no
+// wait — moderatorEligibleAt is null.
+const stageCountdown = (eligibleAt?: number | null) => {
+  if (!eligibleAt) return null
+  const left = eligibleAt - Date.now()
   if (left <= 0) return null
   const m = Math.floor(left / 60000)
   const s = Math.floor((left % 60000) / 1000)
   return `${m}m ${s}s`
+}
+
+// Live countdown until the moderator-set study session ends (virtual library).
+const studyTimeLeft = (endsAt?: number | null) => {
+  if (!endsAt) return null
+  const left = endsAt - Date.now()
+  const total = Math.max(0, Math.floor(left / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
 }
 
 // RMS loudness of an analyser node, mapped to 0..1. Used to decide locally
@@ -66,11 +81,30 @@ function computeLevel(analyser: AnalyserNode): number {
 const SPEAKING_ON = 0.12
 const SPEAKING_OFF = 0.06
 
-export function VirtualLibrariesPage() {
+export function VirtualLibrariesPage({ onRoomChange, onMinimize }: {
+  // Report in-room state up to the panel so it can show a mini-room pill while
+  // the user browses other sections; onMinimize hides this page without
+  // leaving the room (the panel keeps this component mounted).
+  onRoomChange?: (inRoom: boolean, roomName: string) => void
+  onMinimize?: () => void
+} = {}) {
   const [rooms, setRooms] = useState<RoomInfo[]>([])
+  // Search filter for the room list (matches room name or description).
+  const [roomSearch, setRoomSearch] = useState('')
+  const filteredRooms = rooms.filter(r =>
+    r.name.toLowerCase().includes(roomSearch.toLowerCase()) ||
+    (r.description || '').toLowerCase().includes(roomSearch.toLowerCase()),
+  )
   const [currentRoom, setCurrentRoom] = useState<RoomInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<RoomInfo | null>(null)
+  // Tell the panel when we join/leave a room so it can show a mini-room pill
+  // while this page is minimized and the user browses other sections.
+  const activeId = active?.id
+  const activeName = active?.name
+  useEffect(() => {
+    onRoomChange?.(!!activeId, activeName || '')
+  }, [activeId, activeName])
   const [me, setMe] = useState<MeInfo | null>(null)
   const [members, setMembers] = useState<VStateMember[]>([])
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
@@ -83,6 +117,10 @@ export function VirtualLibrariesPage() {
   const [qualityLabel, setQualityLabel] = useState('144p')
   const [remoteLevels, setRemoteLevels] = useState<Record<string, number>>({})
   const [genderPickRoom, setGenderPickRoom] = useState<RoomInfo | null>(null)
+  // Study timer: moderator sets a duration, everyone sees the countdown.
+  const [showStudyTimer, setShowStudyTimer] = useState(false)
+  const [studyMinutes, setStudyMinutes] = useState('25')
+  const [studyBusy, setStudyBusy] = useState(false)
   const userIdRef = useRef<string>('anon')
   const wasMemberRef = useRef(false)
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map)
@@ -93,6 +131,16 @@ export function VirtualLibrariesPage() {
   const remoteAudioNodesRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>>(new Map())
   const remoteLevelsRef = useRef<Record<string, number>>({})
   const speakingRef = useRef(false)
+  // 1-second tick so the moderator-wait countdown re-renders smoothly (the SSE
+  // state poll only fires every 3 seconds).
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setTick(x => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  // Keep the device screen on for the whole time the user is in the room.
+  useWakeLock(!!active)
 
   // Only send heartbeats while genuinely present: recent interaction or
   // actively in the call (visible tab + local media running).
@@ -132,6 +180,7 @@ export function VirtualLibrariesPage() {
           maxCapacity: data.room.maxCapacity,
           isLocked: !!data.room.isLocked,
           lockVotes: Array.isArray(data.room.lockVotes) ? data.room.lockVotes : [],
+          studyEndsAt: data.room.studyEndsAt ?? null,
         } : prev)
         const sworn = (present as any[]).find((m: any) => m.userId === userIdRef.current)
         if (wasMemberRef.current && !sworn) setInactiveRemoved(true)
@@ -140,6 +189,7 @@ export function VirtualLibrariesPage() {
           ...prev,
           userId: sworn.userId, displayName: sworn.displayName, color: sworn.color, gender: sworn.gender,
           role: sworn.role, onStage: sworn.onStage, stageRequested: sworn.stageRequested, stageInvited: sworn.stageInvited,
+          moderatorEligibleAt: sworn.moderatorEligibleAt ?? null,
         } : prev)
         callRef.current?.setPresence(present.filter((m: any) => m.userId !== userIdRef.current))
       } else if (event === 'signal') {
@@ -354,7 +404,7 @@ export function VirtualLibrariesPage() {
       const m = data.member
       if (m) {
         if (m.gender === 'male' || m.gender === 'female') saveAnonymousIdentity(m.gender, { name: m.displayName, color: m.color })
-        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false, moderatorEligibleAt: m.moderatorEligibleAt ?? null })
       }
       wasMemberRef.current = true
       setInactiveRemoved(false)
@@ -428,6 +478,24 @@ export function VirtualLibrariesPage() {
     if (active) api.realtimePublish({ action: 'library-state', roomId: active.id, videoOff: !next }).catch(() => {})
   }
 
+  // Moderator: mute everyone's mic at once. Each member's client sees its own
+  // row flip to micOff via the refresh and silences its local track below.
+  const muteAll = () => {
+    if (!active || actionBusy) return
+    api.realtimePublish({ action: 'library-mute-all', roomId: active.id }).catch(err => console.error(err))
+  }
+
+  // Enforcement: if the moderator muted everyone, silence this user's local
+  // mic too (their row arrives muted via vroom-state). The user can unmute
+  // themselves again afterwards with the normal mic button.
+  const myRowMicOff = (members as any[]).find(m => m.userId === userIdRef.current)?.micOff
+  useEffect(() => {
+    if (!myRowMicOff || !micOn) return
+    setMicOn(false)
+    callRef.current?.setMicEnabled(false)
+    localStream?.getAudioTracks().forEach(t => { t.enabled = false; void t })
+  }, [myRowMicOff, micOn, localStream])
+
   const vote = async (target: string, remove: boolean) => {
     if (!active) return
     setActionBusy(true)
@@ -436,11 +504,60 @@ export function VirtualLibrariesPage() {
     finally { setActionBusy(false) }
   }
 
+  // Moderator starts/stops the shared study countdown for the whole room.
+  const setStudyTime = async (clear: boolean) => {
+    if (!active || studyBusy) return
+    setStudyBusy(true)
+    try {
+      await api.realtimePublish({
+        action: 'library-study-time',
+        roomId: active.id,
+        minutes: clear ? 0 : Math.max(1, Math.min(24 * 60, Number(studyMinutes) || 25)),
+        clear,
+      })
+      setShowStudyTimer(false)
+    } catch (err) { console.error(err) } finally { setStudyBusy(false) }
+  }
+
   const lockRoom = async () => {
     if (!active) return
     setActionBusy(true)
     try { await api.realtimePublish({ action: 'library-lock', roomId: active.id }) }
     catch (err: any) { alert(err?.message || 'Vote failed') }
+    finally { setActionBusy(false) }
+  }
+
+  // ─── Private moderator notes ─────────────────────────────────────
+  // Only the moderator sees their own notes (the server only includes
+  // modNotes on the author's member payload) and they are wiped from the
+  // DB the moment the moderator leaves the room.
+  const [showNotes, setShowNotes] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const myNotes: ModNote[] = members.find(m => m.userId === me?.userId)?.modNotes || []
+
+  const submitNote = async () => {
+    if (!active) return
+    const text = noteDraft.trim()
+    if (!text) return
+    setActionBusy(true)
+    try {
+      await api.realtimePublish({ action: 'library-notes', roomId: active.id, op: editingNoteId ? 'edit' : 'add', noteId: editingNoteId, text })
+      setNoteDraft('')
+      setEditingNoteId(null)
+    }
+    catch (err: any) { alert(err?.message || 'Failed to save note') }
+    finally { setActionBusy(false) }
+  }
+
+  const deleteNote = async (noteId: string) => {
+    if (!active) return
+    setActionBusy(true)
+    try {
+      await api.realtimePublish({ action: 'library-notes', roomId: active.id, op: 'delete', noteId })
+      if (editingNoteId === noteId) { setEditingNoteId(null); setNoteDraft('') }
+    }
+    catch (err: any) { alert(err?.message || 'Failed to delete note') }
     finally { setActionBusy(false) }
   }
 
@@ -484,15 +601,34 @@ export function VirtualLibrariesPage() {
           </div>
         )}
 
+        {/* Search */}
+        <div className="px-1 pb-4">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              placeholder="Search virtual libraries..."
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              className="w-full h-11 pl-10 pr-4 text-sm bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border-0 outline-none focus:ring-2 focus:ring-blue-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200 shadow-sm"
+            />
+          </div>
+        </div>
+
         {rooms.length === 0 ? (
           <div className="text-center py-16 text-slate-500 dark:text-slate-400">
             <Camera className="w-10 h-10 mx-auto mb-3 opacity-40" />
             <p className="text-sm font-medium">No virtual libraries available yet</p>
             <p className="text-xs">Check back soon!</p>
           </div>
+        ) : filteredRooms.length === 0 ? (
+          <div className="text-center py-16 text-slate-500 dark:text-slate-400">
+            <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p className="text-sm font-medium">No rooms match your search</p>
+            <p className="text-xs">Try a different name or keyword.</p>
+          </div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-3">
-            {rooms.map(r => {
+            {filteredRooms.map(r => {
               const full = r.present >= r.maxCapacity
               const locked = !!r.isLocked
               return (
@@ -573,6 +709,11 @@ export function VirtualLibrariesPage() {
             <button onClick={leaveRoom} className="p-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors">
               <ArrowLeft className="w-4 h-4" />
             </button>
+            {onMinimize && (
+              <button onClick={onMinimize} title="Minimize — keep the room running in the background and browse other sections" className="p-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors">
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            )}
             <div className="min-w-0">
               <h2 className="font-semibold text-sm truncate">{active?.name}</h2>
               <p className="text-[10px] text-white/80 flex items-center gap-1">
@@ -583,6 +724,20 @@ export function VirtualLibrariesPage() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Study countdown — visible to everyone in the room */}
+            {active?.studyEndsAt && (
+              <span
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold tabular-nums ${
+                  (active.studyEndsAt - Date.now()) <= 0
+                    ? 'bg-rose-500 text-white'
+                    : 'bg-white/20 text-white'
+                }`}
+                title={me?.role === 'moderator' ? 'Study timer you set' : 'Study session timer set by the moderator'}
+              >
+                <Clock className="w-3 h-3" />
+                {(active.studyEndsAt - Date.now()) <= 0 ? 'Time’s up' : studyTimeLeft(active.studyEndsAt)}
+              </span>
+            )}
             <Button
               size="sm"
               variant="secondary"
@@ -595,10 +750,167 @@ export function VirtualLibrariesPage() {
               {active?.isLocked ? 'Unlock' : 'Lock'}
               <span className="ml-1">({(active?.lockVotes || []).length}/{lockNeeded})</span>
             </Button>
-            <Button size="sm" variant="secondary" onClick={leaveRoom} className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs">Leave</Button>
+            {me?.role === 'moderator' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowNotes(v => !v)}
+                className={`text-white border-0 text-xs ${showNotes ? 'bg-amber-500 hover:bg-amber-600' : 'bg-white/20 hover:bg-white/30'}`}
+                title="Your private moderator notes — only you can see them; deleted when you leave"
+              >
+                <StickyNote className="w-3 h-3 mr-1" />
+                Notes{myNotes.length > 0 ? ` (${myNotes.length})` : ''}
+              </Button>
+            )}
+            {me?.role === 'moderator' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowStudyTimer(v => !v)}
+                className={`text-white border-0 text-xs ${showStudyTimer ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-white/20 hover:bg-white/30'}`}
+                title="Set a study session — a countdown starts for everyone in the room"
+              >
+                <Clock className="w-3 h-3 mr-1" />
+                Study time
+              </Button>
+            )}
+            {me?.role === 'moderator' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={muteAll}
+                className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs"
+                title="Mute everyone's microphone — each participant can unmute themselves again"
+              >
+                <MicOff className="w-3 h-3 mr-1" />
+                Mute all
+              </Button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Study timer panel (moderator only) */}
+      {showStudyTimer && me?.role === 'moderator' && (
+        <div className="mx-4 mb-4 rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5" /> Study session
+              <span className="font-normal text-emerald-600/70 dark:text-emerald-500/70">— everyone in the room will see the countdown</span>
+            </p>
+            <button onClick={() => setShowStudyTimer(false)} className="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              value={studyMinutes}
+              onChange={(e) => setStudyMinutes(e.target.value)}
+              placeholder="Minutes"
+              className="w-24 h-9 px-3 text-sm rounded-lg border border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-400/50"
+            />
+            <Button size="sm" onClick={() => void setStudyTime(false)} disabled={studyBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
+              {studyBusy ? 'Starting…' : 'Start countdown'}
+            </Button>
+            {active?.studyEndsAt && (
+              <Button size="sm" variant="outline" onClick={() => void setStudyTime(true)} disabled={studyBusy} className="text-rose-600 border-rose-200 dark:border-rose-900 text-xs">
+                Stop timer
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Private moderator notes panel */}
+      {showNotes && me?.role === 'moderator' && (
+        <div className="mx-4 mb-4 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/20 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+              <StickyNote className="w-3.5 h-3.5" /> Your private notes
+              <span className="font-normal text-amber-600/70 dark:text-amber-500/70">— only you can see these; they are deleted when you leave</span>
+            </p>
+            <button onClick={() => { setShowNotes(false); setEditingNoteId(null); setNoteDraft('') }} className="text-amber-600 hover:text-amber-800 dark:text-amber-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex gap-2 mb-3">
+            <input
+              value={noteDraft}
+              onChange={e => setNoteDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void submitNote() }}
+              placeholder={editingNoteId ? 'Edit your note…' : 'Write a note to yourself…'}
+              className="flex-1 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-amber-400/50"
+            />
+            {editingNoteId && (
+              <Button size="sm" variant="outline" onClick={() => { setEditingNoteId(null); setNoteDraft('') }} className="text-xs px-2">Cancel</Button>
+            )}
+            <Button size="sm" onClick={submitNote} disabled={actionBusy || !noteDraft.trim()} className="bg-amber-500 hover:bg-amber-600 text-white text-xs px-3">
+              {editingNoteId ? <><Check className="w-3 h-3 mr-1" /> Save</> : 'Add'}
+            </Button>
+          </div>
+          {myNotes.length === 0 ? (
+            <p className="text-[11px] text-amber-600/70 dark:text-amber-500/70">No notes yet. Anything you add here is visible only to you.</p>
+          ) : (
+            <ul className="space-y-2 max-h-56 overflow-y-auto">
+              {myNotes.map(n => (
+                <li key={n.id} className="flex items-start gap-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-100 dark:border-amber-900/40 px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{n.text}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{new Date(n.at).toLocaleString()}</p>
+                  </div>
+                  <button onClick={() => { setEditingNoteId(n.id); setNoteDraft(n.text) }} className="text-slate-400 hover:text-blue-500 shrink-0 mt-0.5" title="Edit note">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => void deleteNote(n.id)} disabled={actionBusy} className="text-slate-400 hover:text-rose-500 shrink-0 mt-0.5 disabled:opacity-50" title="Delete note">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Sticky bottom controls: mic + camera + leave (fixed to the bottom of the page) */}
+      {active && !removedMe && !inactiveRemoved && (
+        <>
+          <div className="h-24" />
+          <div
+            className="fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur px-4 pt-3 flex items-center justify-center gap-4"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
+            <button
+              onClick={toggleMic}
+              aria-label={micOn ? 'Mute microphone' : 'Unmute microphone'}
+              title={micOn ? 'Mute microphone' : 'Unmute microphone'}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-md ${micOn
+                ? 'bg-slate-900 text-white hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600'
+                : 'bg-rose-500 text-white hover:bg-rose-600'}`}
+            >
+              {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            </button>
+            <button
+              onClick={toggleCam}
+              aria-label={camOn ? 'Turn off camera' : 'Turn on camera'}
+              title={camOn ? 'Turn off camera' : 'Turn on camera'}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-md ${camOn
+                ? 'bg-slate-900 text-white hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600'
+                : 'bg-rose-500 text-white hover:bg-rose-600'}`}
+            >
+              {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            </button>
+            <button
+              onClick={() => void leaveRoom()}
+              className="h-12 px-6 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-colors shadow-md flex items-center gap-2"
+            >
+              <X className="w-4 h-4" /> Leave
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Removed state */}
       {(removedMe || inactiveRemoved) && (
@@ -626,6 +938,12 @@ export function VirtualLibrariesPage() {
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">On Stage ({onStage.length})</h3>
               {me?.role === 'moderator' && <Badge variant="outline" className="text-[9px] text-amber-600 dark:text-amber-400"><ShieldCheck className="w-3 h-3 mr-1" /> You can manage the stage</Badge>}
+              {me && me.role !== 'moderator' && (() => {
+                const left = stageCountdown(me.moderatorEligibleAt)
+                return left ? (
+                  <Badge key={tick} variant="outline" className="text-[9px] text-amber-600 dark:text-amber-400"><Clock className="w-3 h-3 mr-1" /> Moderator in {left}</Badge>
+                ) : null
+              })()}
             </div>
             {onStage.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-6 text-center text-slate-400 dark:text-slate-500">
@@ -636,7 +954,7 @@ export function VirtualLibrariesPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                 {me?.onStage && (
                   <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 aspect-video">
-                    <video ref={localVideoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-contain" onLoadedMetadata={() => { if (localVideoRef.current) localVideoRef.current.play?.() }} />
+                    <video ref={localVideoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" onLoadedMetadata={() => { if (localVideoRef.current) localVideoRef.current.play?.() }} />
                     {!camOn && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-slate-900">
                         <Camera className="w-7 h-7 mb-1.5" />
@@ -657,25 +975,11 @@ export function VirtualLibrariesPage() {
                         </span>
                       )}
                     </div>
-                    {me?.role === 'stage' && stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince) && (
+                    {me?.role !== 'moderator' && stageCountdown(me?.moderatorEligibleAt) && (
                       <div className="absolute left-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/90 text-white text-[9px] font-medium backdrop-blur">
-                        <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince)}
+                        <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(me?.moderatorEligibleAt)}
                       </div>
                     )}
-                    <div className="absolute right-2 bottom-2 flex items-center gap-1">
-                      <button
-                        onClick={toggleMic}
-                        title={micOn ? 'Mute mic' : 'Unmute mic'}
-                        className={`p-1.5 rounded-md transition-colors ${micOn ? 'bg-black/60 text-white/80 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`}>
-                        {micOn ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        onClick={toggleCam}
-                        title={camOn ? 'Turn off camera' : 'Turn on camera'}
-                        className={`p-1.5 rounded-md transition-colors ${camOn ? 'bg-black/60 text-white/80 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`}>
-                        {camOn ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
                   </div>
                 )}
 
@@ -689,7 +993,7 @@ export function VirtualLibrariesPage() {
                     <div key={m.userId} className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 aspect-video">
                       <video
                         ref={(el) => { if (el) { videoRefs.current.set(m.userId, el); const stream = remoteStreams.get(m.userId); if (el.srcObject !== stream && stream) el.srcObject = stream } }}
-                        autoPlay playsInline className="absolute inset-0 w-full h-full object-contain"
+                        autoPlay playsInline className="absolute inset-0 w-full h-full object-cover"
                         onLoadedMetadata={(e) => { try { (e.currentTarget as HTMLVideoElement).play?.() } catch { /* ignore */ } }}
                       />
                       {m.videoOff ? (

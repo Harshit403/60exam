@@ -14,9 +14,13 @@ export interface SavedAnonymousIdentity {
 }
 
 const STORAGE_KEY = 'studyroom_anonymous_identity_v1'
+// Bump when the name pools change: identities saved under an older version are
+// ignored (and re-allotted from the new pool on the next join).
+const POOL_VERSION = 2
 
 interface StoredEntry extends SavedAnonymousIdentity {
   updatedAt: number
+  v?: number
 }
 
 type IdentityStore = { male?: StoredEntry; female?: StoredEntry }
@@ -42,13 +46,16 @@ function writeStore(store: IdentityStore): void {
 
 export function getSavedAnonymousIdentity(gender: 'male' | 'female'): SavedAnonymousIdentity | null {
   const entry = readStore()[gender]
-  return entry && entry.name && entry.color ? { name: entry.name, color: entry.color } : null
+  if (!entry || !entry.name || !entry.color) return null
+  // Names saved before a pool change no longer match the current name lists.
+  if ((entry.v ?? 1) !== POOL_VERSION) return null
+  return { name: entry.name, color: entry.color }
 }
 
 export function saveAnonymousIdentity(gender: 'male' | 'female', identity: SavedAnonymousIdentity): void {
   if (!identity?.name || !identity?.color) return
   const store = readStore()
-  store[gender] = { name: identity.name, color: identity.color, updatedAt: Date.now() }
+  store[gender] = { name: identity.name, color: identity.color, updatedAt: Date.now(), v: POOL_VERSION }
   writeStore(store)
 }
 

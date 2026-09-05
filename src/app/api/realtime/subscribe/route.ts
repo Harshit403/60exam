@@ -43,7 +43,7 @@ function sweepRoomMembers(channel: string) {
         for (const m of members) {
           await db.discussionRoomMember.update({
             where: { id: m.id },
-            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false },
+            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any },
           })
           await logRoomActivity({
             kind: 'discussion', roomId, roomName,
@@ -61,7 +61,7 @@ function sweepRoomMembers(channel: string) {
         for (const m of members) {
           await db.virtualLibraryMember.update({
             where: { id: m.id },
-            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false },
+            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any },
           })
           await logRoomActivity({
             kind: 'library', roomId, roomName,
@@ -325,7 +325,6 @@ export async function GET(req: NextRequest) {
       if (channel.startsWith('droom:')) {
         const roomId = channel.slice(6)
         const MOD_INACTIVE_MS = 5 * 60 * 1000
-        const MOD_ROTATION_MS = 5 * 60 * 1000
 
         const buildDroomState = async () => {
           const room = await db.discussionRoom.findUnique({
@@ -344,10 +343,15 @@ export async function GET(req: NextRequest) {
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested,
               stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
+              moderatorEligibleAt: m.moderatorEligibleAt?.getTime() || null,
               micOff: !!m.micOff,
               speaking: !!m.speaking,
               stageApproveVotes: Array.isArray(m.stageApproveVotes) ? (m.stageApproveVotes as string[]) : [],
               removalVotes: Array.isArray(m.removalVotes) ? (m.removalVotes as string[]) : [],
+              // Private moderator notes — only ever sent to the author.
+              modNotes: m.studentId === userId && m.role === 'moderator'
+                ? (Array.isArray(m.modNotes) ? (m.modNotes as Array<{ id: string; text: string; at: number }>) : [])
+                : [],
             })),
           }
         }
@@ -369,14 +373,16 @@ export async function GET(req: NextRequest) {
             let changed = false
             for (const m of members) {
               const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
-              // Add/modify: promote on-stage members to moderator after 5 minutes
-              if (m.onStage && m.role !== 'moderator' && m.onStageSince && (now - new Date(m.onStageSince).getTime()) >= MOD_ROTATION_MS) {
+              // Add/modify: promote members to moderator once their 5-minute
+              // join wait (moderatorEligibleAt) has passed. The 1st joiner has
+              // no wait (moderatorEligibleAt is null) and got the role at join.
+              if (m.role !== 'moderator' && m.moderatorEligibleAt && now >= new Date(m.moderatorEligibleAt).getTime()) {
                 await db.discussionRoomMember.update({ where: { id: m.id }, data: { role: 'moderator' } })
                 changed = true
               }
               // Inactive removal (mirrors study-group auto-exit)
               if ((now - lastActive) >= MOD_INACTIVE_MS) {
-                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any } })
                 await logRoomActivity({
                   kind: 'discussion',
                   roomId,
@@ -393,7 +399,7 @@ export async function GET(req: NextRequest) {
               // 2/3 majority vote to remove (excludes the target's own vote naturally)
               const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
               if (votes.length >= needed && activeCount >= 2) {
-                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any } })
                 await logRoomActivity({
                   kind: 'discussion',
                   roomId,
@@ -462,7 +468,6 @@ export async function GET(req: NextRequest) {
       if (channel.startsWith('vroom:')) {
         const roomId = channel.slice(6)
         const LIB_INACTIVE_MS = 5 * 60 * 1000
-        const MOD_ROTATION_MS = 5 * 60 * 1000
 
         const buildVroomState = async () => {
           const room = await db.virtualLibrary.findUnique({
@@ -475,16 +480,24 @@ export async function GET(req: NextRequest) {
               id: room.id, name: room.name, present: room.members.length, maxCapacity: room.maxCapacity,
               isLocked: room.isLocked,
               lockVotes: Array.isArray(room.lockVotes) ? (room.lockVotes as string[]) : [],
+              // Moderator-set study timer: absolute end timestamp (ms) so every
+              // client can render a live countdown from the same clock.
+              studyEndsAt: room.studyEndsAt?.getTime() || null,
             },
             members: room.members.map(m => ({
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
               role: m.role, onStage: m.onStage, stageRequested: m.stageRequested, stageInvited: m.stageInvited,
               onStageSince: m.onStageSince?.getTime() || null,
+              moderatorEligibleAt: m.moderatorEligibleAt?.getTime() || null,
               videoOff: m.videoOff,
               micOff: !!m.micOff,
               speaking: !!m.speaking,
               stageApproveVotes: Array.isArray(m.stageApproveVotes) ? (m.stageApproveVotes as string[]) : [],
               removalVotes: Array.isArray(m.removalVotes) ? m.removalVotes as string[] : [],
+              // Private moderator notes — only ever sent to the author.
+              modNotes: m.studentId === userId && m.role === 'moderator'
+                ? (Array.isArray(m.modNotes) ? (m.modNotes as Array<{ id: string; text: string; at: number }>) : [])
+                : [],
             })),
           }
         }
@@ -522,15 +535,17 @@ export async function GET(req: NextRequest) {
             }
 
             for (const m of members) {
-              // Add/modify: promote on-stage members to moderator after 5 minutes
-              if (m.onStage && m.role !== 'moderator' && m.onStageSince && (now - new Date(m.onStageSince).getTime()) >= MOD_ROTATION_MS) {
+              // Add/modify: promote members to moderator once their 5-minute
+              // join wait (moderatorEligibleAt) has passed. The 1st joiner has
+              // no wait (moderatorEligibleAt is null) and got the role at join.
+              if (m.role !== 'moderator' && m.moderatorEligibleAt && now >= new Date(m.moderatorEligibleAt).getTime()) {
                 await db.virtualLibraryMember.update({ where: { id: m.id }, data: { role: 'moderator' } })
                 changed = true
               }
               // Inactive removal
               const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
               if ((now - lastActive) >= LIB_INACTIVE_MS) {
-                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any } })
                 await logRoomActivity({
                   kind: 'library',
                   roomId,
@@ -548,7 +563,7 @@ export async function GET(req: NextRequest) {
               // 2/3 majority vote to remove (excludes the target's own vote naturally)
               const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
               if (votes.length >= needed && activeCount >= 2) {
-                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await db.virtualLibraryMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false, modNotes: [] as any } })
                 await logRoomActivity({
                   kind: 'library',
                   roomId,

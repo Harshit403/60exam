@@ -480,6 +480,8 @@ model DiscussionRoomMember {
   stageApproveVotes Json         @default("[]") // 2/3 vote to approve a stage request when no moderator is present
   removalVotes  Json             @default("[]") // list of studentIds voting to remove this user
   moderatorUntil DateTime?
+  moderatorEligibleAt DateTime? // join time + 5 min — non-first joiners become moderator after this (1st joiner: null)
+  modNotes     Json             @default("[]") // private moderator notes: [{id,text,at}] — visible only to the author moderator, wiped on leave
   joinedAt      DateTime         @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime         @default(now())
@@ -521,6 +523,7 @@ model VirtualLibrary {
   isActive    Boolean  @default(true)
   isLocked    Boolean  @default(false)
   lockVotes   Json     @default("[]") // studentIds voting to lock (or unlock) the room
+  studyEndsAt  DateTime? // moderator-set study session end; live countdown shown to everyone in the room
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -551,6 +554,8 @@ model VirtualLibraryMember {
   removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
   removalExpires DateTime?
   moderatorUntil DateTime?
+  moderatorEligibleAt DateTime? // join time + 5 min — non-first joiners become moderator after this (1st joiner: null)
+  modNotes     Json             @default("[]") // private moderator notes: [{id,text,at}] — visible only to the author moderator, wiped on leave
   joinedAt      DateTime        @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime        @default(now())

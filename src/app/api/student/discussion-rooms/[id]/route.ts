@@ -22,6 +22,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const myMember = room.members.find(m => m.studentId === auth.id)
 
+  // Recent visit history: last 20 members who have since left the room
+  // (anonymized display names only — the room uses anonymous identities).
+  const past = await db.discussionRoomMember.findMany({
+    where: { roomId: id, leftAt: { not: null } },
+    orderBy: { leftAt: 'desc' },
+    take: 20,
+    select: { displayName: true, color: true, joinedAt: true, leftAt: true },
+  })
+
   // Anonymized presence: never expose real identity
   const presence = room.members.map(m => ({
     userId: m.studentId,
@@ -40,7 +49,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       maxCapacity: room.maxCapacity,
       present: room.members.length,
       full: room.members.length >= room.maxCapacity,
+      createdAt: room.createdAt.getTime(),
     },
+    history: past.map(m => ({
+      displayName: m.displayName,
+      color: m.color,
+      joinedAt: m.joinedAt.getTime(),
+      leftAt: m.leftAt?.getTime() || null,
+    })),
     me: myMember ? {
       userId: myMember.studentId,
       displayName: myMember.displayName,
@@ -124,32 +140,46 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     ? { ...saved, gender: gender || 'neutral' }
     : randomAnonymousIdentity(gender, takenList)
 
-  // First two joiners become moderators (and go on stage); everyone else is
-  // audience. Rejoining users always land back in the audience — a returning
-  // moderator whose 2-hour moderation window is still valid keeps it (renewed
-  // from this visit, per "moderation counts from the last visit for that room").
+  // First joiner becomes the moderator AND goes on stage instantly. The second
+  // joiner goes directly on stage too, but WITHOUT moderator power (role
+  // 'stage'). Everyone else — including anyone REJOINING the room — lands in
+  // the audience and must use the "go on stage" request flow. A returning
+  // member never reclaims moderator/stage automatically; they can earn it again
+  // via the normal wait / request flow.
   const nowMs = Date.now()
   const MODERATOR_TTL_MS = 2 * 60 * 60 * 1000
-  const modStillValid = !!(existing?.moderatorUntil && new Date(existing.moderatorUntil).getTime() > nowMs)
+  const MOD_WAIT_MS = 5 * 60 * 1000 // non-first joiners wait 5 minutes to become moderator
   let role = 'audience'
   let onStage = false
   let moderatorUntil: Date | null = null
+  // Everyone except the 1st joiner gets a 5-minute moderator wait from now.
+  let moderatorEligibleAt: Date | null = new Date(nowMs + MOD_WAIT_MS)
   if (existing && !existing.leftAt) {
-    // Already in the room (e.g. gender switch): keep the position, refresh the
-    // moderation window if it is still valid.
+    // Already in the room (e.g. gender switch): keep the position and the
+    // existing moderation window / wait timer.
     role = existing.role
     onStage = existing.onStage
-    moderatorUntil = modStillValid ? new Date(nowMs + MODERATOR_TTL_MS) : existing.moderatorUntil
+    moderatorUntil = existing.moderatorUntil && new Date(existing.moderatorUntil).getTime() > nowMs
+      ? new Date(nowMs + MODERATOR_TTL_MS)
+      : existing.moderatorUntil
+    moderatorEligibleAt = existing.moderatorEligibleAt
   } else if (existing && existing.leftAt) {
-    // Rejoin → audience. A returning moderator with a valid window keeps (and
-    // renews) their moderation; otherwise they start fresh as audience.
-    role = modStillValid ? 'moderator' : 'audience'
+    // Rejoin → audience, always. Stage is reserved for the room's 1st and 2nd
+    // joiners; a returning member is a subsequent join, so they start in the
+    // audience with a fresh moderator wait (no reclaimed moderation window).
+    role = 'audience'
     onStage = false
-    moderatorUntil = modStillValid ? new Date(nowMs + MODERATOR_TTL_MS) : null
-  } else if (activeCount < 2) {
+    moderatorUntil = null
+  } else if (activeCount === 0) {
+    // 1st person: instant moderator power, straight on stage — no wait.
     role = 'moderator'
     onStage = true
     moderatorUntil = new Date(nowMs + MODERATOR_TTL_MS)
+    moderatorEligibleAt = null
+  } else if (activeCount === 1) {
+    // 2nd person: goes directly on stage but does NOT get moderator power.
+    role = 'stage'
+    onStage = true
   }
 
   const member = await db.discussionRoomMember.upsert({
@@ -162,11 +192,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       role,
       onStage,
       stageRequested: false,
+      stageInvited: false,
+      stageApproveVotes: [] as any,
       onStageSince: onStage ? new Date() : null,
       lastActiveAt: new Date(),
       ipAddress,
       bandwidthMb: 0,
       moderatorUntil,
+      moderatorEligibleAt,
     },
     create: {
       roomId: id,
@@ -180,6 +213,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       ipAddress,
       bandwidthMb: 0,
       moderatorUntil,
+      moderatorEligibleAt,
     },
   })
 
@@ -202,6 +236,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       role: member.role,
       onStage: member.onStage,
       gender: member.gender,
+      moderatorEligibleAt: member.moderatorEligibleAt?.getTime() || null,
     },
   })
 }

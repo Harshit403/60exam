@@ -189,23 +189,60 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [timerRunning, timerPaused])
 
-  // ─── Timer Interval ──────────────────────────────────────────────────
+  // ─── End-of-session beeps ─────────────────────────────────────────────
+  // Soft chime when 59s remain, and two soft beeps when 1s remains, so the
+  // user gets an audible heads-up before the pomodoro completes. Built on a
+  // lazily-created shared AudioContext (kept quiet at gain 0.08).
+  const beepCtxRef = useRef<AudioContext | null>(null)
+  const prevSecondsRef = useRef(0)
+  const playSoftBeep = useCallback((count: number) => {
+    try {
+      if (!beepCtxRef.current) {
+        const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext
+        if (!Ctx) return
+        beepCtxRef.current = new Ctx()
+      }
+      const ctx = beepCtxRef.current
+      if (!ctx) return
+      ctx.resume?.().catch(() => {})
+      for (let i = 0; i < count; i++) {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = 880
+        const start = ctx.currentTime + i * 0.35
+        gain.gain.setValueAtTime(0, start)
+        gain.gain.linearRampToValueAtTime(0.08, start + 0.03)
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(start)
+        osc.stop(start + 0.3)
+      }
+    } catch { /* audio unavailable — silently skip */ }
+  }, [])
+
   useEffect(() => {
-    if (timerRunning && !timerPaused && timerSeconds > 0) {
+    const prev = prevSecondsRef.current
+    prevSecondsRef.current = timerSeconds
+    if (!timerRunning || timerPaused) return
+    // Fire only on a real tick transition (1 → 0 is handled as completion).
+    if (prev === timerSeconds || prev <= 0) return
+    if (timerSeconds === 59) playSoftBeep(1)
+    else if (timerSeconds === 1) playSoftBeep(2)
+  }, [timerSeconds, timerRunning, timerPaused, playSoftBeep])
+
+  // ─── Timer Interval ──────────────────────────────────────────────────
+  // NOTE: the interval must NOT be torn down/recreated on every tick (i.e.
+  // `timerSeconds` must not be a dependency). Recreating it each second
+  // restarts the 1s window after every render, so the countdown drifts and a
+  // "25 min" pomodoro actually takes longer than 25 minutes of wall-clock
+  // time — which is exactly why recorded study time didn't match the session.
+  useEffect(() => {
+    if (timerRunning && !timerPaused) {
       timerInterval.current = setInterval(() => {
-        setTimerSeconds(prev => {
-          if (prev <= 1) {
-            setTimerRunning(false)
-            setTimerCompleted(true)
-            clearTimerState()
-            if (timerInterval.current) {
-              clearInterval(timerInterval.current)
-              timerInterval.current = null
-            }
-            return 0
-          }
-          return prev - 1
-        })
+        // Pure updater only — side effects (completion, storage clear) live in
+        // the dedicated effect below, so React can safely re-invoke this.
+        setTimerSeconds(prev => (prev > 0 ? prev - 1 : 0))
       }, 1000)
     }
     return () => {
@@ -214,7 +251,33 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         timerInterval.current = null
       }
     }
-  }, [timerRunning, timerPaused, timerSeconds])
+  }, [timerRunning, timerPaused])
+
+  // ─── Timer completion ─────────────────────────────────────────────────
+  // Fires once when the countdown reaches zero while running. Also reports the
+  // final minute of study time: while the timer runs, sync happens only while
+  // timerSeconds > 0, so without this the last minute (e.g. 25th of a 25-min
+  // session) was never stored when the timer turned itself off.
+  useEffect(() => {
+    if (!timerRunning || timerPaused || timerTotalSeconds <= 0 || timerSeconds > 0) return
+    setTimerRunning(false)
+    setTimerCompleted(true)
+    clearTimerState()
+    if (!lectureMode) {
+      const studiedMin = Math.floor(timerTotalSeconds / 60)
+      const toReport = studiedMin - reportedMinRef.current
+      if (toReport > 0) {
+        // Optimistic: mark as reported first so a quick finalize can't double-count.
+        reportedMinRef.current = studiedMin
+        api.studentStartSession({
+          ...(activeSessionId ? { id: activeSessionId } : {}),
+          chapterId: selectedChapterId || undefined,
+          durationMin: toReport,
+          completed: false,
+        }).catch(err => console.error('Final minute sync failed:', err))
+      }
+    }
+  }, [timerRunning, timerPaused, timerSeconds, timerTotalSeconds, lectureMode, activeSessionId, selectedChapterId])
 
   const startTimer = useCallback((minutes: number) => {
     if (minutes <= 0) return
@@ -241,6 +304,25 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   }, [lectureMode, selectedChapterId])
 
   const resetTimer = useCallback(() => {
+    // Turning the timer OFF manually: before wiping local state, report any
+    // studied minutes the per-minute sync hasn't stored yet (e.g. the user
+    // stops at 12:37 of a 25-min pomodoro — ~12 min must be credited, not 0).
+    // In lecture mode the server clock is authoritative and pause (below)
+    // already accrues the elapsed time, so nothing extra is needed there.
+    if (!lectureMode && timerTotalSeconds > 0 && !syncingRef.current) {
+      const studiedMin = Math.max(0, Math.floor((timerTotalSeconds - timerSeconds) / 60))
+      const toReport = studiedMin - reportedMinRef.current
+      if (toReport > 0) {
+        // Optimistic: prevents a later finalize from counting these minutes again.
+        reportedMinRef.current = studiedMin
+        api.studentStartSession({
+          ...(activeSessionId ? { id: activeSessionId } : {}),
+          chapterId: selectedChapterId || undefined,
+          durationMin: toReport,
+          completed: false,
+        }).catch(err => console.error('Turn-off study-time sync failed:', err))
+      }
+    }
     // In lecture mode, tell the server to stop accruing time for this session
     // so the stored study time is not inflated after the timer is reset.
     if (activeSessionId && lectureMode) {
@@ -261,7 +343,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       clearInterval(timerInterval.current)
       timerInterval.current = null
     }
-  }, [activeSessionId, lectureMode])
+  }, [activeSessionId, lectureMode, timerSeconds, timerTotalSeconds, selectedChapterId])
 
   // ─── Per-minute study-time sync ───────────────────────────────────────
   // While the timer runs, every full minute of study time is reported to the
@@ -296,6 +378,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     // In lecture mode the server is authoritative; skip the client-side
     // reporting path entirely (it would create a competing client session).
     if (lectureMode) return
+
+    // At zero the countdown has turned itself off — the completion effect owns
+    // reporting the final minute, so don't double-report it here.
+    if (timerSeconds <= 0) return
 
     const studiedMin = Math.floor((timerTotalSeconds - timerSeconds) / 60)
     const toReport = studiedMin - reportedMinRef.current

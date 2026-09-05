@@ -555,6 +555,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // ─── Virtual Library: moderator mutes every participant's mic ────────
+    // Marks all present members' stored mic state as muted; each client sees
+    // its own member row flip to micOff via the refresh and silences its
+    // local track accordingly (the moderator's own mic is left untouched).
+    case 'library-mute-all': {
+      const { roomId } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      await ensureVirtualLibraryStageColumns()
+      const me = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        select: { id: true, role: true },
+      })
+      if (!me) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+      if (me.role !== 'moderator') return NextResponse.json({ error: 'Only moderators can mute everyone' }, { status: 403 })
+
+      await db.virtualLibraryMember.updateMany({
+        where: { roomId, leftAt: null, studentId: { not: auth.id } },
+        data: { micOff: true, speaking: false, lastActiveAt: new Date() },
+      }).catch(() => {})
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
     // ─── Virtual Library: vote to remove a participant ─────────────
     case 'library-vote': {
       const { roomId, target, vote } = body
@@ -614,6 +638,72 @@ export async function POST(req: NextRequest) {
       }
       hubPublish(`vroom:${roomId}`, 'refresh', {})
       return NextResponse.json({ ok: true })
+    }
+
+    // ─── Moderator notes (both room types) ─────────────────────────
+    // Each moderator keeps a private list of notes on their own member row.
+    // Only the author (and only while they are a moderator in the room) can
+    // read or change them; they are wiped when the moderator leaves.
+    case 'discussion-notes':
+    case 'library-notes': {
+      const { roomId, op, noteId, text } = body
+      if (!roomId || !op) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      const isDiscussion = action === 'discussion-notes'
+      await ensureRoomLockColumns()
+
+      const member = isDiscussion
+        ? await db.discussionRoomMember.findFirst({ where: { roomId, studentId: auth.id, leftAt: null } })
+        : await db.virtualLibraryMember.findFirst({ where: { roomId, studentId: auth.id, leftAt: null } })
+      if (!member) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+      if (member.role !== 'moderator') return NextResponse.json({ error: 'Only moderators can keep notes' }, { status: 403 })
+
+      const notes = Array.isArray(member.modNotes) ? (member.modNotes as Array<{ id: string; text: string; at: number }>) : []
+      let next = notes
+      if (op === 'add') {
+        if (typeof text !== 'string' || !text.trim()) return NextResponse.json({ error: 'Note text required' }, { status: 400 })
+        next = [{ id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text: text.trim(), at: Date.now() }, ...notes]
+      } else if (op === 'edit') {
+        if (!noteId || typeof text !== 'string' || !text.trim()) return NextResponse.json({ error: 'Note id and text required' }, { status: 400 })
+        next = notes.map(n => (n.id === noteId ? { ...n, text: text.trim() } : n))
+      } else if (op === 'delete') {
+        if (!noteId) return NextResponse.json({ error: 'Note id required' }, { status: 400 })
+        next = notes.filter(n => n.id !== noteId)
+      } else {
+        return NextResponse.json({ error: 'Unknown op' }, { status: 400 })
+      }
+
+      const data = { modNotes: next as any, lastActiveAt: new Date() }
+      if (isDiscussion) {
+        await db.discussionRoomMember.update({ where: { id: member.id }, data })
+      } else {
+        await db.virtualLibraryMember.update({ where: { id: member.id }, data })
+      }
+      // Refresh only the author's channel — the notes are private to them.
+      hubPublish(isDiscussion ? `droom:${roomId}` : `vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true, notes: next })
+    }
+
+    // ─── Moderator study timer (virtual library) ─────────────────────
+    // The moderator sets a study duration; an absolute end timestamp is
+    // stored on the room so every member sees the same live countdown.
+    // Pass `clear: true` (or minutes <= 0) to stop the timer.
+    case 'library-study-time': {
+      const { roomId, minutes, clear } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing roomId' }, { status: 400 })
+      await ensureRoomLockColumns()
+
+      const member = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+      })
+      if (!member) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+      if (member.role !== 'moderator') return NextResponse.json({ error: 'Only moderators can set the study timer' }, { status: 403 })
+
+      const studyEndsAt = clear || !(Number(minutes) > 0)
+        ? null
+        : new Date(Date.now() + Math.min(24 * 60, Number(minutes)) * 60 * 1000)
+      await db.virtualLibrary.update({ where: { id: roomId }, data: { studyEndsAt } })
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true, studyEndsAt: studyEndsAt?.getTime() || null })
     }
 
     // ─── Virtual Library: heartbeat ────────────────────────────────

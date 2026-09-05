@@ -30,6 +30,12 @@ const VIDEO_QUALITY_LEVELS = [
   { label: '480p', scale: 1.5, maxBitrate: 800_000 },
 ]
 
+export interface ModNote {
+  id: string
+  text: string
+  at: number
+}
+
 export interface RoomMember {
   userId: string
   displayName: string
@@ -44,6 +50,10 @@ export interface RoomMember {
   speaking?: boolean
   stageApproveVotes?: string[]
   removalVotes?: string[]
+  moderatorEligibleAt?: number | null
+  // Private moderator notes — the server only ever populates this on the
+  // author's own member payload, and it is wiped when they leave the room.
+  modNotes?: ModNote[]
 }
 
 export interface RoomCallOptions {
@@ -59,6 +69,22 @@ export interface RoomCallOptions {
   onLocalMedia: (stream: MediaStream | null) => void
   onPeerOpen?: (userId: string, pc: RTCPeerConnection) => void
   onQualityChange?: (label: string) => void
+}
+
+// ─── Opus DTX ───────────────────────────────────────────────────────────
+// Adds usedtx=1 to the Opus fmtp line so the encoder emits packets only
+// while speech is active (VAD-driven discontinuous transmission). Idle or
+// quiet participants drop from a constant ~32 kbps to near-zero audio
+// bandwidth, which is a big saving with many people connected.
+function enableOpusDtx(sdp: string): string {
+  if (!sdp || !sdp.includes('opus')) return sdp
+  const opusPts = Array.from(sdp.matchAll(/a=rtpmap:(\d+) opus\/48000/g), m => m[1])
+  if (!opusPts.length) return sdp
+  return sdp.split(/\r\n/).map(line => {
+    const m = line.match(/^a=fmtp:(\d+)(.*)$/)
+    if (!m || !opusPts.includes(m[1]) || line.includes('usedtx')) return line
+    return `${line};usedtx=1`
+  }).join('\r\n')
 }
 
 export class RoomCall {
@@ -271,7 +297,7 @@ export class RoomCall {
     this.syncLocalTrack(pc)
     this.lastOfferAt.set(targetId, Date.now())
     pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
+      .then(offer => pc.setLocalDescription({ type: 'offer', sdp: enableOpusDtx(offer.sdp || "") }))
       .then(() => {
         if (pc.localDescription) {
           this.log('sending offer', targetId)
@@ -317,7 +343,7 @@ export class RoomCall {
         pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: d.sdp }))
           .then(() => this.flushCandidates(from))
           .then(() => pc.createAnswer())
-          .then(answer => pc.setLocalDescription(answer))
+          .then(answer => pc.setLocalDescription({ type: 'answer', sdp: enableOpusDtx(answer.sdp || "") }))
           .then(() => { if (pc.localDescription) this.sendSignal(from, { type: 'answer', sdp: pc.localDescription.sdp }) })
           .catch(() => { /* ignore */ })
       } else {

@@ -16,7 +16,8 @@ export async function GET(request: Request) {
           include: { student: { select: { id: true, fullName: true, email: true } } }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      // Oldest groups first: newer rooms appear below older ones.
+      orderBy: { createdAt: 'asc' }
     })
 
     return Response.json({

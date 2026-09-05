@@ -1,22 +1,19 @@
 // Anonymous identity generator for Discussion Rooms & Virtual Libraries.
 // Combines gender-based names with a color to create unique display personas.
+// Name pools: exactly 10 male and 10 female names, allotted randomly per join.
 
 const MALE_NAMES = [
-  'Falcon', 'Tiger', 'Wolf', 'Eagle', 'Hawk', 'Lion', 'Panther', 'Cobra',
-  'Falcon', 'Maverick', 'Blaze', 'Duke', 'Hunter', 'Casper', 'Rex', 'Max',
-  'Shadow', 'Onyx', 'Neo', 'Ace', 'Jax', 'Zeke', 'Rocco', 'Bolt',
+  'Aarav', 'Rahul', 'Arjun', 'Vikram', 'Kabir',
+  'Rohan', 'Aditya', 'Karan', 'Sameer', 'Dev',
 ]
 
 const FEMALE_NAMES = [
-  'Luna', 'Aurora', 'Stella', 'Iris', 'Misty', 'Willow', 'Ivy', 'Rose',
-  'Ruby', 'Pearl', 'Jade', 'Daisy', 'Nova', 'Vega', 'Sage', 'Echo',
-  'Lily', 'Mina', 'Zara', 'Ella', 'Nina', 'Skye', 'Amber', 'Cleo',
+  'Ananya', 'Priya', 'Sneha', 'Kavya', 'Meera',
+  'Divya', 'Pooja', 'Ishita', 'Riya', 'Neha',
 ]
 
-const NEUTRAL_NAMES = [
-  'Pixel', 'Echo', 'Nova', 'Ziggy', 'Mochi', 'Pixel', 'Blip', 'Wisp',
-  'Chip', 'Rolo', 'Pip', 'Boo', 'Nyx', 'Zephyr', 'Dash', 'Jet',
-]
+// Fallback pool (gender unknown) — union of both lists.
+const NEUTRAL_NAMES = [...MALE_NAMES, ...FEMALE_NAMES]
 
 const COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6',
@@ -24,7 +21,7 @@ const COLORS = [
   '#ec4899', '#f43f5e', '#eab308', '#10b981',
 ]
 
-const GENDERS = ['male', 'female', 'male', 'female', 'neutral'] as const
+const GENDERS = ['male', 'female'] as const
 
 export type AnonymousGender = 'male' | 'female' | 'neutral'
 

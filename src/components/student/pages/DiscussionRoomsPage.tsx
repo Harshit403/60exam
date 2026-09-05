@@ -5,14 +5,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Mic, MicOff, Users, Wifi, WifiOff, ArrowLeft, Loader2, ShieldCheck,
-  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle, Share2, ThumbsDown, Lock,
+  Mic, MicOff, Users, Wifi, WifiOff, ArrowLeft, Loader2, ShieldCheck, Search, ChevronDown,
+  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle, Share2, ThumbsDown, Lock, StickyNote, Pencil,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
 import { useSSE } from '@/hooks/useSSE'
 import { useRoomActivity } from '@/hooks/useRoomActivity'
-import { RoomCall, RoomMember } from '@/lib/room-call'
+import { useWakeLock } from '@/hooks/useWakeLock'
+import { RoomCall, RoomMember, ModNote } from '@/lib/room-call'
 import { GenderJoinModal } from '@/components/student/GenderJoinModal'
 import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity } from '@/lib/identity-storage'
 
@@ -20,12 +21,15 @@ interface RoomInfo {
   id: string; name: string; description: string | null
   maxCapacity: number; present: number; isFull: boolean
   isLocked?: boolean; lockVotes?: string[]
+  isCurrentUserMember?: boolean
+  studyEndsAt?: number | null
   speakers?: { userId: string; displayName: string }[]
 }
 
 interface MeInfo {
   userId: string; displayName: string; color: string; gender?: string
   role: string; onStage: boolean; stageRequested?: boolean; stageInvited?: boolean
+  moderatorEligibleAt?: number | null
 }
 
 function avatarColorStyle(color: string) {
@@ -98,11 +102,44 @@ function SpeakingWave({ meter, color, speaking }: { meter: VoiceMeter; color: st
   )
 }
 
-export function DiscussionRoomsPage() {
+export function DiscussionRoomsPage({ onRoomChange, onMinimize }: {
+  // Report in-room state up to the panel so it can show a mini-room pill while
+  // the user browses other sections; onMinimize hides this page without
+  // leaving the room (the panel keeps this component mounted).
+  onRoomChange?: (inRoom: boolean, roomName: string) => void
+  onMinimize?: () => void
+} = {}) {
   const [rooms, setRooms] = useState<RoomInfo[]>([])
+  // Search filter for the room list (matches room name or description).
+  const [roomSearch, setRoomSearch] = useState('')
+  const filteredRooms = rooms.filter(r =>
+    r.name.toLowerCase().includes(roomSearch.toLowerCase()) ||
+    (r.description || '').toLowerCase().includes(roomSearch.toLowerCase()),
+  )
   const [currentRoom, setCurrentRoom] = useState<RoomInfo | null>(null)
+  // Room detail page: clicking a room card opens a full-page view (history +
+  // details) instead of expanding a dropdown inline in the list.
+  const [detailRoomId, setDetailRoomId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<any>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const openDetail = (roomId: string) => {
+    setDetailRoomId(roomId)
+    setDetail(null)
+    setDetailLoading(true)
+    api.studentDiscussionRoomDetail(roomId)
+      .then(d => setDetail(d))
+      .catch(() => setDetailRoomId(null))
+      .finally(() => setDetailLoading(false))
+  }
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<RoomInfo | null>(null)
+  // Tell the panel when we join/leave a room so it can show a mini-room pill
+  // while this page is minimized and the user browses other sections.
+  const activeId = active?.id
+  const activeName = active?.name
+  useEffect(() => {
+    onRoomChange?.(!!activeId, activeName || '')
+  }, [activeId, activeName])
   const [me, setMe] = useState<MeInfo | null>(null)
   const [members, setMembers] = useState<RoomMember[]>([])
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
@@ -258,6 +295,7 @@ export function DiscussionRoomsPage() {
           userId: sworn.userId, displayName: sworn.displayName, color: sworn.color,
           gender: sworn.gender, role: sworn.role, onStage: sworn.onStage, stageRequested: sworn.stageRequested,
           stageInvited: sworn.stageInvited,
+          moderatorEligibleAt: sworn.moderatorEligibleAt ?? null,
         } : prev)
         callRef.current?.setPresence(present.filter((m: any) => m.userId !== userIdRef.current))
       } else if (event === 'signal') {
@@ -340,7 +378,7 @@ export function DiscussionRoomsPage() {
       const m = data.member
       if (m) {
         if (m.gender === 'male' || m.gender === 'female') saveAnonymousIdentity(m.gender, { name: m.displayName, color: m.color })
-        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false })
+        setMe({ userId: m.userId, displayName: m.displayName, color: m.color, gender: m.gender, role: m.role, onStage: m.onStage, stageRequested: false, stageInvited: false, moderatorEligibleAt: m.moderatorEligibleAt ?? null })
       }
       wasMemberRef.current = true
       setInactiveRemoved(false)
@@ -542,12 +580,157 @@ export function DiscussionRoomsPage() {
     finally { setActionBusy(false) }
   }
 
+  // ─── Private moderator notes ─────────────────────────────────────
+  // Only the moderator sees their own notes (the server only includes
+  // modNotes on the author's member payload) and they are wiped from the
+  // DB the moment the moderator leaves the room.
+  const [showNotes, setShowNotes] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const myNotes: ModNote[] = members.find(m => m.userId === me?.userId)?.modNotes || []
+
+  const submitNote = async () => {
+    if (!active) return
+    const text = noteDraft.trim()
+    if (!text) return
+    setActionBusy(true)
+    try {
+      await api.realtimePublish({ action: 'discussion-notes', roomId: active.id, op: editingNoteId ? 'edit' : 'add', noteId: editingNoteId, text })
+      setNoteDraft('')
+      setEditingNoteId(null)
+    }
+    catch (err: any) { alert(err?.message || 'Failed to save note') }
+    finally { setActionBusy(false) }
+  }
+
+  const deleteNote = async (noteId: string) => {
+    if (!active) return
+    setActionBusy(true)
+    try {
+      await api.realtimePublish({ action: 'discussion-notes', roomId: active.id, op: 'delete', noteId })
+      if (editingNoteId === noteId) { setEditingNoteId(null); setNoteDraft('') }
+    }
+    catch (err: any) { alert(err?.message || 'Failed to delete note') }
+    finally { setActionBusy(false) }
+  }
+
   const toggleMic = () => {
     const next = !micOn
     setMicOn(next)
     callRef.current?.setMicEnabled(next)
     if (active) api.realtimePublish({ action: 'discussion-state', roomId: active.id, micOff: !next }).catch(() => {})
     audioCtxRef.current?.resume?.().catch(() => {})
+  }
+
+  // ── Room detail page (opened by clicking a room card) ───────────
+  if (!active && !loading && detailRoomId) {
+    const dRoom = detail?.room
+    const presence: any[] = detail?.presence || []
+    const history: any[] = detail?.history || []
+    const fmtDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    const fmtRange = (startMs: number, endMs: number | null) => {
+      const start = new Date(startMs).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      if (!endMs) return `${start} — still in room`
+      const mins = Math.max(1, Math.round((endMs - startMs) / 60000))
+      const end = new Date(endMs).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' })
+      return `${start} → ${end} · ${mins} min`
+    }
+    const dInfo = rooms.find(r => r.id === detailRoomId)
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setDetailRoomId(null)} className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Back to rooms">
+            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+          </button>
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
+              {dInfo?.name || 'Room details'}
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Details & recent activity</p>
+          </div>
+        </div>
+
+        {detailLoading && !dRoom && (
+          <div className="py-16 flex items-center justify-center text-slate-400">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+        )}
+
+        {dRoom && (
+          <>
+            {/* Details card */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <Badge variant={dRoom.full ? 'secondary' : 'outline'} className={`text-[10px] ${dRoom.full ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  <Users className="w-3 h-3 mr-1" /> {dRoom.present}/{dRoom.maxCapacity} present
+                </Badge>
+                {dInfo?.isLocked && <Badge className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><Lock className="w-3 h-3 mr-1" /> Locked</Badge>}
+              </div>
+              {dRoom.description && <p className="text-sm text-slate-600 dark:text-slate-300">{dRoom.description}</p>}
+              {dRoom.createdAt && (
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> Created {fmtDate(dRoom.createdAt)}
+                </p>
+              )}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                {dInfo?.isCurrentUserMember ? (
+                  <Button size="sm" onClick={() => { setDetailRoomId(null); requestJoin(dInfo) }} className="text-xs">Rejoin Voice</Button>
+                ) : (
+                  <Button size="sm" onClick={() => { setDetailRoomId(null); requestJoin(dInfo || ({ id: dRoom.id } as any)) }} disabled={dRoom.full || dInfo?.isLocked || actionBusy} className="bg-rose-600 hover:bg-rose-700 text-xs">
+                    {dInfo?.isLocked ? 'Locked' : dRoom.full ? 'Room Full' : 'Join Voice'}
+                  </Button>
+                )}
+                {dInfo && (
+                  <Button size="sm" variant="outline" onClick={() => shareRoom(dInfo)} className="text-xs">
+                    <Share2 className="w-3.5 h-3.5 mr-1" /> Share
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Current members */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3">In the room now ({presence.length})</p>
+              {presence.length === 0 ? (
+                <p className="text-sm text-slate-400">Nobody is here right now.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {presence.map(p => (
+                    <li key={p.userId} className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color || '#10b981' }} />
+                      <span className="text-sm text-slate-700 dark:text-slate-200 truncate">{p.displayName}</span>
+                      {p.role === 'moderator' && <Badge className="text-[9px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Mod</Badge>}
+                      {p.onStage && p.role !== 'moderator' && <Badge variant="outline" className="text-[9px] text-blue-600 dark:text-blue-400">Stage</Badge>}
+                      {p.micOff && <span className="text-[9px] text-rose-500 flex items-center gap-0.5"><MicOff className="w-3 h-3" /> Muted</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* History */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3">Recent visits</p>
+              {history.length === 0 ? (
+                <p className="text-sm text-slate-400">No past visits yet — be the first!</p>
+              ) : (
+                <ul className="space-y-3">
+                  {history.map((h, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: h.color || '#94a3b8' }} />
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-700 dark:text-slate-200 truncate">{h.displayName}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500">{fmtRange(h.joinedAt, h.leftAt)}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    )
   }
 
   // ── List view ───────────────────────────────────────────────────
@@ -582,20 +765,39 @@ export function DiscussionRoomsPage() {
           </div>
         )}
 
+        {/* Search */}
+        <div className="px-1 pb-4">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              placeholder="Search discussion rooms..."
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              className="w-full h-11 pl-10 pr-4 text-sm bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border-0 outline-none focus:ring-2 focus:ring-orange-400/50 placeholder:text-slate-400 text-slate-800 dark:text-slate-200 shadow-sm"
+            />
+          </div>
+        </div>
+
         {rooms.length === 0 ? (
           <div className="text-center py-16 text-slate-500 dark:text-slate-400">
             <Volume2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
             <p className="text-sm font-medium">No discussion rooms available yet</p>
             <p className="text-xs">Check back soon!</p>
           </div>
+        ) : filteredRooms.length === 0 ? (
+          <div className="text-center py-16 text-slate-500 dark:text-slate-400">
+            <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p className="text-sm font-medium">No rooms match your search</p>
+            <p className="text-xs">Try a different name or keyword.</p>
+          </div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-3">
-            {rooms.map(r => {
+            {filteredRooms.map(r => {
               const full = r.present >= r.maxCapacity
               const locked = !!r.isLocked
               return (
                 <div key={r.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex flex-col gap-3 shadow-sm">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2 cursor-pointer group/card" onClick={() => openDetail(r.id)} title="View room details & history">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${full || locked ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
                         <Volume2 className="w-4 h-4" />
@@ -674,9 +876,22 @@ export function DiscussionRoomsPage() {
   const lockNeeded = Math.max(1, Math.ceil((3 / 4) * activeCount))
   const removeNeeded = Math.max(2, Math.ceil((2 / 3) * activeCount))
   const removedMe = removed.includes('me')
-  const stageCountdown = (onStageSince?: number | null) => {
-    if (!onStageSince) return null
-    const left = (onStageSince + 5 * 60 * 1000) - Date.now()
+  // 1-second tick so the moderator-wait countdowns re-render smoothly (the SSE
+  // state poll only fires every 3 seconds).
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setTick(x => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  // Keep the device screen on for the whole time the user is in the room.
+  useWakeLock(!!active)
+  // Time until this member becomes moderator. Everyone except the 1st joiner
+  // waits 5 minutes from JOIN time (moderatorEligibleAt); the 1st joiner has
+  // no wait (moderatorEligibleAt is null).
+  const stageCountdown = (eligibleAt?: number | null) => {
+    if (!eligibleAt) return null
+    const left = eligibleAt - Date.now()
     if (left <= 0) return null
     const secs = Math.max(0, Math.floor(left / 1000))
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
@@ -716,6 +931,11 @@ export function DiscussionRoomsPage() {
             <button onClick={leaveRoom} className="p-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors">
               <ArrowLeft className="w-4 h-4" />
             </button>
+            {onMinimize && (
+              <button onClick={onMinimize} title="Minimize — keep the room running in the background and browse other sections" className="p-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors">
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            )}
             <div className="min-w-0">
               <h2 className="font-semibold text-sm truncate">{active?.name}</h2>
               <p className="text-[10px] text-white/80 flex items-center gap-1">
@@ -745,12 +965,99 @@ export function DiscussionRoomsPage() {
               {active?.isLocked ? 'Unlock' : 'Lock'}
               <span className="ml-1">({(active?.lockVotes || []).length}/{lockNeeded})</span>
             </Button>
-            <Button size="sm" variant="secondary" onClick={leaveRoom} className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs">
-              Leave
-            </Button>
+            {me?.role === 'moderator' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowNotes(v => !v)}
+                className={`text-white border-0 text-xs ${showNotes ? 'bg-amber-500 hover:bg-amber-600' : 'bg-white/20 hover:bg-white/30'}`}
+                title="Your private moderator notes — only you can see them; deleted when you leave"
+              >
+                <StickyNote className="w-3 h-3 mr-1" />
+                Notes{myNotes.length > 0 ? ` (${myNotes.length})` : ''}
+              </Button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Private moderator notes panel */}
+      {showNotes && me?.role === 'moderator' && (
+        <div className="mx-4 mb-4 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/20 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+              <StickyNote className="w-3.5 h-3.5" /> Your private notes
+              <span className="font-normal text-amber-600/70 dark:text-amber-500/70">— only you can see these; they are deleted when you leave</span>
+            </p>
+            <button onClick={() => { setShowNotes(false); setEditingNoteId(null); setNoteDraft('') }} className="text-amber-600 hover:text-amber-800 dark:text-amber-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex gap-2 mb-3">
+            <input
+              value={noteDraft}
+              onChange={e => setNoteDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void submitNote() }}
+              placeholder={editingNoteId ? 'Edit your note…' : 'Write a note to yourself…'}
+              className="flex-1 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-amber-400/50"
+            />
+            {editingNoteId && (
+              <Button size="sm" variant="outline" onClick={() => { setEditingNoteId(null); setNoteDraft('') }} className="text-xs px-2">Cancel</Button>
+            )}
+            <Button size="sm" onClick={submitNote} disabled={actionBusy || !noteDraft.trim()} className="bg-amber-500 hover:bg-amber-600 text-white text-xs px-3">
+              {editingNoteId ? <><Check className="w-3 h-3 mr-1" /> Save</> : 'Add'}
+            </Button>
+          </div>
+          {myNotes.length === 0 ? (
+            <p className="text-[11px] text-amber-600/70 dark:text-amber-500/70">No notes yet. Anything you add here is visible only to you.</p>
+          ) : (
+            <ul className="space-y-2 max-h-56 overflow-y-auto">
+              {myNotes.map(n => (
+                <li key={n.id} className="flex items-start gap-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-100 dark:border-amber-900/40 px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{n.text}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{new Date(n.at).toLocaleString()}</p>
+                  </div>
+                  <button onClick={() => { setEditingNoteId(n.id); setNoteDraft(n.text) }} className="text-slate-400 hover:text-blue-500 shrink-0 mt-0.5" title="Edit note">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => void deleteNote(n.id)} disabled={actionBusy} className="text-slate-400 hover:text-rose-500 shrink-0 mt-0.5 disabled:opacity-50" title="Delete note">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Sticky bottom controls: mic + leave (fixed to the bottom of the page) */}
+      {active && !removedMe && !inactiveRemoved && (
+        <>
+          <div className="h-24" />
+          <div
+            className="fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur px-4 pt-3 flex items-center justify-center gap-4"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
+            <button
+              onClick={toggleMic}
+              aria-label={micOn ? 'Mute microphone' : 'Unmute microphone'}
+              title={micOn ? 'Mute microphone' : 'Unmute microphone'}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-md ${micOn
+                ? 'bg-slate-900 text-white hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600'
+                : 'bg-rose-500 text-white hover:bg-rose-600'}`}
+            >
+              {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            </button>
+            <button
+              onClick={() => void leaveRoom()}
+              className="h-12 px-6 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-colors shadow-md flex items-center gap-2"
+            >
+              <X className="w-4 h-4" /> Leave
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Removed state */}
       {(removedMe || inactiveRemoved) && (
@@ -776,6 +1083,12 @@ export function DiscussionRoomsPage() {
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">On Stage ({onStage.length})</h3>
           {me?.role === 'moderator' && <Badge variant="outline" className="text-[9px] text-amber-600 dark:text-amber-400"><ShieldCheck className="w-3 h-3 mr-1" /> You can manage the stage</Badge>}
+          {me && me.role !== 'moderator' && (() => {
+            const left = stageCountdown(me.moderatorEligibleAt)
+            return left ? (
+              <Badge key={tick} variant="outline" className="text-[9px] text-amber-600 dark:text-amber-400"><Clock className="w-3 h-3 mr-1" /> Moderator in {left}</Badge>
+            ) : null
+          })()}
         </div>
         {onStage.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-6 text-center text-slate-400 dark:text-slate-500">
@@ -815,12 +1128,9 @@ export function DiscussionRoomsPage() {
                   <div className="-mt-1"><SpeakingWave meter={levels[isMe ? 'me' : m.userId] || ZERO_METER} color={m.color} speaking={speaking} /></div>
                   {isMe && (
                     <div className="flex flex-col items-center gap-1">
-                      <Button size="sm" variant={micOn ? 'default' : 'destructive'} onClick={toggleMic} className="text-[10px] h-7">
-                        {micOn ? <><Mic className="w-3 h-3 mr-1" /> Mute</> : <><MicOff className="w-3 h-3 mr-1" /> Unmute</>}
-                      </Button>
-                      {me?.role === 'stage' && stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince) && (
+                      {me?.role !== 'moderator' && stageCountdown(me?.moderatorEligibleAt) && (
                         <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince)}
+                          <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(me?.moderatorEligibleAt)}
                         </p>
                       )}
                     </div>

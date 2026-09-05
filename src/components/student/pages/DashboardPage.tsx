@@ -206,11 +206,8 @@ export function DashboardPage({ data, onRefresh, onNavigate }: { data: Dashboard
     new Date((student as any).lastStrikeAt).toDateString() !== new Date().toDateString()
 
   const timerPresets = [
-    { label: '25m', value: 25, desc: 'Pomodoro' },
     { label: '30m', value: 30, desc: 'Short' },
-    { label: '45m', value: 45, desc: 'Medium' },
     { label: '1h', value: 60, desc: 'Long' },
-    { label: '1.5h', value: 90, desc: 'Extended' },
     { label: '2h', value: 120, desc: 'Marathon' },
   ]
 

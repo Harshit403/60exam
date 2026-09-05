@@ -34,7 +34,8 @@ export async function GET(request: Request) {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      // Oldest groups first: newer rooms appear below older ones.
+      orderBy: { createdAt: 'asc' }
     })
 
     // Compute unread counts for groups where user is a member

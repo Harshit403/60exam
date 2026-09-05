@@ -119,11 +119,29 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     ? { ...saved, gender: gender || 'neutral' }
     : randomAnonymousIdentity(gender, takenList)
 
-  // First joiner becomes the moderator and goes on stage; everyone else is audience
+  // First joiner becomes the moderator AND goes on stage instantly (no wait).
+  // The second joiner goes directly on stage but WITHOUT moderator power (role
+  // 'stage'). Everyone else — including anyone REJOINING the room — lands in
+  // the audience and must use the "go on stage" request flow. A returning
+  // member never reclaims moderator/stage automatically; they can earn it again
+  // via the normal wait / request flow. Everyone except the 1st joiner waits
+  // 5 minutes from join before they can become moderator.
+  const MOD_WAIT_MS = 5 * 60 * 1000
+  const isRejoin = !!(existing && existing.leftAt)
+  const moderatorEligibleAt = !isRejoin && activeCount === 0 ? null : new Date(Date.now() + MOD_WAIT_MS)
   let role = 'audience'
   let onStage = false
-  if (activeCount === 0) {
+  if (isRejoin) {
+    // Rejoin → audience, always. Stage is reserved for the room's 1st and 2nd
+    // joiners; a returning member is a subsequent join, so they start in the
+    // audience with a fresh moderator wait (no reclaimed moderation window).
+    role = 'audience'
+    onStage = false
+  } else if (activeCount === 0) {
     role = 'moderator'
+    onStage = true
+  } else if (activeCount === 1) {
+    role = 'stage'
     onStage = true
   }
 
@@ -143,6 +161,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       lastActiveAt: new Date(),
       ipAddress,
       bandwidthMb: 0,
+      moderatorEligibleAt,
     },
     create: {
       roomId: id,
@@ -155,6 +174,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStageSince: onStage ? new Date() : null,
       ipAddress,
       bandwidthMb: 0,
+      moderatorEligibleAt,
     },
   })
 
@@ -176,6 +196,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     role: member.role,
     onStage: member.onStage,
     gender: member.gender,
+    moderatorEligibleAt: member.moderatorEligibleAt?.getTime() || null,
   } })
 }
 
