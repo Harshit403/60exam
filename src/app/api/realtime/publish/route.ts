@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthFromHeaders } from '@/lib/auth'
 import { hubPublish } from '@/lib/realtime-hub'
-import { ensureStageInvitedColumn, ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
+import { ensureStageInvitedColumn, ensureVirtualLibraryStageColumns, ensureRoomLockColumns } from '@/lib/ensure-columns'
 
 function newSignalId(): string {
   try {
@@ -244,8 +244,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // ── Democratic action: when no moderator is present, 2/3 of the room can
-      //    approve a stage request so the room never gets stuck without a host ──
+      // ── Democratic action: when no moderator is present, a 50% majority of
+      //    the room can approve a stage request so the room never gets stuck
+      //    without a host ──
       if (stageAction === 'approve-vote') {
         if (target === auth.id) return NextResponse.json({ error: 'Cannot vote for yourself' }, { status: 400 })
         const modCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null, role: 'moderator' } })
@@ -259,7 +260,7 @@ export async function POST(req: NextRequest) {
         if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
         const next = [...votes, auth.id]
         const activeCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null } })
-        const needed = Math.max(1, Math.ceil(activeCount / 3))
+        const needed = Math.max(1, Math.ceil(activeCount / 2))
         if (next.length >= needed) {
           await db.discussionRoomMember.update({
             where: { id: targetMember.id },
@@ -313,13 +314,80 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ─── Discussion Room: heartbeat ────────────────────────────────
-    case 'discussion-heartbeat': {
+    // ─── Discussion Room: vote to remove a participant ──────────────
+    case 'discussion-vote': {
+      const { roomId, target, vote } = body
+      if (!roomId || !target || typeof vote !== 'boolean') return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      if (target === auth.id) return NextResponse.json({ error: 'Cannot vote on yourself' }, { status: 400 })
+
+      await ensureStageInvitedColumn()
+      const targetMember = await db.discussionRoomMember.findFirst({
+        where: { roomId, studentId: target, leftAt: null },
+      })
+      if (!targetMember) return NextResponse.json({ error: 'Target not in room' }, { status: 404 })
+
+      if (vote) {
+        const votes = Array.isArray(targetMember.removalVotes) ? targetMember.removalVotes as string[] : []
+        const next = votes.includes(auth.id) ? votes : [...votes, auth.id]
+        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { removalVotes: next as any, lastActiveAt: new Date() } }).catch(() => {})
+      } else {
+        const votes = Array.isArray(targetMember.removalVotes) ? targetMember.removalVotes as string[] : []
+        const next = votes.filter(v => v !== auth.id)
+        await db.discussionRoomMember.update({ where: { id: targetMember.id }, data: { removalVotes: next as any } }).catch(() => {})
+      }
+
+      hubPublish(`droom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Discussion Room: vote to lock/unlock the room ─────────────
+    // Any member can vote to change the lock state. It takes a 3/4 majority of
+    // the active room to lock the room (and another 3/4 to unlock it). While a
+    // room is locked no new member can join; existing members keep their spot.
+    case 'discussion-lock': {
       const { roomId } = body
       if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      await ensureRoomLockColumns()
+      const myMember = await db.discussionRoomMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        select: { id: true },
+      })
+      if (!myMember) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+
+      const room = await db.discussionRoom.findUnique({ where: { id: roomId } })
+      if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
+
+      const votes = Array.isArray(room.lockVotes) ? (room.lockVotes as string[]) : []
+      const next = votes.includes(auth.id) ? votes.filter(v => v !== auth.id) : [...votes, auth.id]
+      const activeCount = await db.discussionRoomMember.count({ where: { roomId, leftAt: null } })
+      const needed = Math.max(1, Math.ceil((3 / 4) * activeCount))
+      if (next.length >= needed) {
+        await db.discussionRoom.update({
+          where: { id: roomId },
+          data: { isLocked: !room.isLocked, lockVotes: [] as any },
+        })
+      } else {
+        await db.discussionRoom.update({
+          where: { id: roomId },
+          data: { lockVotes: next as any },
+        })
+      }
+      hubPublish(`droom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Discussion Room: heartbeat ────────────────────────────────
+    case 'discussion-heartbeat': {
+      const { roomId, bandwidthBytes } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      const data: any = { lastActiveAt: new Date() }
+      if (typeof bandwidthBytes === 'number' && bandwidthBytes > 0) {
+        data.bandwidthMb = Math.round((bandwidthBytes / 1048576) * 100) / 100
+      }
       await db.discussionRoomMember.updateMany({
         where: { roomId, studentId: auth.id, leftAt: null },
-        data: { lastActiveAt: new Date() },
+        data,
       }).catch(() => {})
       return NextResponse.json({ ok: true })
     }
@@ -396,8 +464,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // ── Democratic action: when no moderator is present, 2/3 of the room can
-      //    approve a stage request so the room never gets stuck without a host ──
+      // ── Democratic action: when no moderator is present, a 50% majority of
+      //    the room can approve a stage request so the room never gets stuck
+      //    without a host ──
       if (stageAction === 'approve-vote') {
         if (target === auth.id) return NextResponse.json({ error: 'Cannot vote for yourself' }, { status: 400 })
         const modCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null, role: 'moderator' } })
@@ -411,7 +480,7 @@ export async function POST(req: NextRequest) {
         if (votes.includes(auth.id)) return NextResponse.json({ error: 'Already voted' }, { status: 400 })
         const next = [...votes, auth.id]
         const activeCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null } })
-        const needed = Math.max(1, Math.ceil(activeCount / 3))
+        const needed = Math.max(1, Math.ceil(activeCount / 2))
         if (next.length >= needed) {
           await db.virtualLibraryMember.update({
             where: { id: targetMember.id },
@@ -511,13 +580,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ─── Virtual Library: heartbeat ────────────────────────────────
-    case 'library-heartbeat': {
+    // ─── Virtual Library: vote to lock/unlock the room ─────────────
+    // Mirrors discussion rooms: any member can vote to change the lock state.
+    // A 3/4 majority of the active room locks it (and another 3/4 unlocks it).
+    case 'library-lock': {
       const { roomId } = body
       if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+
+      await ensureRoomLockColumns()
+      const myMember = await db.virtualLibraryMember.findFirst({
+        where: { roomId, studentId: auth.id, leftAt: null },
+        select: { id: true },
+      })
+      if (!myMember) return NextResponse.json({ error: 'Not in room' }, { status: 403 })
+
+      const room = await db.virtualLibrary.findUnique({ where: { id: roomId } })
+      if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
+
+      const votes = Array.isArray(room.lockVotes) ? (room.lockVotes as string[]) : []
+      const next = votes.includes(auth.id) ? votes.filter(v => v !== auth.id) : [...votes, auth.id]
+      const activeCount = await db.virtualLibraryMember.count({ where: { roomId, leftAt: null } })
+      const needed = Math.max(1, Math.ceil((3 / 4) * activeCount))
+      if (next.length >= needed) {
+        await db.virtualLibrary.update({
+          where: { id: roomId },
+          data: { isLocked: !room.isLocked, lockVotes: [] as any },
+        })
+      } else {
+        await db.virtualLibrary.update({
+          where: { id: roomId },
+          data: { lockVotes: next as any },
+        })
+      }
+      hubPublish(`vroom:${roomId}`, 'refresh', {})
+      return NextResponse.json({ ok: true })
+    }
+
+    // ─── Virtual Library: heartbeat ────────────────────────────────
+    case 'library-heartbeat': {
+      const { roomId, bandwidthBytes } = body
+      if (!roomId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+      const data: any = { lastActiveAt: new Date() }
+      if (typeof bandwidthBytes === 'number' && bandwidthBytes > 0) {
+        data.bandwidthMb = Math.round((bandwidthBytes / 1048576) * 100) / 100
+      }
       await db.virtualLibraryMember.updateMany({
         where: { roomId, studentId: auth.id, leftAt: null },
-        data: { lastActiveAt: new Date() },
+        data,
       }).catch(() => {})
       return NextResponse.json({ ok: true })
     }

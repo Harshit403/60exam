@@ -117,6 +117,7 @@ export function GroupsPage() {
   const [liveRoomOpen, setLiveRoomOpen] = useState(false)
   const [liveRoomMessages, setLiveRoomMessages] = useState<any[]>([])
   const [deletingLiveMessageId, setDeletingLiveMessageId] = useState<string | null>(null)
+  const liveMessagesEndRef = useRef<HTMLDivElement>(null)
   const LIVE_ROOM_ID = 'mission-cs-public'
 
   const chatChannel = chatGroup ? `group:${chatGroup.id}` : ''
@@ -155,6 +156,14 @@ export function GroupsPage() {
     }, 50)
     return () => clearTimeout(timer)
   }, [chatMessages.length])
+
+  useEffect(() => {
+    if (!liveRoomMessages.length) return
+    const timer = setTimeout(() => {
+      liveMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [liveRoomMessages.length])
 
   // Group messages by date
   const getMessageGroups = (msgs: any[]) => {
@@ -1139,8 +1148,8 @@ export function GroupsPage() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
-            <ScrollArea className="flex-1">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="px-3 py-4">
                 {liveRoomMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -1200,6 +1209,7 @@ export function GroupsPage() {
                   </div>
                 )}
               </div>
+              <div ref={liveMessagesEndRef} />
             </ScrollArea>
           </div>
         </DialogContent>
@@ -1254,8 +1264,8 @@ export function GroupsPage() {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
-              <ScrollArea className="flex-1">
+            <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-gradient-to-b from-slate-50/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60">
+              <ScrollArea className="flex-1 min-h-0">
                 <div className="px-3 py-4">
                   {chatMessages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-center">

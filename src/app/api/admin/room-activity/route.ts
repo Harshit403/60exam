@@ -45,6 +45,7 @@ export async function GET(request: Request) {
         color: l.color,
         action: l.action,
         ipAddress: l.ipAddress,
+        bandwidthMb: l.bandwidthMb,
         createdAt: l.createdAt,
       })),
       total,

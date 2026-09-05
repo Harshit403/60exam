@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
-import { ensureStageInvitedColumn } from '@/lib/ensure-columns'
+import { ensureStageInvitedColumn, ensureRoomLockColumns } from '@/lib/ensure-columns'
 
 // GET /api/student/discussion-rooms - list active audio rooms with presence + capacity
 export async function GET(req: NextRequest) {
@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
 
   const studentId = auth.id
   await ensureStageInvitedColumn()
+  await ensureRoomLockColumns()
 
   const currentMember = await db.discussionRoomMember.findFirst({
     where: { studentId, leftAt: null },
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
     include: {
       members: { where: { leftAt: null }, select: { studentId: true, displayName: true, onStage: true } },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
   })
 
   const list = rooms.map(r => ({
@@ -31,6 +32,8 @@ export async function GET(req: NextRequest) {
     maxCapacity: r.maxCapacity,
     present: r.members.length,
     isFull: r.members.length >= r.maxCapacity,
+    isLocked: r.isLocked,
+    lockVotes: Array.isArray(r.lockVotes) ? (r.lockVotes as string[]) : [],
     isCurrentUserMember: r.members.some(m => m.studentId === studentId),
     speakers: r.members.filter(m => m.onStage).map(m => ({ userId: m.studentId, displayName: m.displayName })),
     createdAt: r.createdAt,

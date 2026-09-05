@@ -450,6 +450,8 @@ model DiscussionRoom {
   description String?
   maxCapacity Int      @default(10)
   isActive    Boolean  @default(true)
+  isLocked    Boolean  @default(false)
+  lockVotes   Json     @default("[]") // studentIds voting to lock (or unlock) the room
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -476,10 +478,13 @@ model DiscussionRoomMember {
   micOff        Boolean          @default(false) // shared muted-mic status for peers
   speaking      Boolean          @default(false) // shared speaking flag broadcast by this user
   stageApproveVotes Json         @default("[]") // 2/3 vote to approve a stage request when no moderator is present
+  removalVotes  Json             @default("[]") // list of studentIds voting to remove this user
+  moderatorUntil DateTime?
   joinedAt      DateTime         @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime         @default(now())
   ipAddress     String?
+  bandwidthMb   Float?
 
   @@unique([roomId, studentId])
   @@index([roomId, leftAt])
@@ -488,8 +493,8 @@ model DiscussionRoomMember {
 // ==================== ROOM ACTIVITY LOG ====================
 // Append-only log of every join/leave in discussion rooms and virtual
 // libraries so admins can see who was present in a room and when, with the
-// student's real identity (joined via `student`), the anonymous room name, and
-// the IP address they connected from.
+// student's real identity (joined via `student`), the anonymous room name, the
+// IP address they connected from, and the bandwidth the visit consumed.
 model RoomActivityLog {
   id          String   @id @default(cuid())
   kind        String // 'discussion' | 'library'
@@ -500,7 +505,8 @@ model RoomActivityLog {
   displayName String
   color       String
   action      String   // 'join' | 'leave'
-  ipAddress   String?
+ipAddress   String?
+  bandwidthMb Float?
   createdAt   DateTime @default(now())
 
   @@index([kind, roomId, createdAt])
@@ -513,6 +519,8 @@ model VirtualLibrary {
   description String?
   maxCapacity Int      @default(10)
   isActive    Boolean  @default(true)
+  isLocked    Boolean  @default(false)
+  lockVotes   Json     @default("[]") // studentIds voting to lock (or unlock) the room
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -542,10 +550,12 @@ model VirtualLibraryMember {
   stageApproveVotes Json        @default("[]") // 2/3 vote to approve a stage request when no moderator is present
   removalVotes  Json            @default("[]") // list of studentIds voting to remove this user
   removalExpires DateTime?
+  moderatorUntil DateTime?
   joinedAt      DateTime        @default(now())
   leftAt        DateTime?
   lastActiveAt  DateTime        @default(now())
   ipAddress     String?
+  bandwidthMb   Float?
 
   @@unique([roomId, studentId])
   @@index([roomId, leftAt])

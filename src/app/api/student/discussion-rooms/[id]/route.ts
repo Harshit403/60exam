@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity, type AnonymousIdentity } from '@/lib/anonymous-identity'
-import { ensureStageInvitedColumn, ensureRoomMemberIpColumn, logRoomActivity } from '@/lib/ensure-columns'
+import { ensureStageInvitedColumn, ensureRoomMemberIpColumn, ensureRoomLockColumns, logRoomActivity } from '@/lib/ensure-columns'
 import { getClientIp } from '@/lib/request-ip'
 
 // GET /api/student/discussion-rooms/[id] - room detail + current presence (anonymized)
@@ -65,6 +65,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
   await ensureStageInvitedColumn()
   await ensureRoomMemberIpColumn()
+  await ensureRoomLockColumns()
   const ipAddress = getClientIp(_req)
 
   const room = await db.discussionRoom.findUnique({ where: { id } })
@@ -94,6 +95,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     })
   }
 
+  // A locked room is closed to NEW members: no one outside the current roster
+  // (including a returning member who left) can join until it is unlocked.
+  if (room.isLocked && !(existing && !existing.leftAt)) {
+    return NextResponse.json({ error: 'This room is locked. Only existing members can join.' }, { status: 403 })
+  }
+
   // Capacity check (active members only)
   const activeCount = await db.discussionRoomMember.count({ where: { roomId: id, leftAt: null } })
   if (activeCount >= room.maxCapacity) {
@@ -117,12 +124,32 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     ? { ...saved, gender: gender || 'neutral' }
     : randomAnonymousIdentity(gender, takenList)
 
-  // First two joiners become moderators (and go on stage); everyone else is audience
+  // First two joiners become moderators (and go on stage); everyone else is
+  // audience. Rejoining users always land back in the audience — a returning
+  // moderator whose 2-hour moderation window is still valid keeps it (renewed
+  // from this visit, per "moderation counts from the last visit for that room").
+  const nowMs = Date.now()
+  const MODERATOR_TTL_MS = 2 * 60 * 60 * 1000
+  const modStillValid = !!(existing?.moderatorUntil && new Date(existing.moderatorUntil).getTime() > nowMs)
   let role = 'audience'
   let onStage = false
-  if (activeCount < 2) {
+  let moderatorUntil: Date | null = null
+  if (existing && !existing.leftAt) {
+    // Already in the room (e.g. gender switch): keep the position, refresh the
+    // moderation window if it is still valid.
+    role = existing.role
+    onStage = existing.onStage
+    moderatorUntil = modStillValid ? new Date(nowMs + MODERATOR_TTL_MS) : existing.moderatorUntil
+  } else if (existing && existing.leftAt) {
+    // Rejoin → audience. A returning moderator with a valid window keeps (and
+    // renews) their moderation; otherwise they start fresh as audience.
+    role = modStillValid ? 'moderator' : 'audience'
+    onStage = false
+    moderatorUntil = modStillValid ? new Date(nowMs + MODERATOR_TTL_MS) : null
+  } else if (activeCount < 2) {
     role = 'moderator'
     onStage = true
+    moderatorUntil = new Date(nowMs + MODERATOR_TTL_MS)
   }
 
   const member = await db.discussionRoomMember.upsert({
@@ -138,6 +165,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStageSince: onStage ? new Date() : null,
       lastActiveAt: new Date(),
       ipAddress,
+      bandwidthMb: 0,
+      moderatorUntil,
     },
     create: {
       roomId: id,
@@ -149,6 +178,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStage,
       onStageSince: onStage ? new Date() : null,
       ipAddress,
+      bandwidthMb: 0,
+      moderatorUntil,
     },
   })
 
@@ -203,6 +234,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       color: member.color,
       action: 'leave',
       ipAddress: ipAddress || member.ipAddress,
+      bandwidthMb: member.bandwidthMb ?? null,
     })
   }
 

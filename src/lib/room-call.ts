@@ -43,6 +43,7 @@ export interface RoomMember {
   micOff?: boolean
   speaking?: boolean
   stageApproveVotes?: string[]
+  removalVotes?: string[]
 }
 
 export interface RoomCallOptions {
@@ -82,6 +83,9 @@ export class RoomCall {
   // this long before falling back to the lowest rung (144p).
   private silentSince: number | null = null
   private quality: { level: number; goodTicks: number; lossEwma: number; rttEwma: number; last: { lost: number; received: number } | null } | null = null
+  // Monotonic high-water mark of transport bytes (sent + received) across all
+  // peer connections, so getStats churn never makes bandwidth drop.
+  private bandwidthHighWater = 0
 
   constructor(opts: RoomCallOptions) {
     this.opts = opts
@@ -550,6 +554,24 @@ export class RoomCall {
       this.pendingOffer = null
       this.onSignal(pf.from, this.opts.userId, { type: 'offer', sdp: pf.sdp })
     }
+  }
+
+  // Total bandwidth consumed by this visit (bytes sent + received over the
+  // selected candidate pairs). Used for admin room history reporting.
+  async getBandwidthBytes(): Promise<number> {
+    let total = 0
+    for (const pc of this.pcs.values()) {
+      try {
+        const stats = await pc.getStats()
+        stats.forEach((s: any) => {
+          if (s.type === 'candidate-pair' && s.selected) {
+            total += (s.bytesSent || 0) + (s.bytesReceived || 0)
+          }
+        })
+      } catch { /* ignore */ }
+    }
+    if (total > this.bandwidthHighWater) this.bandwidthHighWater = total
+    return this.bandwidthHighWater
   }
 
   dispose() {

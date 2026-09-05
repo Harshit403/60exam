@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Users, Wifi, WifiOff, ArrowLeft, ShieldCheck, Video, VideoOff,
-  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX, Clock,
+  ThumbsDown, X, Camera, Mic, MicOff, Check, UserPlus, UserX, Clock, Lock,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useSSE } from '@/hooks/useSSE'
@@ -18,6 +18,7 @@ import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity 
 interface RoomInfo {
   id: string; name: string; description: string | null
   maxCapacity: number; present: number; isFull: boolean
+  isLocked?: boolean; lockVotes?: string[]
 }
 
 interface MeInfo {
@@ -125,7 +126,13 @@ export function VirtualLibrariesPage() {
       if (event === 'vroom-state') {
         const present = (data.members || [])
         setMembers(present)
-        if (data.room) setActive(prev => prev ? { ...prev, present: data.room.present, maxCapacity: data.room.maxCapacity } : prev)
+        if (data.room) setActive(prev => prev ? {
+          ...prev,
+          present: data.room.present,
+          maxCapacity: data.room.maxCapacity,
+          isLocked: !!data.room.isLocked,
+          lockVotes: Array.isArray(data.room.lockVotes) ? data.room.lockVotes : [],
+        } : prev)
         const sworn = (present as any[]).find((m: any) => m.userId === userIdRef.current)
         if (wasMemberRef.current && !sworn) setInactiveRemoved(true)
         if (sworn) wasMemberRef.current = true
@@ -327,9 +334,10 @@ export function VirtualLibrariesPage() {
 
   useEffect(() => {
     if (!active) return
-    const t = setInterval(() => {
+    const t = setInterval(async () => {
       if (inactiveRemoved || !isActive()) return
-      api.realtimePublish({ action: 'library-heartbeat', roomId: active.id }).catch(() => {})
+      const bw = await callRef.current?.getBandwidthBytes().catch(() => 0)
+      api.realtimePublish({ action: 'library-heartbeat', roomId: active.id, bandwidthBytes: bw || 0 }).catch(() => {})
     }, 25000)
     return () => clearInterval(t)
   }, [active?.id, isActive, inactiveRemoved])
@@ -388,6 +396,9 @@ export function VirtualLibrariesPage() {
 
   const leaveRoom = async () => {
     if (!active) return
+    // Flush the final bandwidth figure before the member row is marked left.
+    const bw = await callRef.current?.getBandwidthBytes().catch(() => 0)
+    if (bw) api.realtimePublish({ action: 'library-heartbeat', roomId: active.id, bandwidthBytes: bw }).catch(() => {})
     try { await api.studentVirtualLibraryLeave(active.id) } catch { /* ignore */ }
     wasMemberRef.current = false
     setInactiveRemoved(false)
@@ -421,6 +432,14 @@ export function VirtualLibrariesPage() {
     if (!active) return
     setActionBusy(true)
     try { await api.realtimePublish({ action: 'library-vote', roomId: active.id, target, vote: remove }) }
+    catch (err: any) { alert(err?.message || 'Vote failed') }
+    finally { setActionBusy(false) }
+  }
+
+  const lockRoom = async () => {
+    if (!active) return
+    setActionBusy(true)
+    try { await api.realtimePublish({ action: 'library-lock', roomId: active.id }) }
     catch (err: any) { alert(err?.message || 'Vote failed') }
     finally { setActionBusy(false) }
   }
@@ -475,11 +494,12 @@ export function VirtualLibrariesPage() {
           <div className="grid sm:grid-cols-2 gap-3">
             {rooms.map(r => {
               const full = r.present >= r.maxCapacity
+              const locked = !!r.isLocked
               return (
                 <div key={r.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex flex-col gap-3 shadow-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${full ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400'}`}>
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${full || locked ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400'}`}>
                         <Camera className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
@@ -493,18 +513,23 @@ export function VirtualLibrariesPage() {
                               <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500">Live</span>
                             </span>
                           )}
+                          {locked && <Lock className="w-3 h-3 text-amber-500 shrink-0" />}
                           {r.name}
                         </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">{r.description || 'Video study room'}</p>
+                        {locked ? (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">Locked — no new members can join</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">{r.description || 'Video study room'}</p>
+                        )}
                       </div>
                     </div>
-                    <Badge variant={full ? 'secondary' : 'outline'} className={`shrink-0 text-[10px] ${full ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    <Badge variant={full ? 'secondary' : 'outline'} className={`shrink-0 text-[10px] ${full ? 'text-rose-600 dark:text-rose-400' : locked ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       <Users className="w-3 h-3 mr-1" /> {r.present}/{r.maxCapacity}
                     </Badge>
                   </div>
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <Button size="sm" onClick={() => requestJoin(r)} disabled={full || actionBusy} className="bg-blue-600 hover:bg-blue-700 text-xs">
-                      {full ? 'Room Full' : 'Join Video'}
+                    <Button size="sm" onClick={() => requestJoin(r)} disabled={full || locked || actionBusy} className="bg-blue-600 hover:bg-blue-700 text-xs">
+                      {locked ? 'Locked' : full ? 'Room Full' : 'Join Video'}
                     </Button>
                   </div>
                 </div>
@@ -530,12 +555,13 @@ export function VirtualLibrariesPage() {
   // ── Call view ───────────────────────────────────────────────────
   const onStage = members.filter(m => m.onStage)
   const stageOthers = onStage.filter(m => m.userId !== userIdRef.current)
-  const audience = members.filter(m => !m.onStage && m.userId !== userIdRef.current)
+  const audience = members.filter(m => !m.onStage)
   const activeCount = members.length
   const needed = Math.max(2, Math.ceil((2 / 3) * activeCount))
-  // When no moderator is in the room, a 1/3 majority can approve a stage request.
+  // When no moderator is in the room, a 50% majority can approve a stage request.
   const moderatorPresent = members.some(m => m.role === 'moderator')
-  const approveNeeded = Math.max(1, Math.ceil(activeCount / 3))
+  const approveNeeded = Math.max(1, Math.ceil(activeCount / 2))
+  const lockNeeded = Math.max(1, Math.ceil((3 / 4) * activeCount))
   const removedMe = removed.includes('me')
 
   return (
@@ -557,6 +583,18 @@ export function VirtualLibrariesPage() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={lockRoom}
+              disabled={actionBusy}
+              className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs"
+              title="3/4 of the room must vote to lock or unlock"
+            >
+              <Lock className="w-3 h-3 mr-1" />
+              {active?.isLocked ? 'Unlock' : 'Lock'}
+              <span className="ml-1">({(active?.lockVotes || []).length}/{lockNeeded})</span>
+            </Button>
             <Button size="sm" variant="secondary" onClick={leaveRoom} className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs">Leave</Button>
           </div>
         </div>
@@ -583,72 +621,6 @@ export function VirtualLibrariesPage() {
 
       {!removedMe && !inactiveRemoved && (
         <>
-          {/* Me card */}
-          {me && (
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex items-center justify-between gap-2 shadow-sm">
-              <div className="flex items-center gap-2 min-w-0">
-                <Avatar className="h-9 w-9 ring-2" style={avatarColorStyle(me.color)}>
-                  <AvatarFallback className="text-sm font-bold" style={{ backgroundColor: me.color + '22', color: me.color }}>
-                    {me.displayName.charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{me.displayName}</p>
-                    <Badge variant="secondary" className="text-[9px] h-4 capitalize">
-                      {me.role === 'moderator'
-                        ? <><ShieldCheck className="w-3 h-3 mr-0.5 text-amber-500" /> Moderator</>
-                        : me.onStage ? 'On Stage' : 'Audience'}
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {me.onStage
-                      ? <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Camera className="w-3 h-3" /> Camera & mic live</span>
-                      : me.stageInvited
-                        ? <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1"><Check className="w-3 h-3" /> Invited to the stage — accept or decline</span>
-                        : me.stageRequested
-                          ? moderatorPresent
-                            ? 'Request pending · waiting for the moderator'
-                            : `Request pending · ${(members.find(x => x.userId === me.userId)?.stageApproveVotes || []).length}/${approveNeeded} votes to join the stage`
-                          : 'You are in the audience · camera is off'}
-                  </p>
-                  {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Auto-promote to moderator in {stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince)}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {me.onStage ? (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={toggleMic} className={`p-2 rounded-lg transition-colors ${micOn ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`} title={micOn ? 'Mute mic' : 'Unmute mic'}>
-                    {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                  </button>
-                  <button onClick={toggleCam} className={`p-2 rounded-lg transition-colors ${camOn ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`} title={camOn ? 'Turn off camera' : 'Turn on camera'}>
-                    {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-                  </button>
-                </div>
-              ) : me.stageInvited ? (
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'decline-invite')} disabled={actionBusy} className="text-rose-600 border-rose-200 dark:border-rose-900">
-                    <X className="w-3 h-3 mr-1" /> Decline
-                  </Button>
-                  <Button size="sm" onClick={() => stageAction(me.userId, 'accept-invite')} disabled={actionBusy} className="bg-emerald-600 hover:bg-emerald-700">
-                    <Check className="w-3 h-3 mr-1" /> Accept
-                  </Button>
-                </div>
-              ) : me.stageRequested ? (
-                <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'cancel-request')} disabled={actionBusy} className="shrink-0 text-slate-500 border-slate-300 dark:border-slate-600">
-                  <X className="w-3 h-3 mr-1" /> Cancel Request
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => stageAction(me.userId, 'request')} disabled={actionBusy} className="shrink-0">
-                  Request to Go on Stage
-                </Button>
-              )}
-            </div>
-          )}
-
           {/* On Stage video grid */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -664,7 +636,7 @@ export function VirtualLibrariesPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                 {me?.onStage && (
                   <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 aspect-video">
-                    <video ref={localVideoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" onLoadedMetadata={() => { if (localVideoRef.current) localVideoRef.current.play?.() }} />
+                    <video ref={localVideoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-contain" onLoadedMetadata={() => { if (localVideoRef.current) localVideoRef.current.play?.() }} />
                     {!camOn && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-slate-900">
                         <Camera className="w-7 h-7 mb-1.5" />
@@ -685,6 +657,25 @@ export function VirtualLibrariesPage() {
                         </span>
                       )}
                     </div>
+                    {me?.role === 'stage' && stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince) && (
+                      <div className="absolute left-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/90 text-white text-[9px] font-medium backdrop-blur">
+                        <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince)}
+                      </div>
+                    )}
+                    <div className="absolute right-2 bottom-2 flex items-center gap-1">
+                      <button
+                        onClick={toggleMic}
+                        title={micOn ? 'Mute mic' : 'Unmute mic'}
+                        className={`p-1.5 rounded-md transition-colors ${micOn ? 'bg-black/60 text-white/80 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`}>
+                        {micOn ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={toggleCam}
+                        title={camOn ? 'Turn off camera' : 'Turn on camera'}
+                        className={`p-1.5 rounded-md transition-colors ${camOn ? 'bg-black/60 text-white/80 hover:bg-slate-700' : 'bg-red-500 text-white hover:bg-red-600'}`}>
+                        {camOn ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -698,7 +689,7 @@ export function VirtualLibrariesPage() {
                     <div key={m.userId} className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-700 aspect-video">
                       <video
                         ref={(el) => { if (el) { videoRefs.current.set(m.userId, el); const stream = remoteStreams.get(m.userId); if (el.srcObject !== stream && stream) el.srcObject = stream } }}
-                        autoPlay playsInline className="absolute inset-0 w-full h-full object-cover"
+                        autoPlay playsInline className="absolute inset-0 w-full h-full object-contain"
                         onLoadedMetadata={(e) => { try { (e.currentTarget as HTMLVideoElement).play?.() } catch { /* ignore */ } }}
                       />
                       {m.videoOff ? (
@@ -772,6 +763,7 @@ export function VirtualLibrariesPage() {
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
                 {audience.map(m => {
+                  const isMe = m.userId === userIdRef.current
                   const requested = m.stageRequested
                   const invited = m.stageInvited
                   return (
@@ -781,11 +773,44 @@ export function VirtualLibrariesPage() {
                           <AvatarFallback className="text-xs font-bold" style={{ backgroundColor: m.color + '22', color: m.color }}>{m.displayName.charAt(0)}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{m.displayName}</p>
-                          {requested && <p className="text-[9px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5"><Video className="w-2.5 h-2.5" /> Wants to go on stage</p>}
-                          {!requested && invited && <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to stage</p>}
+                          <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{m.displayName}{isMe ? ' (you)' : ''}</p>
+                          {isMe ? (
+                            me?.stageInvited
+                              ? <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to the stage — accept or decline</p>
+                              : me?.stageRequested
+                                ? moderatorPresent
+                                  ? <p className="text-[9px] text-amber-600 dark:text-amber-400">Request pending · waiting for the moderator</p>
+                                  : <p className="text-[9px] text-amber-600 dark:text-amber-400">Request pending · {(members.find(x => x.userId === me.userId)?.stageApproveVotes || []).length}/{approveNeeded} votes to join the stage</p>
+                                : <p className="text-[9px] text-slate-400 dark:text-slate-500">You are in the audience · camera is off</p>
+                          ) : (
+                            <>
+                              {requested && <p className="text-[9px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5"><Video className="w-2.5 h-2.5" /> Wants to go on stage</p>}
+                              {!requested && invited && <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to stage</p>}
+                            </>
+                          )}
                         </div>
                       </div>
+                      {isMe ? (
+                        me?.stageInvited ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'decline-invite')} disabled={actionBusy} className="text-rose-600 border-rose-200 dark:border-rose-900">
+                              <X className="w-3 h-3 mr-1" /> Decline
+                            </Button>
+                            <Button size="sm" onClick={() => stageAction(me.userId, 'accept-invite')} disabled={actionBusy} className="bg-emerald-600 hover:bg-emerald-700">
+                              <Check className="w-3 h-3 mr-1" /> Accept
+                            </Button>
+                          </div>
+                        ) : me?.stageRequested ? (
+                          <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'cancel-request')} disabled={actionBusy} className="shrink-0 text-slate-500 border-slate-300 dark:border-slate-600">
+                            <X className="w-3 h-3 mr-1" /> Cancel Request
+                          </Button>
+                        ) : (
+                          <Button size="sm" onClick={() => stageAction(me.userId, 'request')} disabled={actionBusy} className="shrink-0">
+                            Request to Go on Stage
+                          </Button>
+                        )
+                      ) : (
+                        <>
                       {me?.role === 'moderator' && (
                         <div className="flex items-center gap-1 shrink-0">
                           {requested ? (
@@ -813,7 +838,7 @@ export function VirtualLibrariesPage() {
                           <button
                             onClick={() => stageAction(m.userId, 'approve-vote')}
                             disabled={actionBusy || (m.stageApproveVotes || []).includes(userIdRef.current)}
-                            title="No moderator is present — a 2/3 majority of the room can approve this request"
+                            title="No moderator is present — a 50% majority of the room can approve this request"
                             className={`p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-200 disabled:opacity-40 ${(m.stageApproveVotes || []).includes(userIdRef.current) ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-emerald-50 dark:bg-emerald-900/20'}`}
                           >
                             <Check className="w-3.5 h-3.5" />
@@ -822,6 +847,8 @@ export function VirtualLibrariesPage() {
                             {(m.stageApproveVotes || []).length}/{approveNeeded}
                           </span>
                         </div>
+                      )}
+                        </>
                       )}
                     </div>
                   )

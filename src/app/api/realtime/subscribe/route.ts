@@ -2,12 +2,87 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { initSSE, sendSSE, sendHeartbeat } from '@/lib/sse'
-import { hubSubscribe, hubPublish } from '@/lib/realtime-hub'
-import { ensureVirtualLibraryStageColumns, logRoomActivity } from '@/lib/ensure-columns'
+import { hubSubscribe, hubPublish, hubHas } from '@/lib/realtime-hub'
+import { ensureStageInvitedColumn, ensureVirtualLibraryStageColumns, ensureRoomLockColumns, logRoomActivity } from '@/lib/ensure-columns'
 
 const LIVE_ROOM_ID = 'mission-cs-public'
 const POLL_INTERVAL = 3000
 const HEARTBEAT_INTERVAL = 30000
+
+// Grace window after the last live subscriber of a room channel drops before we
+// sweep the remaining members as left. EventSource auto-reconnects on network
+// blips within ~1-2s, so 10s is safely past that while still recording a
+// tab-close exit promptly (when the user is the last one in the room).
+const ROOM_SWEEP_GRACE_MS = 10 * 1000
+
+// channel -> pending sweep timeout, so a reconnect cancels the sweep and no
+// duplicate sweeps are scheduled for the same channel.
+const pendingRoomSweeps = new Map<string, ReturnType<typeof setTimeout>>()
+
+function cancelRoomSweep(channel: string) {
+  const timer = pendingRoomSweeps.get(channel)
+  if (timer) {
+    clearTimeout(timer)
+    pendingRoomSweeps.delete(channel)
+  }
+}
+
+// When the last subscriber of a room channel disconnects, every member still
+// listed as present has effectively left (their tabs closed without pressing
+// Leave). Mark them left and log the exit so the admin history always has a
+// record even if nobody clicked the Leave button.
+function sweepRoomMembers(channel: string) {
+  void (async () => {
+    try {
+      if (channel.startsWith('droom:')) {
+        const roomId = channel.slice(6)
+        const members = await db.discussionRoomMember.findMany({ where: { roomId, leftAt: null } })
+        if (members.length === 0) return
+        const room = await db.discussionRoom.findUnique({ where: { id: roomId }, select: { name: true } })
+        const roomName = room?.name || roomId
+        for (const m of members) {
+          await db.discussionRoomMember.update({
+            where: { id: m.id },
+            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false },
+          })
+          await logRoomActivity({
+            kind: 'discussion', roomId, roomName,
+            studentId: m.studentId, displayName: m.displayName, color: m.color,
+            action: 'leave', ipAddress: m.ipAddress,
+            bandwidthMb: m.bandwidthMb ?? null,
+          })
+        }
+      } else if (channel.startsWith('vroom:')) {
+        const roomId = channel.slice(6)
+        const members = await db.virtualLibraryMember.findMany({ where: { roomId, leftAt: null } })
+        if (members.length === 0) return
+        const room = await db.virtualLibrary.findUnique({ where: { id: roomId }, select: { name: true } })
+        const roomName = room?.name || roomId
+        for (const m of members) {
+          await db.virtualLibraryMember.update({
+            where: { id: m.id },
+            data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false },
+          })
+          await logRoomActivity({
+            kind: 'library', roomId, roomName,
+            studentId: m.studentId, displayName: m.displayName, color: m.color,
+            action: 'leave', ipAddress: m.ipAddress,
+            bandwidthMb: m.bandwidthMb ?? null,
+          })
+        }
+      }
+    } catch { /* best-effort sweep; the inactivity poll is the backstop */ }
+  })()
+}
+
+function scheduleRoomSweep(channel: string) {
+  if (pendingRoomSweeps.has(channel)) return
+  const timer = setTimeout(() => {
+    pendingRoomSweeps.delete(channel)
+    sweepRoomMembers(channel)
+  }, ROOM_SWEEP_GRACE_MS)
+  pendingRoomSweeps.set(channel, timer)
+}
 
 function computeTimerState(timerState: any, timerStartedAt: string | Date | null): any {
   if (!timerState || !timerState.running || !timerStartedAt) return timerState
@@ -261,6 +336,8 @@ export async function GET(req: NextRequest) {
           return {
             room: {
               id: room.id, name: room.name, present: room.members.length, maxCapacity: room.maxCapacity,
+              isLocked: room.isLocked,
+              lockVotes: Array.isArray(room.lockVotes) ? (room.lockVotes as string[]) : [],
             },
             members: room.members.map(m => ({
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
@@ -270,6 +347,7 @@ export async function GET(req: NextRequest) {
               micOff: !!m.micOff,
               speaking: !!m.speaking,
               stageApproveVotes: Array.isArray(m.stageApproveVotes) ? (m.stageApproveVotes as string[]) : [],
+              removalVotes: Array.isArray(m.removalVotes) ? (m.removalVotes as string[]) : [],
             })),
           }
         }
@@ -286,6 +364,8 @@ export async function GET(req: NextRequest) {
             const room = await db.discussionRoom.findUnique({ where: { id: roomId }, select: { name: true } })
             const roomName = room?.name || roomId
             const members = await db.discussionRoomMember.findMany({ where: { roomId, leftAt: null } })
+            const activeCount = members.length
+            const needed = Math.ceil((2 / 3) * activeCount)
             let changed = false
             for (const m of members) {
               const lastActive = new Date(m.lastActiveAt || m.joinedAt).getTime()
@@ -306,7 +386,26 @@ export async function GET(req: NextRequest) {
                   color: m.color,
                   action: 'leave',
                   ipAddress: m.ipAddress,
+                  bandwidthMb: m.bandwidthMb ?? null,
                 })
+                changed = true
+              }
+              // 2/3 majority vote to remove (excludes the target's own vote naturally)
+              const votes = Array.isArray(m.removalVotes) ? m.removalVotes as string[] : []
+              if (votes.length >= needed && activeCount >= 2) {
+                await db.discussionRoomMember.update({ where: { id: m.id }, data: { leftAt: new Date(), onStage: false, stageRequested: false, stageInvited: false } })
+                await logRoomActivity({
+                  kind: 'discussion',
+                  roomId,
+                  roomName,
+                  studentId: m.studentId,
+                  displayName: m.displayName,
+                  color: m.color,
+                  action: 'leave',
+                  ipAddress: m.ipAddress,
+                  bandwidthMb: m.bandwidthMb ?? null,
+                })
+                hubPublish(`droom:${roomId}`, 'user-removed', { userId: m.studentId })
                 changed = true
               }
             }
@@ -317,6 +416,8 @@ export async function GET(req: NextRequest) {
         // Make sure the stageInvited column exists before any member query runs.
         const bootDroom = async () => {
           await ensureStageInvitedColumn()
+          await ensureRoomLockColumns()
+          cancelRoomSweep(`droom:${roomId}`)
           await emitDroomState()
         }
         bootDroom()
@@ -372,6 +473,8 @@ export async function GET(req: NextRequest) {
           return {
             room: {
               id: room.id, name: room.name, present: room.members.length, maxCapacity: room.maxCapacity,
+              isLocked: room.isLocked,
+              lockVotes: Array.isArray(room.lockVotes) ? (room.lockVotes as string[]) : [],
             },
             members: room.members.map(m => ({
               userId: m.studentId, displayName: m.displayName, color: m.color, gender: m.gender,
@@ -437,6 +540,7 @@ export async function GET(req: NextRequest) {
                   color: m.color,
                   action: 'leave',
                   ipAddress: m.ipAddress,
+                  bandwidthMb: m.bandwidthMb ?? null,
                 })
                 changed = true
                 continue
@@ -454,6 +558,7 @@ export async function GET(req: NextRequest) {
                   color: m.color,
                   action: 'leave',
                   ipAddress: m.ipAddress,
+                  bandwidthMb: m.bandwidthMb ?? null,
                 })
                 hubPublish(`vroom:${roomId}`, 'user-removed', { userId: m.studentId })
                 changed = true
@@ -466,6 +571,8 @@ export async function GET(req: NextRequest) {
         // Make sure the stage columns exist before any member query runs.
         const bootVroom = async () => {
           await ensureVirtualLibraryStageColumns()
+          await ensureRoomLockColumns()
+          cancelRoomSweep(`vroom:${roomId}`)
           await emitVroomState()
         }
         bootVroom()
@@ -506,7 +613,15 @@ export async function GET(req: NextRequest) {
         if (pollTimer) clearInterval(pollTimer)
         if (heartbeatTimer) clearInterval(heartbeatTimer)
         if (signalTimer) clearInterval(signalTimer)
-        if (unsubHub) unsubHub()
+        if (unsubHub) {
+          unsubHub()
+          // If this was the last live subscriber for a room channel, schedule a
+          // short-grace sweep so members who closed the tab are recorded as left
+          // even though nobody is left to run the inactivity poll.
+          if ((channel.startsWith('droom:') || channel.startsWith('vroom:')) && !hubHas(channel)) {
+            scheduleRoomSweep(channel)
+          }
+        }
       })
     },
   })

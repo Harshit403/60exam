@@ -21,6 +21,12 @@ export async function ensureStageInvitedColumn() {
     await db.$executeRawUnsafe(
       `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "stageApproveVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
     )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "removalVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "moderatorUntil" TIMESTAMP(3)`,
+    )
     stageInvitedReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }
@@ -56,6 +62,12 @@ export async function ensureVirtualLibraryStageColumns() {
     )
     await db.$executeRawUnsafe(
       `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "stageApproveVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "removalVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "moderatorUntil" TIMESTAMP(3)`,
     )
     vlibStageReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
@@ -96,8 +108,9 @@ export async function ensureStudySessionLectureColumns() {
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }
 
-// DiscussionRoomMember / VirtualLibraryMember gained an `ipAddress` column so
-// room activity logs can attribute a connect IP even for auto-leave events
+// DiscussionRoomMember / VirtualLibraryMember gained `ipAddress` and
+// `bandwidthMb` columns so room activity logs can attribute a connect IP and
+// the WebRTC bandwidth consumed by a visit, even for auto-leave events
 // (inactivity timeout) that happen without a network request.
 let roomMemberIpReady = false
 
@@ -110,7 +123,37 @@ export async function ensureRoomMemberIpColumn() {
     await db.$executeRawUnsafe(
       `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "ipAddress" TEXT`,
     )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoomMember" ADD COLUMN IF NOT EXISTS "bandwidthMb" DOUBLE PRECISION`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibraryMember" ADD COLUMN IF NOT EXISTS "bandwidthMb" DOUBLE PRECISION`,
+    )
     roomMemberIpReady = true
+  } catch { /* table may not exist yet; the rest of the flow will surface it */ }
+}
+
+// DiscussionRoom and VirtualLibrary gained `isLocked` and `lockVotes` columns
+// for the democratic room lock (3/4 of the room votes to lock or unlock). Add
+// them lazily and idempotently so the lock feature works on the live DB.
+let roomLockReady = false
+
+export async function ensureRoomLockColumns() {
+  if (roomLockReady) return
+  try {
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoom" ADD COLUMN IF NOT EXISTS "isLocked" BOOLEAN NOT NULL DEFAULT false`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "DiscussionRoom" ADD COLUMN IF NOT EXISTS "lockVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibrary" ADD COLUMN IF NOT EXISTS "isLocked" BOOLEAN NOT NULL DEFAULT false`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "VirtualLibrary" ADD COLUMN IF NOT EXISTS "lockVotes" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    )
+    roomLockReady = true
   } catch { /* table may not exist yet; the rest of the flow will surface it */ }
 }
 
@@ -132,9 +175,13 @@ export async function ensureRoomActivityTable() {
         "color" TEXT NOT NULL,
         "action" TEXT NOT NULL,
         "ipAddress" TEXT,
+        "bandwidthMb" DOUBLE PRECISION,
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "RoomActivityLog_pkey" PRIMARY KEY ("id")
       )`,
+    )
+    await db.$executeRawUnsafe(
+      `ALTER TABLE "RoomActivityLog" ADD COLUMN IF NOT EXISTS "bandwidthMb" DOUBLE PRECISION`,
     )
     await db.$executeRawUnsafe(
       `CREATE INDEX IF NOT EXISTS "RoomActivityLog_kind_roomId_createdAt_idx" ON "RoomActivityLog" ("kind", "roomId", "createdAt")`,
@@ -154,6 +201,7 @@ export async function logRoomActivity(data: {
   color: string
   action: 'join' | 'leave'
   ipAddress?: string | null
+  bandwidthMb?: number | null
 }) {
   try {
     await ensureRoomActivityTable()

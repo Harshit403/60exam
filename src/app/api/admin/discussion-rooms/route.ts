@@ -40,6 +40,8 @@ export async function GET(request: Request) {
           onStage: m.onStage,
           stageRequested: m.stageRequested,
           joinedAt: m.joinedAt,
+          ipAddress: m.ipAddress,
+          bandwidthMb: m.bandwidthMb,
         })),
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,

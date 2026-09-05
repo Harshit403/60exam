@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
 import { randomAnonymousIdentity, type AnonymousIdentity } from '@/lib/anonymous-identity'
-import { ensureVirtualLibraryStageColumns, ensureRoomMemberIpColumn, logRoomActivity } from '@/lib/ensure-columns'
+import { ensureVirtualLibraryStageColumns, ensureRoomMemberIpColumn, ensureRoomLockColumns, logRoomActivity } from '@/lib/ensure-columns'
 import { getClientIp } from '@/lib/request-ip'
 
 // GET /api/student/virtual-libraries/[id] - room detail + presence (anonymized)
@@ -64,6 +64,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const gender: 'male' | 'female' | null = body?.gender === 'male' || body?.gender === 'female' ? body.gender : null
   await ensureVirtualLibraryStageColumns()
   await ensureRoomMemberIpColumn()
+  await ensureRoomLockColumns()
   const ipAddress = getClientIp(_req)
 
   const room = await db.virtualLibrary.findUnique({ where: { id } })
@@ -88,6 +89,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStage: existing.onStage,
       gender: existing.gender,
     } })
+  }
+
+  // A locked room is closed to NEW members: no one outside the current roster
+  // (including a returning member who left) can join until it is unlocked.
+  if (room.isLocked && !(existing && !existing.leftAt)) {
+    return NextResponse.json({ error: 'This room is locked. Only existing members can join.' }, { status: 403 })
   }
 
   const activeCount = await db.virtualLibraryMember.count({ where: { roomId: id, leftAt: null } })
@@ -135,6 +142,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       removalVotes: [],
       lastActiveAt: new Date(),
       ipAddress,
+      bandwidthMb: 0,
     },
     create: {
       roomId: id,
@@ -146,6 +154,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       onStage,
       onStageSince: onStage ? new Date() : null,
       ipAddress,
+      bandwidthMb: 0,
     },
   })
 
@@ -197,6 +206,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       color: member.color,
       action: 'leave',
       ipAddress: ipAddress || member.ipAddress,
+      bandwidthMb: member.bandwidthMb ?? null,
     })
   }
   return NextResponse.json({ success: true })

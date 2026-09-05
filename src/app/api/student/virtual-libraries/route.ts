@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
-import { ensureVirtualLibraryStageColumns } from '@/lib/ensure-columns'
+import { ensureVirtualLibraryStageColumns, ensureRoomLockColumns } from '@/lib/ensure-columns'
 
 // GET /api/student/virtual-libraries - list active video rooms with presence + capacity
 export async function GET(req: NextRequest) {
@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
 
   const studentId = auth.id
   await ensureVirtualLibraryStageColumns()
+  await ensureRoomLockColumns()
 
   const currentMember = await db.virtualLibraryMember.findFirst({
     where: { studentId, leftAt: null },
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   const rooms = await db.virtualLibrary.findMany({
     where: { isActive: true },
     include: { members: { where: { leftAt: null }, select: { studentId: true } } },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
   })
 
   const list = rooms.map(r => ({
@@ -29,6 +30,8 @@ export async function GET(req: NextRequest) {
     maxCapacity: r.maxCapacity,
     present: r.members.length,
     isFull: r.members.length >= r.maxCapacity,
+    isLocked: r.isLocked,
+    lockVotes: Array.isArray(r.lockVotes) ? (r.lockVotes as string[]) : [],
     isCurrentUserMember: r.members.some(m => m.studentId === studentId),
     createdAt: r.createdAt,
   }))

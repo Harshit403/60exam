@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Plus, Pencil, Trash2, Users, Mic, Video, Loader2, ShieldBan, ShieldCheck,
   UserMinus, Expand, ChevronsUp, AlertCircle, Activity, Clock, Globe, ArrowDownRight, ArrowUpRight,
+  History, X,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 
@@ -17,7 +18,7 @@ interface Room {
   members: {
     id: string; studentId: string; studentName: string; studentEmail: string
     displayName: string; color: string; role?: string; onStage?: boolean
-    joinedAt: string
+    joinedAt: string; ipAddress?: string | null; bandwidthMb?: number | null
   }[]
 }
 
@@ -31,7 +32,19 @@ interface ActivityLog {
   color: string
   action: 'join' | 'leave'
   ipAddress: string | null
+  bandwidthMb: number | null
   createdAt: string
+}
+
+interface Visit {
+  studentId: string
+  studentName: string | null
+  studentEmail: string | null
+  displayName: string
+  color: string
+  joinedAt: string
+  exitedAt: string | null
+  bandwidthMb: number | null
 }
 
 interface Blocker { id: string; studentId: string; studentName: string; studentEmail: string; reason: string | null; blockedAt: string }
@@ -45,6 +58,7 @@ export function AdminRoomManagerPage({ kind }: { kind: 'discussion' | 'library' 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Room | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [historyRoom, setHistoryRoom] = useState<Room | null>(null)
   const [form, setForm] = useState({ name: '', description: '', maxCapacity: 10, isActive: true })
   const [blockReason, setBlockReason] = useState('')
   const [error, setError] = useState('')
@@ -90,6 +104,66 @@ export function AdminRoomManagerPage({ kind }: { kind: 'discussion' | 'library' 
 
   const formatDateTime = (dateStr: string) =>
     new Date(dateStr).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  const formatBandwidth = (mb: number | null | undefined) => {
+    if (!mb || mb <= 0) return '—'
+    if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`
+    return `${mb.toFixed(2)} MB`
+  }
+
+  // Pair the flat join/leave events into per-visit rows (join -> leave). A
+  // visit with no matching leave yet means the user is still present.
+  const buildVisits = useCallback((logs: ActivityLog[], live: Room['members']) => {
+    const byStudent = new Map<string, ActivityLog[]>()
+    for (const log of logs) {
+      if (!log.studentId) continue
+      if (!byStudent.has(log.studentId)) byStudent.set(log.studentId, [])
+      byStudent.get(log.studentId)!.push(log)
+    }
+    const liveByStudent = new Map(live.map(m => [m.studentId, m]))
+    const visits: Visit[] = []
+    for (const [studentId, list] of byStudent) {
+      const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      let openJoin: ActivityLog | null = null
+      for (const log of sorted) {
+        if (log.action === 'join') {
+          openJoin = log
+        } else if (log.action === 'leave' && openJoin) {
+          visits.push({
+            studentId,
+            studentName: openJoin.studentName,
+            studentEmail: openJoin.studentEmail,
+            displayName: openJoin.displayName,
+            color: openJoin.color,
+            joinedAt: openJoin.createdAt,
+            exitedAt: log.createdAt,
+            bandwidthMb: log.bandwidthMb,
+          })
+          openJoin = null
+        }
+      }
+      if (openJoin) {
+        const live = liveByStudent.get(studentId)
+        visits.push({
+          studentId,
+          studentName: openJoin.studentName,
+          studentEmail: openJoin.studentEmail,
+          displayName: openJoin.displayName,
+          color: openJoin.color,
+          joinedAt: openJoin.createdAt,
+          exitedAt: null,
+          bandwidthMb: live?.bandwidthMb ?? openJoin.bandwidthMb,
+        })
+      }
+    }
+    visits.sort((a, b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime())
+    return visits
+  }, [])
+
+  const historyVisits = useMemo(
+    () => historyRoom ? buildVisits(activityByRoom[historyRoom.id] || [], historyRoom.members) : [],
+    [historyRoom, activityByRoom, buildVisits],
+  )
 
   const openCreate = () => {
     setEditing(null)
@@ -222,7 +296,12 @@ export function AdminRoomManagerPage({ kind }: { kind: 'discussion' | 'library' 
 
               {expanded.has(room.id) && (
                 <div className="border-t px-4 py-3">
-                  <p className="text-xs font-semibold text-muted-foreground mb-2">Live members ({room.members.length})</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-muted-foreground">Live members ({room.members.length})</p>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] text-indigo-600 dark:text-indigo-400" onClick={() => setHistoryRoom(room)}>
+                      <History className="w-3 h-3 mr-1" /> Room History
+                    </Button>
+                  </div>
                   {room.members.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No one in this room right now.</p>
                   ) : (
@@ -358,6 +437,100 @@ export function AdminRoomManagerPage({ kind }: { kind: 'discussion' | 'library' 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button onClick={save} disabled={busy}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (editing ? 'Save' : 'Create')}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Room history modal */}
+      {historyRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setHistoryRoom(null)} />
+          <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-2xl border bg-background shadow-xl flex flex-col">
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isVideo ? 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'}`}>
+                  {isVideo ? <Video className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold truncate">{historyRoom.name}</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    <History className="w-3 h-3 inline mr-1 align-[-2px]" />
+                    {historyVisits.length} visit{historyVisits.length === 1 ? '' : 's'} recorded
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setHistoryRoom(null)} className="p-2 rounded-lg hover:bg-accent text-muted-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5">
+              {historyVisits.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Activity className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm font-medium">No activity recorded yet</p>
+                  <p className="text-xs">Join/leave history starts from when this feature was deployed.</p>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="text-muted-foreground border-b">
+                      <th className="py-2 pr-3 font-semibold">Student</th>
+                      <th className="py-2 pr-3 font-semibold">Anonymous name</th>
+                      <th className="py-2 pr-3 font-semibold">Joined</th>
+                      <th className="py-2 pr-3 font-semibold">Exited</th>
+                      <th className="py-2 pr-3 font-semibold">Duration</th>
+                      <th className="py-2 font-semibold text-right">Bandwidth</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyVisits.map((v, i) => {
+                      const durMs = (v.exitedAt ? new Date(v.exitedAt).getTime() : Date.now()) - new Date(v.joinedAt).getTime()
+                      const durH = Math.floor(durMs / 3600000)
+                      const durM = Math.floor((durMs % 3600000) / 60000)
+                      return (
+                        <tr key={i} className="border-b border-muted/60 align-top">
+                          <td className="py-2.5 pr-3">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">{v.studentName || 'Unknown'}</p>
+                            <p className="text-[10px] text-muted-foreground truncate max-w-[180px]">{v.studentEmail}</p>
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="w-5 h-5 rounded-full inline-flex items-center justify-center text-[9px] font-bold shrink-0" style={{ backgroundColor: v.color + '22', color: v.color }}>
+                                {v.displayName.charAt(0)}
+                              </span>
+                              <span>{v.displayName}</span>
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatDateTime(v.joinedAt)}</td>
+                          <td className="py-2.5 pr-3 whitespace-nowrap">
+                            {v.exitedAt ? (
+                              <span className="text-muted-foreground">{formatDateTime(v.exitedAt)}</span>
+                            ) : (
+                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 border-0 text-[10px]">
+                                <span className="relative flex h-1.5 w-1.5 mr-1">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                                </span>
+                                Present
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">
+                            {durH > 0 ? `${durH}h ${durM}m` : `${durM}m`}
+                          </td>
+                          <td className="py-2.5 text-right whitespace-nowrap font-mono text-[11px]">
+                            <span className={v.bandwidthMb && v.bandwidthMb > 0 ? 'text-sky-600 dark:text-sky-400 font-medium' : 'text-muted-foreground'}>
+                              {formatBandwidth(v.bandwidthMb)}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

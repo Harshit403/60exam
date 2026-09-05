@@ -36,6 +36,8 @@ export async function GET(request: Request) {
           onStage: m.onStage,
           removalVotes: Array.isArray(m.removalVotes) ? (m.removalVotes as string[]).length : 0,
           joinedAt: m.joinedAt,
+          ipAddress: m.ipAddress,
+          bandwidthMb: m.bandwidthMb,
         })),
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,

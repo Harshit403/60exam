@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Mic, MicOff, Users, Wifi, WifiOff, ArrowLeft, Loader2, ShieldCheck,
-  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle, Share2,
+  UserX, UserPlus, Check, X, Clock, Volume2, MessageCircle, Share2, ThumbsDown, Lock,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import { getSavedAnonymousIdentity, saveAnonymousIdentity, getLastSavedIdentity 
 interface RoomInfo {
   id: string; name: string; description: string | null
   maxCapacity: number; present: number; isFull: boolean
+  isLocked?: boolean; lockVotes?: string[]
   speakers?: { userId: string; displayName: string }[]
 }
 
@@ -111,6 +112,7 @@ export function DiscussionRoomsPage() {
   const [levels, setLevels] = useState<Record<string, VoiceMeter>>({})
   const [genderPickRoom, setGenderPickRoom] = useState<RoomInfo | null>(null)
   const [inactiveRemoved, setInactiveRemoved] = useState(false)
+  const [removed, setRemoved] = useState<string[]>([])
   const levelsRef = useRef<Record<string, VoiceMeter>>({})
   const userIdRef = useRef<string>('anon')
   const wasMemberRef = useRef(false)
@@ -241,7 +243,13 @@ export function DiscussionRoomsPage() {
       if (event === 'droom-state') {
         const present = (data.members || [])
         setMembers(present)
-        if (data.room) setActive(prev => prev ? { ...prev, present: data.room.present, maxCapacity: data.room.maxCapacity } : prev)
+        if (data.room) setActive(prev => prev ? {
+          ...prev,
+          present: data.room.present,
+          maxCapacity: data.room.maxCapacity,
+          isLocked: !!data.room.isLocked,
+          lockVotes: Array.isArray(data.room.lockVotes) ? data.room.lockVotes : [],
+        } : prev)
         const sworn = (present as any[]).find((m: any) => m.userId === userIdRef.current)
         if (wasMemberRef.current && !sworn) setInactiveRemoved(true)
         if (sworn) wasMemberRef.current = true
@@ -254,6 +262,11 @@ export function DiscussionRoomsPage() {
         callRef.current?.setPresence(present.filter((m: any) => m.userId !== userIdRef.current))
       } else if (event === 'signal') {
         callRef.current?.onSignal(data.from, data.to, data.data, data.id)
+      } else if (event === 'user-removed') {
+        if (data.userId === userIdRef.current) {
+          setRemoved(r => r.includes('me') ? r : [...r, 'me'])
+          callRef.current?.setSpeaker(false)
+        }
       }
     }, []),
   })
@@ -298,12 +311,14 @@ export function DiscussionRoomsPage() {
   }, [active?.id])
 
   // Heartbeat while in call — but only when genuinely active, so inactive
-  // users age out and get pruned by the server.
+  // users age out and get pruned by the server. Piggybacks the WebRTC
+  // bandwidth consumed so the admin can see usage per visit.
   useEffect(() => {
     if (!active) return
-    const t = setInterval(() => {
+    const t = setInterval(async () => {
       if (inactiveRemoved || !isActive()) return
-      api.realtimePublish({ action: 'discussion-heartbeat', roomId: active.id }).catch(() => {})
+      const bw = await callRef.current?.getBandwidthBytes().catch(() => 0)
+      api.realtimePublish({ action: 'discussion-heartbeat', roomId: active.id, bandwidthBytes: bw || 0 }).catch(() => {})
     }, 25000)
     return () => clearInterval(t)
   }, [active?.id, isActive, inactiveRemoved])
@@ -329,6 +344,7 @@ export function DiscussionRoomsPage() {
       }
       wasMemberRef.current = true
       setInactiveRemoved(false)
+      setRemoved([])
       setRemoteStreams(new Map())
       setActive(room)
       setCurrentRoom(room)
@@ -490,9 +506,13 @@ export function DiscussionRoomsPage() {
 
   const leaveRoom = async () => {
     if (!active) return
+    // Flush the final bandwidth figure before the member row is marked left.
+    const bw = await callRef.current?.getBandwidthBytes().catch(() => 0)
+    if (bw) api.realtimePublish({ action: 'discussion-heartbeat', roomId: active.id, bandwidthBytes: bw }).catch(() => {})
     try { await api.studentDiscussionRoomLeave(active.id) } catch { /* ignore */ }
     wasMemberRef.current = false
     setInactiveRemoved(false)
+    setRemoved([])
     setActive(null); setMe(null); setMembers([]); setRemoteStreams(new Map())
     setCurrentRoom(null); setMicOn(true)
     fetchRooms()
@@ -504,6 +524,30 @@ export function DiscussionRoomsPage() {
     try { await api.realtimePublish({ action: 'discussion-stage', roomId: active.id, target, stageAction }) }
     catch (err: any) { alert(err?.message || 'Action failed') }
     finally { setActionBusy(false) }
+  }
+
+  const vote = async (target: string, remove: boolean) => {
+    if (!active) return
+    setActionBusy(true)
+    try { await api.realtimePublish({ action: 'discussion-vote', roomId: active.id, target, vote: remove }) }
+    catch (err: any) { alert(err?.message || 'Vote failed') }
+    finally { setActionBusy(false) }
+  }
+
+  const lockRoom = async () => {
+    if (!active) return
+    setActionBusy(true)
+    try { await api.realtimePublish({ action: 'discussion-lock', roomId: active.id }) }
+    catch (err: any) { alert(err?.message || 'Vote failed') }
+    finally { setActionBusy(false) }
+  }
+
+  const toggleMic = () => {
+    const next = !micOn
+    setMicOn(next)
+    callRef.current?.setMicEnabled(next)
+    if (active) api.realtimePublish({ action: 'discussion-state', roomId: active.id, micOff: !next }).catch(() => {})
+    audioCtxRef.current?.resume?.().catch(() => {})
   }
 
   // ── List view ───────────────────────────────────────────────────
@@ -548,11 +592,12 @@ export function DiscussionRoomsPage() {
           <div className="grid sm:grid-cols-2 gap-3">
             {rooms.map(r => {
               const full = r.present >= r.maxCapacity
+              const locked = !!r.isLocked
               return (
                 <div key={r.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex flex-col gap-3 shadow-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${full ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${full || locked ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
                         <Volume2 className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
@@ -566,6 +611,7 @@ export function DiscussionRoomsPage() {
                               <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500">Live</span>
                             </span>
                           )}
+                          {locked && <Lock className="w-3 h-3 text-amber-500 shrink-0" />}
                           {r.name}
                         </p>
                         {r.speakers && r.speakers.length > 0 ? (
@@ -573,12 +619,14 @@ export function DiscussionRoomsPage() {
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                             <span className="truncate">{r.speakers.map(s => s.displayName).join(', ')} {r.speakers.length > 1 ? 'are' : 'is'} speaking...</span>
                           </p>
+                        ) : locked ? (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">Locked — no new members can join</p>
                         ) : (
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">{r.description || 'Voice discussion room'}</p>
                         )}
                       </div>
                     </div>
-                    <Badge variant={full ? 'secondary' : 'outline'} className={`shrink-0 text-[10px] ${full ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    <Badge variant={full ? 'secondary' : 'outline'} className={`shrink-0 text-[10px] ${full ? 'text-rose-600 dark:text-rose-400' : locked ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       <Users className="w-3 h-3 mr-1" /> {r.present}/{r.maxCapacity}
                     </Badge>
                   </div>
@@ -587,8 +635,8 @@ export function DiscussionRoomsPage() {
                       {r.isCurrentUserMember ? (
                         <Button size="sm" onClick={() => requestJoin(r)} className="text-xs">Rejoin Voice</Button>
                       ) : (
-                        <Button size="sm" onClick={() => requestJoin(r)} disabled={full || actionBusy} className="bg-rose-600 hover:bg-rose-700 text-xs">
-                          {full ? 'Room Full' : 'Join Voice'}
+                        <Button size="sm" onClick={() => requestJoin(r)} disabled={full || locked || actionBusy} className="bg-rose-600 hover:bg-rose-700 text-xs">
+                          {locked ? 'Locked' : full ? 'Room Full' : 'Join Voice'}
                         </Button>
                       )}
                       <Button size="sm" variant="outline" onClick={() => shareRoom(r)} className="text-xs">
@@ -619,9 +667,13 @@ export function DiscussionRoomsPage() {
   // ── Call view ───────────────────────────────────────────────────
   const onStage = members.filter(m => m.onStage)
   const audience = members.filter(m => !m.onStage)
-  // When no moderator is in the room, a 1/3 majority can approve a stage request.
+  // When no moderator is in the room, a 50% majority can approve a stage request.
   const moderatorPresent = members.some(m => m.role === 'moderator')
-  const approveNeeded = Math.max(1, Math.ceil(members.length / 3))
+  const approveNeeded = Math.max(1, Math.ceil(members.length / 2))
+  const activeCount = members.length
+  const lockNeeded = Math.max(1, Math.ceil((3 / 4) * activeCount))
+  const removeNeeded = Math.max(2, Math.ceil((2 / 3) * activeCount))
+  const removedMe = removed.includes('me')
   const stageCountdown = (onStageSince?: number | null) => {
     if (!onStageSince) return null
     const left = (onStageSince + 5 * 60 * 1000) - Date.now()
@@ -681,6 +733,18 @@ export function DiscussionRoomsPage() {
                 </div>
               ))}
             </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={lockRoom}
+              disabled={actionBusy}
+              className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs"
+              title="3/4 of the room must vote to lock or unlock"
+            >
+              <Lock className="w-3 h-3 mr-1" />
+              {active?.isLocked ? 'Unlock' : 'Lock'}
+              <span className="ml-1">({(active?.lockVotes || []).length}/{lockNeeded})</span>
+            </Button>
             <Button size="sm" variant="secondary" onClick={leaveRoom} className="bg-white/20 hover:bg-white/30 text-white border-0 text-xs">
               Leave
             </Button>
@@ -688,89 +752,24 @@ export function DiscussionRoomsPage() {
         </div>
       </div>
 
-      {/* Removed for inactivity */}
-      {inactiveRemoved && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 p-4 text-center">
-          <WifiOff className="w-7 h-7 mx-auto mb-2 text-amber-500" />
-          <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 mb-1">You were removed for inactivity</p>
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">You were away from this voice room for more than 5 minutes.</p>
-          <Button size="sm" variant="outline" className="text-amber-700 border-amber-300 dark:border-amber-800" onClick={leaveRoom}>Leave Room</Button>
+      {/* Removed state */}
+      {(removedMe || inactiveRemoved) && (
+        <div className="rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 p-5 text-center">
+          <ShieldCheck className="w-8 h-8 mx-auto mb-2 text-rose-500" />
+          {inactiveRemoved ? (
+            <>
+              <p className="text-sm font-semibold text-rose-700 dark:text-rose-300 mb-1">You were removed for inactivity</p>
+              <p className="text-xs text-rose-500 dark:text-rose-400 mb-3">You were away from this voice room for more than 5 minutes.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-rose-700 dark:text-rose-300 mb-1">You were removed from this room</p>
+              <p className="text-xs text-rose-500 dark:text-rose-400 mb-3">A 2/3 majority of participants voted to remove you. Your mic is off.</p>
+            </>
+          )}
+          <Button size="sm" variant="outline" className="text-rose-600 border-rose-200 dark:border-rose-900" onClick={leaveRoom}>Leave Room</Button>
         </div>
       )}
-
-      {/* Me card */}
-      {!inactiveRemoved && me && (() => {
-        const meSpeaking = (levels['me']?.lvl ?? 0) >= SPEAKING_THRESHOLD
-        return (
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex items-center justify-between gap-2 shadow-sm">
-          <div className="flex items-center gap-2 min-w-0">
-            <Avatar className={`h-9 w-9 ring-2 ${meSpeaking ? 'speaking-pulse' : ''}`} style={avatarColorStyle(me.color)}>
-              <AvatarFallback className="text-sm font-bold" style={{ backgroundColor: me.color + '22', color: me.color }}>
-                {me.displayName.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{me.displayName}</p>
-                <Badge variant="secondary" className="text-[9px] h-4 capitalize">
-                  {me.role === 'moderator'
-                    ? <><ShieldCheck className="w-3 h-3 mr-0.5 text-amber-500" /> Moderator</>
-                    : me.onStage ? 'On Stage' : 'Audience'}
-                </Badge>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {me.onStage
-                  ? (micOn
-                      ? <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Mic className="w-3 h-3" /> Speaking · your voice is live</span>
-                      : <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1"><MicOff className="w-3 h-3" /> Mic muted</span>)
-                  : me.stageInvited
-                    ? <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1"><Check className="w-3 h-3" /> Invited to the stage — accept or decline</span>
-                    : me.stageRequested
-                      ? moderatorPresent
-                        ? 'Request pending · waiting for a moderator'
-                        : `Request pending · ${(members.find(x => x.userId === me.userId)?.stageApproveVotes || []).length}/${approveNeeded} votes to join the stage`
-                      : 'You are muted · listeners only'}
-              </p>
-              {me.onStage && (
-                <div className="mt-1"><SpeakingWave meter={levels['me'] || ZERO_METER} color={me.color} speaking={meSpeaking} /></div>
-              )}
-              {me.onStage && me.role === 'stage' && stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince) && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> Auto-promote to moderator in {stageCountdown(members.find(m => m.userId === me.userId)?.onStageSince)}
-                </p>
-              )}
-            </div>
-          </div>
-          {me.onStage ? (
-            <Button
-              size="sm"
-              variant={micOn ? 'default' : 'destructive'}
-              onClick={() => { const next = !micOn; setMicOn(next); callRef.current?.setMicEnabled(next); if (active) api.realtimePublish({ action: 'discussion-state', roomId: active.id, micOff: !next }).catch(() => {}); audioCtxRef.current?.resume?.().catch(() => {}) }}
-              className="shrink-0"
-            >
-              {micOn ? <><Mic className="w-3 h-3 mr-1" /> Mute</> : <><MicOff className="w-3 h-3 mr-1" /> Unmute</>}
-            </Button>
-          ) : me.stageInvited ? (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'decline-invite')} disabled={actionBusy} className="text-rose-600 border-rose-200 dark:border-rose-900">
-                <X className="w-3 h-3 mr-1" /> Decline
-              </Button>
-              <Button size="sm" onClick={() => stageAction(me.userId, 'accept-invite')} disabled={actionBusy} className="bg-emerald-600 hover:bg-emerald-700">
-                <Check className="w-3 h-3 mr-1" /> Accept
-              </Button>
-            </div>
-          ) : me.stageRequested ? (
-            <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'cancel-request')} disabled={actionBusy} className="shrink-0 text-slate-500 border-slate-300 dark:border-slate-600">
-              <X className="w-3 h-3 mr-1" /> Cancel Request
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => stageAction(me.userId, 'request')} disabled={actionBusy} className="shrink-0">
-              Request to Go on Stage
-            </Button>
-          )}
-        </div>
-        )
-      })()}
 
       {/* Stage participants */}
       <div>
@@ -784,7 +783,7 @@ export function DiscussionRoomsPage() {
             <p className="text-xs">No one is on the stage yet. First two joiners become moderators and go on stage.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
             {onStage.map(m => {
               const isMe = m.userId === userIdRef.current
               // Speaking status is shown to EVERYONE: the shared flag broadcast
@@ -796,28 +795,62 @@ export function DiscussionRoomsPage() {
                 ? localLvl >= SPEAKING_THRESHOLD
                 : (!!m.speaking || localLvl >= SPEAKING_THRESHOLD)
               return (
-                <div key={m.userId} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 flex flex-col items-center gap-1.5 shadow-sm text-center">
+                <div key={m.userId} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 flex flex-col items-center gap-1 shadow-sm text-center">
                   <div className="relative">
-                    <Avatar className={`h-12 w-12 ring-2 ${speaking ? 'speaking-pulse' : ''}`} style={avatarColorStyle(m.color)}>
-                      <AvatarFallback className="text-base font-bold" style={{ backgroundColor: m.color + '22', color: m.color }}>
+                    <Avatar className={`h-10 w-10 ring-2 ${speaking ? 'speaking-pulse' : ''}`} style={avatarColorStyle(m.color)}>
+                      <AvatarFallback className="text-sm font-bold" style={{ backgroundColor: m.color + '22', color: m.color }}>
                         {m.displayName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className={`absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-5 h-5 rounded-full ring-2 ring-white dark:ring-slate-900 ${m.micOff ? 'bg-rose-500 text-white' : `bg-emerald-500 text-white ${speaking ? 'animate-pulse' : ''}`}`}>
-                      {m.micOff ? <MicOff className="w-2.5 h-2.5" /> : <Mic className="w-2.5 h-2.5" />}
+                    <div className={`absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-900 ${m.micOff ? 'bg-rose-500 text-white' : `bg-emerald-500 text-white ${speaking ? 'animate-pulse' : ''}`}`}>
+                      {m.micOff ? <MicOff className="w-2 h-2" /> : <Mic className="w-2 h-2" />}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[90px]">{m.displayName}{isMe ? ' (you)' : ''}</p>
+                    <p className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[80px]">{m.displayName}{isMe ? ' (you)' : ''}</p>
                     <Badge variant="secondary" className="text-[8px] h-3.5 mt-0.5 capitalize">
-                      {m.role === 'moderator' ? <><ShieldCheck className="w-2.5 h-2.5 mr-0.5 text-amber-500" />Moderator</> : 'On Stage'}
+                      {m.role === 'moderator' ? <><ShieldCheck className="w-2 h-2 mr-0.5 text-amber-500" />Moderator</> : 'On Stage'}
                     </Badge>
                   </div>
                   <div className="-mt-1"><SpeakingWave meter={levels[isMe ? 'me' : m.userId] || ZERO_METER} color={m.color} speaking={speaking} /></div>
+                  {isMe && (
+                    <div className="flex flex-col items-center gap-1">
+                      <Button size="sm" variant={micOn ? 'default' : 'destructive'} onClick={toggleMic} className="text-[10px] h-7">
+                        {micOn ? <><Mic className="w-3 h-3 mr-1" /> Mute</> : <><MicOff className="w-3 h-3 mr-1" /> Unmute</>}
+                      </Button>
+                      {me?.role === 'stage' && stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince) && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> Auto-promote in {stageCountdown(members.find(mm => mm.userId === me.userId)?.onStageSince)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {!isMe && m.role !== 'moderator' && me?.role === 'moderator' && (
                     <Button size="sm" variant="outline" className="text-[10px] h-7 text-rose-600 hover:text-rose-700 border-rose-200 dark:border-rose-900" onClick={() => stageAction(m.userId, 'remove')} disabled={actionBusy}>
                       <UserX className="w-3 h-3 mr-1" /> Remove
                     </Button>
+                  )}
+                  {!isMe && m.role !== 'moderator' && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => vote(m.userId, !(m.removalVotes || []).includes(userIdRef.current))}
+                        disabled={actionBusy}
+                        title="No moderator is present — a 2/3 majority of the room can remove this person"
+                        className={`px-2 py-1 rounded-lg text-[9px] font-medium transition-colors ${
+                          (m.removalVotes || []).includes(userIdRef.current)
+                            ? 'bg-rose-500 text-white'
+                            : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40'
+                        }`}
+                      >
+                        <ThumbsDown className="w-3 h-3 inline mr-1 -mt-0.5" />
+                        {(m.removalVotes || []).includes(userIdRef.current) ? 'Voted' : 'Remove'}
+                      </button>
+                      {(m.removalVotes?.length || 0) > 0 && (
+                        <span className="text-[9px] font-medium text-slate-500 dark:text-slate-400">
+                          {(m.removalVotes?.length || 0)}/{removeNeeded}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )
@@ -828,13 +861,13 @@ export function DiscussionRoomsPage() {
 
       {/* Audience */}
       <div>
-        <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Audience ({audience.filter(m => m.userId !== userIdRef.current).length})</h3>
-        {audience.filter(m => m.userId !== userIdRef.current).length === 0 ? (
+        <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Audience ({audience.length})</h3>
+        {audience.length === 0 ? (
           <p className="text-xs text-slate-400 dark:text-slate-500">No one in the audience.</p>
         ) : (
           <div className="grid sm:grid-cols-2 gap-2">
             {audience.map(m => {
-              if (m.userId === userIdRef.current) return null
+              const isMe = m.userId === userIdRef.current
               const requested = m.stageRequested
               const invited = m.stageInvited
               return (
@@ -844,11 +877,44 @@ export function DiscussionRoomsPage() {
                       <AvatarFallback className="text-xs font-bold" style={{ backgroundColor: m.color + '22', color: m.color }}>{m.displayName.charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{m.displayName}</p>
-                      {requested && <p className="text-[9px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5"><Mic className="w-2.5 h-2.5" /> Wants to speak</p>}
-                      {!requested && invited && <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to stage</p>}
+                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{m.displayName}{isMe ? ' (you)' : ''}</p>
+                      {isMe ? (
+                        me?.stageInvited
+                          ? <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to the stage — accept or decline</p>
+                          : me?.stageRequested
+                            ? moderatorPresent
+                              ? <p className="text-[9px] text-amber-600 dark:text-amber-400">Request pending · waiting for a moderator</p>
+                              : <p className="text-[9px] text-amber-600 dark:text-amber-400">Request pending · {(members.find(x => x.userId === me.userId)?.stageApproveVotes || []).length}/{approveNeeded} votes to join the stage</p>
+                            : <p className="text-[9px] text-slate-400 dark:text-slate-500">You are muted · listeners only</p>
+                      ) : (
+                        <>
+                          {requested && <p className="text-[9px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5"><Mic className="w-2.5 h-2.5" /> Wants to speak</p>}
+                          {!requested && invited && <p className="text-[9px] text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5"><Check className="w-2.5 h-2.5" /> Invited to stage</p>}
+                        </>
+                      )}
                     </div>
                   </div>
+                  {isMe ? (
+                    me?.stageInvited ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'decline-invite')} disabled={actionBusy} className="text-rose-600 border-rose-200 dark:border-rose-900">
+                          <X className="w-3 h-3 mr-1" /> Decline
+                        </Button>
+                        <Button size="sm" onClick={() => stageAction(me.userId, 'accept-invite')} disabled={actionBusy} className="bg-emerald-600 hover:bg-emerald-700">
+                          <Check className="w-3 h-3 mr-1" /> Accept
+                        </Button>
+                      </div>
+                    ) : me?.stageRequested ? (
+                      <Button size="sm" variant="outline" onClick={() => stageAction(me.userId, 'cancel-request')} disabled={actionBusy} className="shrink-0 text-slate-500 border-slate-300 dark:border-slate-600">
+                        <X className="w-3 h-3 mr-1" /> Cancel Request
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => stageAction(me.userId, 'request')} disabled={actionBusy} className="shrink-0">
+                        Request to Go on Stage
+                      </Button>
+                    )
+                  ) : (
+                    <>
                   {me?.role === 'moderator' && (
                     <div className="flex items-center gap-1 shrink-0">
                       {requested ? (
@@ -876,7 +942,7 @@ export function DiscussionRoomsPage() {
                       <button
                         onClick={() => stageAction(m.userId, 'approve-vote')}
                         disabled={actionBusy || (m.stageApproveVotes || []).includes(userIdRef.current)}
-                        title="No moderator is present — a 2/3 majority of the room can approve this request"
+                        title="No moderator is present — a 50% majority of the room can approve this request"
                         className={`p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-200 disabled:opacity-40 ${(m.stageApproveVotes || []).includes(userIdRef.current) ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-emerald-50 dark:bg-emerald-900/20'}`}
                       >
                         <Check className="w-3.5 h-3.5" />
@@ -885,6 +951,8 @@ export function DiscussionRoomsPage() {
                         {(m.stageApproveVotes || []).length}/{approveNeeded}
                       </span>
                     </div>
+                  )}
+                    </>
                   )}
                 </div>
               )
@@ -897,7 +965,7 @@ export function DiscussionRoomsPage() {
       <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
         {isConnected ? <Wifi className="w-3 h-3 text-emerald-500" /> : <WifiOff className="w-3 h-3 text-amber-500" />}
         {isConnected ? 'Connected' : 'Connecting to the room…'}
-        <span className="ml-auto flex items-center gap-1"><Volume2 className="w-3 h-3" /> Discussion Room</span>
+        <span className="ml-auto flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> {removeNeeded} of {activeCount} votes needed to remove a participant</span>
       </div>
     </div>
   )
