@@ -3,7 +3,7 @@
 // Cache versioning: bump CACHE_VERSION to force cache refresh
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const STATIC_CACHE = `mission-cs-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `mission-cs-dynamic-${CACHE_VERSION}`;
 const API_CACHE = `mission-cs-api-${CACHE_VERSION}`;
@@ -142,9 +142,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-while-revalidate for HTML pages (balance speed & freshness)
+  // Network-first for HTML pages: after a deploy the server must always win,
+  // otherwise a cached old page loads old hashed chunks that no longer exist
+  // and React crashes with "Minified React error #300". Cache is only a
+  // fallback for when the user is offline.
   if (request.headers.get('accept')?.includes('text/html')) {
-    event.respondWith(staleWhileRevalidate(request, DYNAMIC_CACHE));
+    event.respondWith(networkFirstThenCache(request, DYNAMIC_CACHE, MAX_DYNAMIC_ENTRIES));
     return;
   }
 
