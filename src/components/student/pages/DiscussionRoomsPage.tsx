@@ -580,13 +580,8 @@ export function DiscussionRoomsPage({ onRoomChange, onMinimize }: {
     finally { setActionBusy(false) }
   }
 
-  // ─── Private moderator notes ─────────────────────────────────────
-  // Only the moderator sees their own notes (the server only includes
-  // modNotes on the author's member payload) and they are wiped from the
-  // DB the moment the moderator leaves the room.
-  const [showNotes, setShowNotes] = useState(false)
-  const [noteDraft, setNoteDraft] = useState('')
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  // showNotes/noteDraft/editingNoteId/tick/useWakeLock are declared above the
+  // early returns to keep hook order stable across views (React #300 fix).
   const myNotes: ModNote[] = members.find(m => m.userId === me?.userId)?.modNotes || []
 
   const submitNote = async () => {
@@ -623,6 +618,27 @@ export function DiscussionRoomsPage({ onRoomChange, onMinimize }: {
   }
 
   // ── Room detail page (opened by clicking a room card) ───────────
+  // ─── Private moderator notes ─────────────────────────────────────
+  // Only the moderator sees their own notes (the server only includes
+  // modNotes on the author's member payload) and they are wiped from the
+  // DB the moment the moderator leaves the room.
+  // NOTE: all hooks must be declared BEFORE the early returns below so the
+  // hook order stays identical across list/detail/call views (React #300).
+  const [showNotes, setShowNotes] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  // 1-second tick so the moderator-wait countdowns re-render smoothly (the SSE
+  // state poll only fires every 3 seconds).
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setTick(x => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  // Keep the device screen on for the whole time the user is in the room.
+  useWakeLock(!!active)
+
+  // ── Detail view (full page) ────────────────────────────────────────
   if (!active && !loading && detailRoomId) {
     const dRoom = detail?.room
     const presence: any[] = detail?.presence || []
@@ -876,16 +892,6 @@ export function DiscussionRoomsPage({ onRoomChange, onMinimize }: {
   const lockNeeded = Math.max(1, Math.ceil((3 / 4) * activeCount))
   const removeNeeded = Math.max(2, Math.ceil((2 / 3) * activeCount))
   const removedMe = removed.includes('me')
-  // 1-second tick so the moderator-wait countdowns re-render smoothly (the SSE
-  // state poll only fires every 3 seconds).
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (!active) return
-    const t = setInterval(() => setTick(x => x + 1), 1000)
-    return () => clearInterval(t)
-  }, [active])
-  // Keep the device screen on for the whole time the user is in the room.
-  useWakeLock(!!active)
   // Time until this member becomes moderator. Everyone except the 1st joiner
   // waits 5 minutes from JOIN time (moderatorEligibleAt); the 1st joiner has
   // no wait (moderatorEligibleAt is null).
