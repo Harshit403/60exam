@@ -483,9 +483,14 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     }
 
     const finalDelta = Math.max(0, Math.floor((timerTotalSeconds - timerSeconds) / 60) - reportedMinRef.current)
+    // Mark everything studied so far as reported. DashboardPage calls
+    // finalizeSession + resetTimer back-to-back; resetTimer also reports
+    // unreported minutes, so zeroing the ref here made it re-post the whole
+    // session — stored study time came out exactly 2× the real duration.
+    const studiedMin = Math.floor((timerTotalSeconds - timerSeconds) / 60)
     if (!id && finalDelta <= 0) {
       setActiveSessionId(null)
-      reportedMinRef.current = 0
+      reportedMinRef.current = studiedMin
       return
     }
     try {
@@ -500,7 +505,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       console.error('Finalize session error:', err)
     }
     setActiveSessionId(null)
-    reportedMinRef.current = 0
+    reportedMinRef.current = Math.max(reportedMinRef.current, studiedMin)
   }, [activeSessionId, timerTotalSeconds, timerSeconds, selectedChapterId, lectureMode])
 
   return (
